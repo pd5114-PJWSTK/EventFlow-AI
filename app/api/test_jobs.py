@@ -30,5 +30,14 @@ def get_job_status(task_id: str) -> dict[str, str | int | None]:
         "status": result.status,
     }
     if result.ready():
-        payload["result"] = int(result.result)
+        try:
+            res = result.result
+            if isinstance(res, (int, float, str)):
+                payload["result"] = int(res)
+            else:
+                payload["result"] = None
+                payload["note"] = "result-not-serializable"
+        except Exception as exc:  # guards NotRegistered and others
+            payload["result"] = None
+            payload["note"] = f"error: {exc.__class__.__name__}"
     return payload

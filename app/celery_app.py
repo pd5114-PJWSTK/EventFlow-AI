@@ -10,5 +10,6 @@ celery_app.conf.update(
     task_default_queue="eventflow",
     task_always_eager=settings.celery_always_eager,
     task_eager_propagates=True,
+    imports=("app.workers.test_tasks",),
 )
-celery_app.autodiscover_tasks(["app.workers"])
+

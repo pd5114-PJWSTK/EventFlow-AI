@@ -1,0 +1,66 @@
+RAPORT IMPLEMENTACJI - EVENTFLOW AI (FAZA 1)
+Data aktualizacji: 2026-04-25
+
+1) STATUS PRZYCZYNY BLEDU (CELERY NotRegistered)
+- Status: ROZWIAZANE.
+- Przyczyna: worker Celery nie ladowal modulu z taskiem `app.workers.test_tasks.add`.
+- Wykonana poprawka:
+  - `app/celery_app.py`: dodano jawny import taskow w konfiguracji Celery:
+    `imports=("app.workers.test_tasks",)`.
+  - `app/api/test_jobs.py`: endpoint statusu zabezpieczony przed bledem 500,
+    gdy wynik taska nie jest serializowalny lub wystapi wyjatek.
+- Dowod techniczny po poprawce:
+  - `celery inspect registered` pokazuje: `app.workers.test_tasks.add`.
+  - POST `/api/test/async-job` + GET status zwraca `SUCCESS` i `result=12`.
+
+2) WERYFIKACJA CHECKLISTY - PHASE 1 (Plan.md)
+2.1 Docker setup
+- [x] Dockerfile dla FastAPI
+- [x] docker-compose.yml (backend + postgres + redis + celery-worker + celery-beat)
+- [x] .env i strategia sekretow (.env + .env.example)
+
+2.2 PostgreSQL initialization
+- [x] Schema z `Baza danych.md` zaaplikowana przez init SQL
+- [x] Smoke test SQLAlchemy/DB (ready check: database=ok)
+- [x] Seed danych testowych (clients, locations, resources, skills)
+
+2.3 FastAPI scaffold
+- [x] Struktura aplikacji (`app/`, `schemas/`, `services/`, `workers/`, `models/`)
+- [x] Config loader + dependency injection
+- [x] Health checks (`/health`, `/ready`)
+
+2.4 Authentication baseline (POC)
+- [x] JWT generation/validation
+- [x] `/auth/login`, `/auth/refresh`
+- [x] RBAC baseline (manager/coordinator/technician)
+
+2.5 Deliverable Fazy 1
+- [x] API i worker startuja lokalnie
+- [x] Health-check dziala
+- [x] Task Celery wykonuje testowy job end-to-end
+
+Wniosek: wymagania Fazy 1 sa wykonane.
+
+3) WALIDACJA TESTOWA I RUNTIME
+- Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 5 passed.
+- Runtime:
+  - GET `/health` -> status ok
+  - GET `/ready` -> database ok, redis ok
+  - Async job -> status SUCCESS + poprawny wynik
+- Uwaga: bez wymuszenia `READY_CHECK_EXTERNALS=false` jeden test oczekujacy trybu "skipped" moze failowac w kontenerze uruchomionym pod runtime config.
+
+4) DZIENNIK KROTKICH AKTUALIZACJI (co zrobiono i po co)
+- [2026-04-25] Naprawiono rejestracje taska Celery.
+  Cel: usunac `NotRegistered` i odblokowac wykonywanie kolejek.
+- [2026-04-25] Zabezpieczono endpoint statusu joba.
+  Cel: uniknac HTTP 500 przy nietypowym stanie wyniku taska.
+- [2026-04-25] Potwierdzono end-to-end SUCCESS dla async job.
+  Cel: dowod, ze backend + worker + redis dzialaja razem.
+- [2026-04-25] Dodano `celerybeat-schedule*` do `.gitignore` i usunieto artefakt runtime.
+  Cel: utrzymanie czystego repo bez plikow tymczasowych.
+- [2026-04-25] Dodano `app/models/__init__.py` jako domkniecie scaffoldu.
+  Cel: zgodnosc struktury katalogow z zakresem Fazy 1.
+
+5) JAK BEDZIE AKTUALIZOWANY TEN RAPORT
+- Przy kazdej kolejnej zmianie bede dopisywal nowy, krotki wpis do sekcji 4:
+  1 linia "co zrobiono", 1 linia "cel tej zmiany".

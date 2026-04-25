@@ -28,3 +28,5 @@ htmlcov/
 # Local runtime files
 *.db
 *.sqlite3
+celerybeat-schedule
+celerybeat-schedule.*
