@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eventflow-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eventflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
+      POSTGRES_DB: ${POSTGRES_DB:-eventflow}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./docker/postgres/init/02_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eventflow} -d ${POSTGRES_DB:-eventflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: eventflow-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eventflow-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://eventflow:eventflow@postgres:5432/eventflow}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      READY_CHECK_EXTERNALS: "true"
+      CELERY_ALWAYS_EAGER: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./:/app
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eventflow-celery-worker
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://eventflow:eventflow@postgres:5432/eventflow}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_ALWAYS_EAGER: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app:celery_app worker -l info
+    volumes:
+      - ./:/app
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eventflow-celery-beat
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://eventflow:eventflow@postgres:5432/eventflow}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_ALWAYS_EAGER: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.celery_app:celery_app beat -l info
+    volumes:
+      - ./:/app
+
+volumes:
+  postgres_data:
