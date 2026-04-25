@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+.env
+
+# Build and coverage
+build/
+dist/
+htmlcov/
+.coverage
+
+# IDE
+.vscode/
+.idea/
+
+# Local runtime files
+*.db
+*.sqlite3
