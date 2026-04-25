@@ -1,11 +1,23 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, SmallInteger, String, Text, Uuid
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.config import get_settings
@@ -51,6 +63,44 @@ class EventStatus(str, Enum):
     cancelled = "cancelled"
 
 
+class ResourceStatus(str, Enum):
+    available = "available"
+    reserved = "reserved"
+    in_use = "in_use"
+    maintenance = "maintenance"
+    unavailable = "unavailable"
+    retired = "retired"
+
+
+class PersonRole(str, Enum):
+    technician_audio = "technician_audio"
+    technician_light = "technician_light"
+    technician_video = "technician_video"
+    stage_manager = "stage_manager"
+    coordinator = "coordinator"
+    driver = "driver"
+    warehouse_operator = "warehouse_operator"
+    project_manager = "project_manager"
+    freelancer = "freelancer"
+    other = "other"
+
+
+class EmploymentType(str, Enum):
+    employee = "employee"
+    contractor = "contractor"
+    freelancer = "freelancer"
+    agency_staff = "agency_staff"
+    other = "other"
+
+
+class VehicleType(str, Enum):
+    van = "van"
+    truck = "truck"
+    car = "car"
+    trailer = "trailer"
+    other = "other"
+
+
 class Client(Base):
     __tablename__ = "clients"
     __table_args__ = {"schema": CORE_SCHEMA}
@@ -71,7 +121,7 @@ class Client(Base):
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
-    events: Mapped[list[Event]] = relationship(back_populates="client", cascade="all,delete")
+    events: Mapped[list[Event]] = relationship(back_populates="client")
 
 
 class Location(Base):
@@ -96,6 +146,9 @@ class Location(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     events: Mapped[list[Event]] = relationship(back_populates="location")
+    people_home_base: Mapped[list[ResourcePerson]] = relationship(back_populates="home_base_location")
+    equipment_warehoused: Mapped[list[Equipment]] = relationship(back_populates="warehouse_location")
+    vehicles_home_base: Mapped[list[Vehicle]] = relationship(back_populates="home_location")
 
 
 class Event(Base):
@@ -137,3 +190,135 @@ class Event(Base):
 
     client: Mapped[Client] = relationship(back_populates="events")
     location: Mapped[Location] = relationship(back_populates="events")
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    skill_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    skill_name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    skill_category: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+
+    people_links: Mapped[list[PersonSkill]] = relationship(back_populates="skill", cascade="all,delete-orphan")
+
+
+class ResourcePerson(Base):
+    __tablename__ = "resources_people"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    person_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    full_name: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[PersonRole] = mapped_column(SAEnum(PersonRole, native_enum=False), nullable=False)
+    employment_type: Mapped[EmploymentType] = mapped_column(
+        SAEnum(EmploymentType, native_enum=False), default=EmploymentType.employee, nullable=False
+    )
+    home_base_location_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
+    )
+    availability_status: Mapped[ResourceStatus] = mapped_column(
+        SAEnum(ResourceStatus, native_enum=False), default=ResourceStatus.available, nullable=False
+    )
+    max_daily_hours: Mapped[Decimal] = mapped_column(Numeric(4, 2), default=Decimal("8.0"), nullable=False)
+    max_weekly_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("40.0"), nullable=False)
+    cost_per_hour: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    reliability_notes: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    home_base_location: Mapped[Location | None] = relationship(back_populates="people_home_base")
+    skills: Mapped[list[PersonSkill]] = relationship(back_populates="person", cascade="all,delete-orphan")
+
+
+class PersonSkill(Base):
+    __tablename__ = "people_skills"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    person_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("resources_people.person_id"), ondelete="CASCADE"), primary_key=True
+    )
+    skill_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("skills.skill_id"), ondelete="CASCADE"), primary_key=True
+    )
+    skill_level: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    certified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    person: Mapped[ResourcePerson] = relationship(back_populates="skills")
+    skill: Mapped[Skill] = relationship(back_populates="people_links")
+
+
+class EquipmentType(Base):
+    __tablename__ = "equipment_types"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    equipment_type_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    type_name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    category: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    default_setup_minutes: Mapped[int | None] = mapped_column(Integer)
+    default_teardown_minutes: Mapped[int | None] = mapped_column(Integer)
+
+    equipment_items: Mapped[list[Equipment]] = relationship(back_populates="equipment_type")
+
+
+class Equipment(Base):
+    __tablename__ = "equipment"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    equipment_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    equipment_type_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("equipment_types.equipment_type_id"), ondelete="RESTRICT"), nullable=False
+    )
+    asset_tag: Mapped[str | None] = mapped_column(Text, unique=True)
+    serial_number: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[ResourceStatus] = mapped_column(
+        SAEnum(ResourceStatus, native_enum=False), default=ResourceStatus.available, nullable=False
+    )
+    warehouse_location_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
+    )
+    transport_requirements: Mapped[str | None] = mapped_column(Text)
+    replacement_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    hourly_cost_estimate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    purchase_date: Mapped[date | None] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    equipment_type: Mapped[EquipmentType] = relationship(back_populates="equipment_items")
+    warehouse_location: Mapped[Location | None] = relationship(back_populates="equipment_warehoused")
+
+
+class Vehicle(Base):
+    __tablename__ = "vehicles"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    vehicle_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    vehicle_name: Mapped[str] = mapped_column(Text, nullable=False)
+    vehicle_type: Mapped[VehicleType] = mapped_column(SAEnum(VehicleType, native_enum=False), nullable=False)
+    registration_number: Mapped[str | None] = mapped_column(Text, unique=True)
+    capacity_notes: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[ResourceStatus] = mapped_column(
+        SAEnum(ResourceStatus, native_enum=False), default=ResourceStatus.available, nullable=False
+    )
+    home_location_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
+    )
+    cost_per_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    cost_per_hour: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    home_location: Mapped[Location | None] = relationship(back_populates="vehicles_home_base")

@@ -67,7 +67,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 6) FAZA 2 - POSTEP IMPLEMENTACJI (CP-01)
 - Status fazy: W TOKU (rozpoczeta).
-- Status checkpointu: `phase-2-cp-01-core-crud-clients-locations-events` -> ZREALIZOWANY technicznie, przygotowany do commit+tag.
+- Status checkpointu: `phase-2-cp-01-core-crud-clients-locations-events` -> ZREALIZOWANY i zacommitowany + otagowany + wypchniety.
 - Zakres wykonany:
   - Dodano ORM dla `core.clients`, `core.locations`, `core.events`.
   - Dodano schematy Pydantic create/update/read + list responses z paginacja.
@@ -82,11 +82,33 @@ Wniosek: wymagania Fazy 1 sa wykonane.
     - walidacja istnienia `client_id` i `location_id`
   - Dodano testy CP-01: `tests/test_phase2_cp01.py`.
 - Walidacja wykonania:
-  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 9 passed.
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 9 passed (w momencie zamkniecia CP-01).
   - Smoke runtime: utworzenie client + location + event przez API zakonczone sukcesem (201).
+
+6.1) FAZA 2 - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-2-cp-02-resources-crud-people-equipment-vehicles` -> ZREALIZOWANY technicznie, gotowy do commit+tag.
+- Zakres wykonany:
+  - Rozszerzono ORM `core.*` o zasoby: `skills`, `resources_people`, `people_skills`, `equipment_types`, `equipment`, `vehicles`.
+  - Dodano schematy Pydantic dla zasobow i endpointow pomocniczych (`skills`, `equipment-types`).
+  - Dodano serwisy CRUD i walidacje referencyjne (lokalizacja, skill, equipment_type).
+  - Dodano endpointy:
+    - `/api/resources/skills` (POST/GET list/GET id)
+    - `/api/resources/people` (POST/GET list/GET id/PATCH/DELETE)
+    - `/api/resources/people/{person_id}/skills` (POST)
+    - `/api/resources/equipment-types` (POST/GET list/GET id)
+    - `/api/resources/equipment` (POST/GET list/GET id/PATCH/DELETE)
+    - `/api/resources/vehicles` (POST/GET list/GET id/PATCH/DELETE)
+  - Dodano testy CP-02: `tests/test_phase2_cp02.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 11 passed.
+  - Smoke runtime: utworzenie skill + person + przypisanie skilla przez API zakonczone sukcesem.
 
 7) DZIENNIK KROTKICH AKTUALIZACJI - FAZA 2
 - [2026-04-25] Uruchomiono Fazę 2 i dodano tag startowy `phase-2-start`.
   Cel: wyznaczyc stabilny punkt startu i przejscie z Fazy 1 do Fazy 2.
 - [2026-04-25] Zaimplementowano CP-01 (CRUD clients/locations/events + walidacje + testy).
   Cel: dostarczyc komplet danych wejściowych `core.*` jako bazę dla kolejnych checkpointow i planera.
+- [2026-04-25] Zacommitowano i otagowano CP-01 oraz wypchnieto branch/tagi do GitHub.
+  Cel: zamknac pierwszy checkpoint Fazy 2 w historii Git i miec stabilny punkt rollback.
+- [2026-04-25] Zaimplementowano CP-02 (resources CRUD: people/equipment/vehicles + skills).
+  Cel: dostarczyc komplet rejestrow zasobow i powiazan umiejetnosci jako wejscie do CP-03.
