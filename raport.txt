@@ -64,3 +64,29 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 5) JAK BEDZIE AKTUALIZOWANY TEN RAPORT
 - Przy kazdej kolejnej zmianie bede dopisywal nowy, krotki wpis do sekcji 4:
   1 linia "co zrobiono", 1 linia "cel tej zmiany".
+
+6) FAZA 2 - POSTEP IMPLEMENTACJI (CP-01)
+- Status fazy: W TOKU (rozpoczeta).
+- Status checkpointu: `phase-2-cp-01-core-crud-clients-locations-events` -> ZREALIZOWANY technicznie, przygotowany do commit+tag.
+- Zakres wykonany:
+  - Dodano ORM dla `core.clients`, `core.locations`, `core.events`.
+  - Dodano schematy Pydantic create/update/read + list responses z paginacja.
+  - Dodano serwisy CRUD dla clients/locations/events.
+  - Dodano endpointy:
+    - POST/GET(list)/GET(id)/PATCH/DELETE dla `/api/clients`
+    - POST/GET(list)/GET(id)/PATCH/DELETE dla `/api/locations`
+    - POST/GET(list)/GET(id)/PATCH/DELETE dla `/api/events`
+  - Dodano walidacje domenowe CP-01:
+    - `planned_end > planned_start`
+    - walidacja przejsc statusow eventu
+    - walidacja istnienia `client_id` i `location_id`
+  - Dodano testy CP-01: `tests/test_phase2_cp01.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 9 passed.
+  - Smoke runtime: utworzenie client + location + event przez API zakonczone sukcesem (201).
+
+7) DZIENNIK KROTKICH AKTUALIZACJI - FAZA 2
+- [2026-04-25] Uruchomiono Fazę 2 i dodano tag startowy `phase-2-start`.
+  Cel: wyznaczyc stabilny punkt startu i przejscie z Fazy 1 do Fazy 2.
+- [2026-04-25] Zaimplementowano CP-01 (CRUD clients/locations/events + walidacje + testy).
+  Cel: dostarczyc komplet danych wejściowych `core.*` jako bazę dla kolejnych checkpointow i planera.
