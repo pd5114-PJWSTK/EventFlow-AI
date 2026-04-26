@@ -3,6 +3,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.schemas.availability import (
+    AvailabilityCreate,
+    AvailabilityUpdate,
+    EquipmentAvailabilityListResponse,
+    EquipmentAvailabilityRead,
+    PeopleAvailabilityListResponse,
+    PeopleAvailabilityRead,
+    VehicleAvailabilityListResponse,
+    VehicleAvailabilityRead,
+)
 from app.schemas.resources import (
     EquipmentCreate,
     EquipmentListResponse,
@@ -24,6 +34,24 @@ from app.schemas.resources import (
     VehicleListResponse,
     VehicleRead,
     VehicleUpdate,
+)
+from app.services.availability_service import (
+    AvailabilityValidationError,
+    create_equipment_availability,
+    create_people_availability,
+    create_vehicle_availability,
+    delete_equipment_availability,
+    delete_people_availability,
+    delete_vehicle_availability,
+    get_equipment_availability,
+    get_people_availability,
+    get_vehicle_availability,
+    list_equipment_availability,
+    list_people_availability,
+    list_vehicle_availability,
+    update_equipment_availability,
+    update_people_availability,
+    update_vehicle_availability,
 )
 from app.services.resource_service import (
     ResourceValidationError,
@@ -273,4 +301,169 @@ def delete_vehicle_endpoint(vehicle_id: str, db: Session = Depends(get_db)) -> R
     if vehicle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     delete_vehicle(db, vehicle)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/people/{person_id}/availability", response_model=PeopleAvailabilityRead, status_code=status.HTTP_201_CREATED)
+def create_people_availability_endpoint(
+    person_id: str,
+    payload: AvailabilityCreate,
+    db: Session = Depends(get_db),
+) -> PeopleAvailabilityRead:
+    try:
+        return create_people_availability(db, person_id, payload)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.get("/people/{person_id}/availability", response_model=PeopleAvailabilityListResponse)
+def list_people_availability_endpoint(
+    person_id: str,
+    db: Session = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> PeopleAvailabilityListResponse:
+    try:
+        items, total = list_people_availability(db, person_id, limit=limit, offset=offset)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+    return PeopleAvailabilityListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.patch("/people/{person_id}/availability/{availability_id}", response_model=PeopleAvailabilityRead)
+def update_people_availability_endpoint(
+    person_id: str,
+    availability_id: str,
+    payload: AvailabilityUpdate,
+    db: Session = Depends(get_db),
+) -> PeopleAvailabilityRead:
+    item = get_people_availability(db, person_id, availability_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="People availability not found")
+    try:
+        return update_people_availability(db, item, payload)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.delete("/people/{person_id}/availability/{availability_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_people_availability_endpoint(person_id: str, availability_id: str, db: Session = Depends(get_db)) -> Response:
+    item = get_people_availability(db, person_id, availability_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="People availability not found")
+    delete_people_availability(db, item)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/equipment/{equipment_id}/availability",
+    response_model=EquipmentAvailabilityRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_equipment_availability_endpoint(
+    equipment_id: str,
+    payload: AvailabilityCreate,
+    db: Session = Depends(get_db),
+) -> EquipmentAvailabilityRead:
+    try:
+        return create_equipment_availability(db, equipment_id, payload)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.get("/equipment/{equipment_id}/availability", response_model=EquipmentAvailabilityListResponse)
+def list_equipment_availability_endpoint(
+    equipment_id: str,
+    db: Session = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> EquipmentAvailabilityListResponse:
+    try:
+        items, total = list_equipment_availability(db, equipment_id, limit=limit, offset=offset)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+    return EquipmentAvailabilityListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.patch("/equipment/{equipment_id}/availability/{availability_id}", response_model=EquipmentAvailabilityRead)
+def update_equipment_availability_endpoint(
+    equipment_id: str,
+    availability_id: str,
+    payload: AvailabilityUpdate,
+    db: Session = Depends(get_db),
+) -> EquipmentAvailabilityRead:
+    item = get_equipment_availability(db, equipment_id, availability_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment availability not found")
+    try:
+        return update_equipment_availability(db, item, payload)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.delete("/equipment/{equipment_id}/availability/{availability_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_equipment_availability_endpoint(
+    equipment_id: str,
+    availability_id: str,
+    db: Session = Depends(get_db),
+) -> Response:
+    item = get_equipment_availability(db, equipment_id, availability_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Equipment availability not found")
+    delete_equipment_availability(db, item)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/vehicles/{vehicle_id}/availability", response_model=VehicleAvailabilityRead, status_code=status.HTTP_201_CREATED)
+def create_vehicle_availability_endpoint(
+    vehicle_id: str,
+    payload: AvailabilityCreate,
+    db: Session = Depends(get_db),
+) -> VehicleAvailabilityRead:
+    try:
+        return create_vehicle_availability(db, vehicle_id, payload)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.get("/vehicles/{vehicle_id}/availability", response_model=VehicleAvailabilityListResponse)
+def list_vehicle_availability_endpoint(
+    vehicle_id: str,
+    db: Session = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> VehicleAvailabilityListResponse:
+    try:
+        items, total = list_vehicle_availability(db, vehicle_id, limit=limit, offset=offset)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+    return VehicleAvailabilityListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.patch("/vehicles/{vehicle_id}/availability/{availability_id}", response_model=VehicleAvailabilityRead)
+def update_vehicle_availability_endpoint(
+    vehicle_id: str,
+    availability_id: str,
+    payload: AvailabilityUpdate,
+    db: Session = Depends(get_db),
+) -> VehicleAvailabilityRead:
+    item = get_vehicle_availability(db, vehicle_id, availability_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle availability not found")
+    try:
+        return update_vehicle_availability(db, item, payload)
+    except AvailabilityValidationError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.delete("/vehicles/{vehicle_id}/availability/{availability_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_vehicle_availability_endpoint(
+    vehicle_id: str,
+    availability_id: str,
+    db: Session = Depends(get_db),
+) -> Response:
+    item = get_vehicle_availability(db, vehicle_id, availability_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle availability not found")
+    delete_vehicle_availability(db, item)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -86,7 +86,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Smoke runtime: utworzenie client + location + event przez API zakonczone sukcesem (201).
 
 6.1) FAZA 2 - POSTEP IMPLEMENTACJI (CP-02)
-- Status checkpointu: `phase-2-cp-02-resources-crud-people-equipment-vehicles` -> ZREALIZOWANY technicznie, gotowy do commit+tag.
+- Status checkpointu: `phase-2-cp-02-resources-crud-people-equipment-vehicles` -> ZREALIZOWANY i zacommitowany + otagowany + wypchniety.
 - Zakres wykonany:
   - Rozszerzono ORM `core.*` o zasoby: `skills`, `resources_people`, `people_skills`, `equipment_types`, `equipment`, `vehicles`.
   - Dodano schematy Pydantic dla zasobow i endpointow pomocniczych (`skills`, `equipment-types`).
@@ -100,8 +100,33 @@ Wniosek: wymagania Fazy 1 sa wykonane.
     - `/api/resources/vehicles` (POST/GET list/GET id/PATCH/DELETE)
   - Dodano testy CP-02: `tests/test_phase2_cp02.py`.
 - Walidacja wykonania:
-  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 11 passed.
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 11 passed (w momencie zamkniecia CP-02).
   - Smoke runtime: utworzenie skill + person + przypisanie skilla przez API zakonczone sukcesem.
+
+6.2) FAZA 2 - POSTEP IMPLEMENTACJI (CP-03)
+- Status checkpointu: `phase-2-cp-03-requirements-and-availability` -> ZREALIZOWANY i domkniety przez commit+tag+push.
+- Zakres wykonany:
+  - Rozszerzono ORM `core.*` o: `event_requirements`, `people_availability`, `equipment_availability`, `vehicle_availability`.
+  - Dodano enum `RequirementType` i pola wymagane do mapowania typow requirements.
+  - Dodano schematy Pydantic:
+    - `app/schemas/requirements.py`
+    - `app/schemas/availability.py`
+  - Dodano serwisy:
+    - `app/services/requirement_service.py`
+    - `app/services/availability_service.py`
+  - Dodano endpointy:
+    - `/api/events/{event_id}/requirements` (POST/GET list/GET id/PATCH/DELETE)
+    - `/api/resources/people/{person_id}/availability` (POST/GET list/PATCH/DELETE)
+    - `/api/resources/equipment/{equipment_id}/availability` (POST/GET list/PATCH/DELETE)
+    - `/api/resources/vehicles/{vehicle_id}/availability` (POST/GET list/PATCH/DELETE)
+  - Dodano walidacje domenowe CP-03:
+    - spojnosc `requirement_type` z odpowiednimi polami (`role_required`/`skill_id`/`equipment_type_id`/`vehicle_type_required`)
+    - `required_end > required_start`
+    - `available_to > available_from`
+    - wykrywanie konfliktow (overlap) okien dostepnosci per zasob
+  - Dodano testy CP-03: `tests/test_phase2_cp03.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 13 passed.
 
 7) DZIENNIK KROTKICH AKTUALIZACJI - FAZA 2
 - [2026-04-25] Uruchomiono Fazę 2 i dodano tag startowy `phase-2-start`.
@@ -112,3 +137,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: zamknac pierwszy checkpoint Fazy 2 w historii Git i miec stabilny punkt rollback.
 - [2026-04-25] Zaimplementowano CP-02 (resources CRUD: people/equipment/vehicles + skills).
   Cel: dostarczyc komplet rejestrow zasobow i powiazan umiejetnosci jako wejscie do CP-03.
+- [2026-04-25] Zaimplementowano CP-03 (requirements + availability + conflict detection + testy).
+  Cel: domknac warstwe danych wejściowych i kalendarzy dostepnosci wymaganą do walidacji constraints.
+- [2026-04-26] Zacommitowano i otagowano CP-03 oraz wypchnieto zmiany do GitHub.
+  Cel: zamknac trzeci checkpoint Fazy 2 jako stabilny punkt wejścia do CP-04.

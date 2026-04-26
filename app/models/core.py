@@ -101,6 +101,15 @@ class VehicleType(str, Enum):
     other = "other"
 
 
+class RequirementType(str, Enum):
+    person_skill = "person_skill"
+    person_role = "person_role"
+    equipment_type = "equipment_type"
+    vehicle_type = "vehicle_type"
+    time_buffer = "time_buffer"
+    other = "other"
+
+
 class Client(Base):
     __tablename__ = "clients"
     __table_args__ = {"schema": CORE_SCHEMA}
@@ -190,6 +199,7 @@ class Event(Base):
 
     client: Mapped[Client] = relationship(back_populates="events")
     location: Mapped[Location] = relationship(back_populates="events")
+    requirements: Mapped[list[EventRequirement]] = relationship(back_populates="event", cascade="all,delete-orphan")
 
 
 class Skill(Base):
@@ -232,6 +242,10 @@ class ResourcePerson(Base):
 
     home_base_location: Mapped[Location | None] = relationship(back_populates="people_home_base")
     skills: Mapped[list[PersonSkill]] = relationship(back_populates="person", cascade="all,delete-orphan")
+    availability_windows: Mapped[list[PeopleAvailability]] = relationship(
+        back_populates="person",
+        cascade="all,delete-orphan",
+    )
 
 
 class PersonSkill(Base):
@@ -296,6 +310,10 @@ class Equipment(Base):
 
     equipment_type: Mapped[EquipmentType] = relationship(back_populates="equipment_items")
     warehouse_location: Mapped[Location | None] = relationship(back_populates="equipment_warehoused")
+    availability_windows: Mapped[list[EquipmentAvailability]] = relationship(
+        back_populates="equipment",
+        cascade="all,delete-orphan",
+    )
 
 
 class Vehicle(Base):
@@ -322,3 +340,103 @@ class Vehicle(Base):
     )
 
     home_location: Mapped[Location | None] = relationship(back_populates="vehicles_home_base")
+    availability_windows: Mapped[list[VehicleAvailability]] = relationship(
+        back_populates="vehicle",
+        cascade="all,delete-orphan",
+    )
+
+
+class EventRequirement(Base):
+    __tablename__ = "event_requirements"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    requirement_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    event_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("events.event_id"), ondelete="CASCADE"),
+        nullable=False,
+    )
+    requirement_type: Mapped[RequirementType] = mapped_column(
+        SAEnum(RequirementType, native_enum=False),
+        nullable=False,
+    )
+    role_required: Mapped[PersonRole | None] = mapped_column(SAEnum(PersonRole, native_enum=False))
+    skill_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("skills.skill_id"), ondelete="SET NULL"),
+    )
+    equipment_type_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("equipment_types.equipment_type_id"), ondelete="SET NULL"),
+    )
+    vehicle_type_required: Mapped[VehicleType | None] = mapped_column(SAEnum(VehicleType, native_enum=False))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("1"), nullable=False)
+    mandatory: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    required_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    required_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    event: Mapped[Event] = relationship(back_populates="requirements")
+    skill: Mapped[Skill | None] = relationship()
+    equipment_type: Mapped[EquipmentType | None] = relationship()
+
+
+class PeopleAvailability(Base):
+    __tablename__ = "people_availability"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    availability_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    person_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("resources_people.person_id"), ondelete="CASCADE"),
+        nullable=False,
+    )
+    available_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    source: Mapped[str | None] = mapped_column(Text, default="manual")
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    person: Mapped[ResourcePerson] = relationship(back_populates="availability_windows")
+
+
+class EquipmentAvailability(Base):
+    __tablename__ = "equipment_availability"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    availability_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    equipment_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("equipment.equipment_id"), ondelete="CASCADE"),
+        nullable=False,
+    )
+    available_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    source: Mapped[str | None] = mapped_column(Text, default="system")
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    equipment: Mapped[Equipment] = relationship(back_populates="availability_windows")
+
+
+class VehicleAvailability(Base):
+    __tablename__ = "vehicle_availability"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    availability_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    vehicle_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("vehicles.vehicle_id"), ondelete="CASCADE"),
+        nullable=False,
+    )
+    available_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    available_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    source: Mapped[str | None] = mapped_column(Text, default="system")
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    vehicle: Mapped[Vehicle] = relationship(back_populates="availability_windows")
