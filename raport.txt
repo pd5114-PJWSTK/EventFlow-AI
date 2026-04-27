@@ -239,3 +239,18 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-04-27] Zaimplementowano CP-02 Fazy 3 (skill/role/cost constraints).
   Cel: rozszerzyc walidator o limity godzinowe i szczegolowy breakdown kosztowy pod kolejne etapy planner-core.
+
+8.2) FAZA 3 - POSTEP IMPLEMENTACJI (CP-03)
+- Status checkpointu: `phase-3-cp-03-resource-matcher-ranking` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano matcher zasobow: `app/services/resource_matcher.py`.
+  - Zintegrowano ranking z walidatorem w `app/services/validation_service.py`:
+    - deterministyczny wybor zasobow dla role/skill/equipment/vehicle,
+    - ranking oparty o koszt + prosty reliability boost dla ludzi (`reliability_notes`).
+  - Dodano testy CP-03: `tests/test_phase3_cp03.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp03.py tests/test_phase3_cp02.py tests/test_phase3_cp01.py tests/test_phase2_cp04.py -q` -> 14 passed.
+  - Lint/format (scope CP-03): `ruff check` + `black` -> passed.
+
+- [2026-04-27] Zaimplementowano CP-03 Fazy 3 (resource matcher ranking).
+  Cel: zapewnic deterministyczne i audytowalne dobieranie zasobow w walidatorze planner-core.

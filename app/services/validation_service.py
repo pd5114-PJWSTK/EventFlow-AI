@@ -24,6 +24,7 @@ from app.schemas.planner import (
     ConstraintCostBreakdown,
     ConstraintGap,
 )
+from app.services.resource_matcher import match_event_requirements
 
 
 class ValidationError(ValueError):
@@ -153,6 +154,25 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
     equipment_cost = Decimal("0.00")
     vehicles_cost = Decimal("0.00")
 
+    # Build deterministic ranking map used for final resource selection.
+    match_map = match_event_requirements(
+        event=event,
+        requirements=event.requirements,
+        people=(
+            db.execute(select(ResourcePerson).where(ResourcePerson.active.is_(True)))
+            .scalars()
+            .all()
+        ),
+        equipment=(
+            db.execute(select(Equipment).where(Equipment.active.is_(True)))
+            .scalars()
+            .all()
+        ),
+        vehicles=(
+            db.execute(select(Vehicle).where(Vehicle.active.is_(True))).scalars().all()
+        ),
+    )
+
     for requirement in event.requirements:
         req_start, req_end = _required_window(event, requirement)
         required_qty = _required_quantity(requirement)
@@ -232,7 +252,19 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
-            for person in hour_eligible_people[:required_qty]:
+            ranked_people_ids = [
+                item.resource_id
+                for item in match_map.get(requirement.requirement_id, [])
+            ]
+            ranked_people = sorted(
+                hour_eligible_people,
+                key=lambda p: (
+                    ranked_people_ids.index(p.person_id)
+                    if p.person_id in ranked_people_ids
+                    else 9999
+                ),
+            )
+            for person in ranked_people[:required_qty]:
                 if person.cost_per_hour is not None:
                     component = person.cost_per_hour * req_hours
                     people_cost += component
@@ -294,7 +326,19 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
-            for person in hour_eligible_people[:required_qty]:
+            ranked_people_ids = [
+                item.resource_id
+                for item in match_map.get(requirement.requirement_id, [])
+            ]
+            ranked_people = sorted(
+                hour_eligible_people,
+                key=lambda p: (
+                    ranked_people_ids.index(p.person_id)
+                    if p.person_id in ranked_people_ids
+                    else 9999
+                ),
+            )
+            for person in ranked_people[:required_qty]:
                 if person.cost_per_hour is not None:
                     component = person.cost_per_hour * req_hours
                     people_cost += component
@@ -341,7 +385,19 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(available_equipment),
                         mandatory=requirement.mandatory,
                     )
-            for item in available_equipment[:required_qty]:
+            ranked_equipment_ids = [
+                item.resource_id
+                for item in match_map.get(requirement.requirement_id, [])
+            ]
+            ranked_equipment = sorted(
+                available_equipment,
+                key=lambda eq: (
+                    ranked_equipment_ids.index(eq.equipment_id)
+                    if eq.equipment_id in ranked_equipment_ids
+                    else 9999
+                ),
+            )
+            for item in ranked_equipment[:required_qty]:
                 if item.hourly_cost_estimate is not None:
                     component = item.hourly_cost_estimate * req_hours
                     equipment_cost += component
@@ -387,7 +443,19 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(available_vehicles),
                         mandatory=requirement.mandatory,
                     )
-            for vehicle in available_vehicles[:required_qty]:
+            ranked_vehicle_ids = [
+                item.resource_id
+                for item in match_map.get(requirement.requirement_id, [])
+            ]
+            ranked_vehicles = sorted(
+                available_vehicles,
+                key=lambda v: (
+                    ranked_vehicle_ids.index(v.vehicle_id)
+                    if v.vehicle_id in ranked_vehicle_ids
+                    else 9999
+                ),
+            )
+            for vehicle in ranked_vehicles[:required_qty]:
                 if vehicle.cost_per_hour is not None:
                     component = vehicle.cost_per_hour * req_hours
                     vehicles_cost += component
