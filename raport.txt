@@ -203,3 +203,22 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: zamknac checkpoint test infrastructure i smoke collection jako ostatni etap wykonawczy Fazy 2.
 - [2026-04-27] Oznaczono i wypchnieto tag `phase-2-complete`.
   Cel: formalnie zamknac Fazę 2 i potwierdzic gotowosc wejscia do Fazy 3.
+
+8) FAZA 3 - POSTEP IMPLEMENTACJI (CP-01)
+- Status fazy: W TOKU (rozpoczeta).
+- Status checkpointu: `phase-3-cp-01-constraint-validator-availability` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Rozszerzono `app/services/validation_service.py` o jawny gap dla niedopasowania okien dostepnosci:
+    - `AVAILABILITY_WINDOW_MISMATCH` (critical dla mandatory, warning dla optional).
+  - Doprecyzowano logike rozrozniania brakow:
+    - brak kandydatow -> `INSUFFICIENT_*`,
+    - kandydaci istnieja, ale nie pokrywaja okna -> `AVAILABILITY_WINDOW_MISMATCH`.
+  - Dodano testy CP-01: `tests/test_phase3_cp01.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp01.py tests/test_phase2_cp04.py -q` -> 8 passed.
+  - Lint/format (scope CP-01): `ruff check` + `black` -> passed.
+
+- [2026-04-27] Uruchomiono Fazę 3 i dodano tag startowy `phase-3-start`.
+  Cel: wyznaczyc stabilny punkt wejscia i zachowac ten sam workflow checkpointow co w Fazie 2.
+- [2026-04-27] Zaimplementowano CP-01 Fazy 3 (availability-focused constraint checks).
+  Cel: poprawic diagnostyke walidatora dla przypadkow, gdzie zasoby istnieja, ale nie sa dostepne w wymaganym oknie czasu.

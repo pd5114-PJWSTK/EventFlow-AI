@@ -116,6 +116,24 @@ def _append_shortage_gap(
     )
 
 
+def _append_availability_gap(
+    gaps: list[ConstraintGap],
+    requirement_id: str,
+    expected: int,
+    available: int,
+    mandatory: bool,
+) -> None:
+    severity = "critical" if mandatory else "warning"
+    gaps.append(
+        ConstraintGap(
+            code="AVAILABILITY_WINDOW_MISMATCH",
+            requirement_id=requirement_id,
+            severity=severity,
+            message=f"required={expected}, available={available}; candidates exist but are not available in required window",
+        )
+    )
+
+
 def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckResponse:
     event = db.get(Event, event_id)
     if event is None:
@@ -166,20 +184,30 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                 .scalars()
                 .all()
             )
+            candidate_count = len(people)
             available_people = [
                 p
                 for p in people
                 if _person_available(db, p.person_id, req_start, req_end)
             ]
             if len(available_people) < required_qty:
-                _append_shortage_gap(
-                    gaps,
-                    code="INSUFFICIENT_ROLE",
-                    requirement_id=requirement.requirement_id,
-                    expected=required_qty,
-                    available=len(available_people),
-                    mandatory=requirement.mandatory,
-                )
+                if candidate_count >= required_qty:
+                    _append_availability_gap(
+                        gaps,
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_people),
+                        mandatory=requirement.mandatory,
+                    )
+                else:
+                    _append_shortage_gap(
+                        gaps,
+                        code="INSUFFICIENT_ROLE",
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_people),
+                        mandatory=requirement.mandatory,
+                    )
             for person in available_people[:required_qty]:
                 if person.cost_per_hour is not None:
                     estimated_cost += person.cost_per_hour * _window_hours(
@@ -206,20 +234,30 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                 .scalars()
                 .all()
             )
+            candidate_count = len(people)
             available_people = [
                 p
                 for p in people
                 if _person_available(db, p.person_id, req_start, req_end)
             ]
             if len(available_people) < required_qty:
-                _append_shortage_gap(
-                    gaps,
-                    code="INSUFFICIENT_SKILL",
-                    requirement_id=requirement.requirement_id,
-                    expected=required_qty,
-                    available=len(available_people),
-                    mandatory=requirement.mandatory,
-                )
+                if candidate_count >= required_qty:
+                    _append_availability_gap(
+                        gaps,
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_people),
+                        mandatory=requirement.mandatory,
+                    )
+                else:
+                    _append_shortage_gap(
+                        gaps,
+                        code="INSUFFICIENT_SKILL",
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_people),
+                        mandatory=requirement.mandatory,
+                    )
             for person in available_people[:required_qty]:
                 if person.cost_per_hour is not None:
                     estimated_cost += person.cost_per_hour * _window_hours(
@@ -243,20 +281,30 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                 .scalars()
                 .all()
             )
+            candidate_count = len(equipment)
             available_equipment = [
                 eq
                 for eq in equipment
                 if _equipment_available(db, eq.equipment_id, req_start, req_end)
             ]
             if len(available_equipment) < required_qty:
-                _append_shortage_gap(
-                    gaps,
-                    code="INSUFFICIENT_EQUIPMENT",
-                    requirement_id=requirement.requirement_id,
-                    expected=required_qty,
-                    available=len(available_equipment),
-                    mandatory=requirement.mandatory,
-                )
+                if candidate_count >= required_qty:
+                    _append_availability_gap(
+                        gaps,
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_equipment),
+                        mandatory=requirement.mandatory,
+                    )
+                else:
+                    _append_shortage_gap(
+                        gaps,
+                        code="INSUFFICIENT_EQUIPMENT",
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_equipment),
+                        mandatory=requirement.mandatory,
+                    )
             for item in available_equipment[:required_qty]:
                 if item.hourly_cost_estimate is not None:
                     estimated_cost += item.hourly_cost_estimate * _window_hours(
@@ -279,20 +327,30 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                 .scalars()
                 .all()
             )
+            candidate_count = len(vehicles)
             available_vehicles = [
                 v
                 for v in vehicles
                 if _vehicle_available(db, v.vehicle_id, req_start, req_end)
             ]
             if len(available_vehicles) < required_qty:
-                _append_shortage_gap(
-                    gaps,
-                    code="INSUFFICIENT_VEHICLE",
-                    requirement_id=requirement.requirement_id,
-                    expected=required_qty,
-                    available=len(available_vehicles),
-                    mandatory=requirement.mandatory,
-                )
+                if candidate_count >= required_qty:
+                    _append_availability_gap(
+                        gaps,
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_vehicles),
+                        mandatory=requirement.mandatory,
+                    )
+                else:
+                    _append_shortage_gap(
+                        gaps,
+                        code="INSUFFICIENT_VEHICLE",
+                        requirement_id=requirement.requirement_id,
+                        expected=required_qty,
+                        available=len(available_vehicles),
+                        mandatory=requirement.mandatory,
+                    )
             for vehicle in available_vehicles[:required_qty]:
                 if vehicle.cost_per_hour is not None:
                     estimated_cost += vehicle.cost_per_hour * _window_hours(
