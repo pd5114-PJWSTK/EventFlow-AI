@@ -1,44 +1,6 @@
 from __future__ import annotations
 
-from typing import Generator
-
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.database import Base, get_db
-from app.main import app
-
-
-@pytest.fixture
-def api_client() -> Generator[TestClient, None, None]:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        execution_options={"schema_translate_map": {"core": None}},
-        future=True,
-    )
-    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
-
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db() -> Generator[Session, None, None]:
-        db = TestingSessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    with TestClient(app) as client:
-        yield client
-
-    app.dependency_overrides.clear()
-    Base.metadata.drop_all(bind=engine)
 
 
 def test_resource_crud_happy_path(api_client: TestClient) -> None:
@@ -111,7 +73,9 @@ def test_resource_crud_happy_path(api_client: TestClient) -> None:
     assert list_equipment.status_code == 200
     assert list_equipment.json()["total"] == 1
 
-    patch_vehicle = api_client.patch(f"/api/resources/vehicles/{vehicle_id}", json={"status": "maintenance"})
+    patch_vehicle = api_client.patch(
+        f"/api/resources/vehicles/{vehicle_id}", json={"status": "maintenance"}
+    )
     assert patch_vehicle.status_code == 200
     assert patch_vehicle.json()["status"] == "maintenance"
 

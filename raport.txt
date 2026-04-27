@@ -162,5 +162,25 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 - Walidacja wykonania:
   - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase2_cp04.py tests/test_phase2_cp03.py -q` -> 8 passed.
 
+6.4) FAZA 2 - POSTEP IMPLEMENTACJI (CP-05)
+- Status checkpointu: `phase-2-cp-05-api-tests-and-smoke-collection` -> ZREALIZOWANY (refaktor test infra + smoke).
+- Zakres wykonany:
+  - Scentralizowano fixtury testowe w `tests/conftest.py`.
+  - Dodano wspolne helpery testowe w `tests/helpers.py`.
+  - Przepisano testy CP-01..CP-04 na wspolne fixtury/helpery:
+    - `tests/test_phase2_cp01.py`
+    - `tests/test_phase2_cp02.py`
+    - `tests/test_phase2_cp03.py`
+    - `tests/test_phase2_cp04.py`
+  - Dodano smoke collection: `docs/smoke/phase2-smoke.md`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase2_cp01.py tests/test_phase2_cp02.py tests/test_phase2_cp03.py tests/test_phase2_cp04.py -q` -> 14 passed.
+  - Lint: `python -m ruff check` (zakres plikow CP-05) -> passed.
+  - Format: `python -m black --check` (zakres plikow CP-05) -> passed.
+
 - [2026-04-27] Zaimplementowano CP-04 (domain validations + endpoint planner).
   Cel: dodac deterministiczny pre-check constraints przed fazami planowania AI/OR.
+- [2026-04-27] Zacommitowano, otagowano i wypchnieto CP-04.
+  Cel: zamknac checkpoint walidacji domenowych jako stabilny punkt wejscia do CP-05.
+- [2026-04-27] Zaimplementowano CP-05 (centralizacja fixture + smoke collection).
+  Cel: ograniczyc duplikacje test setup i przyspieszyc stabilna regresje Fazy 2.

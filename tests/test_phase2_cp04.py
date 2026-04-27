@@ -1,96 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Generator
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.database import Base, get_db
-from app.main import app
-
-
-@pytest.fixture
-def api_client() -> Generator[TestClient, None, None]:
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        execution_options={"schema_translate_map": {"core": None}},
-        future=True,
-    )
-    testing_session_local = sessionmaker(
-        bind=engine, autoflush=False, autocommit=False, future=True
-    )
-
-    Base.metadata.create_all(bind=engine)
-
-    def override_get_db() -> Generator[Session, None, None]:
-        db = testing_session_local()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    with TestClient(app) as client:
-        yield client
-
-    app.dependency_overrides.clear()
-    Base.metadata.drop_all(bind=engine)
-
-
-def _future_window(hours: int = 4, days: int = 5) -> tuple[str, str]:
-    start = datetime.now(timezone.utc) + timedelta(days=days)
-    end = start + timedelta(hours=hours)
-    return start.isoformat(), end.isoformat()
-
-
-def create_event_context(
-    api_client: TestClient,
-    *,
-    client_name: str,
-    location_name: str,
-    event_name: str,
-    budget: Decimal,
-    hours: int,
-    days: int,
-) -> tuple[str, str, str, str, str]:
-    client_resp = api_client.post("/api/clients", json={"name": client_name})
-    location_resp = api_client.post(
-        "/api/locations", json={"name": location_name, "city": "Warsaw"}
-    )
-    assert client_resp.status_code == 201
-    assert location_resp.status_code == 201
-
-    client_id = client_resp.json()["client_id"]
-    location_id = location_resp.json()["location_id"]
-    planned_start, planned_end = _future_window(hours=hours, days=days)
-
-    payload = {
-        "client_id": client_id,
-        "location_id": location_id,
-        "event_name": event_name,
-        "event_type": "conference",
-        "planned_start": planned_start,
-        "planned_end": planned_end,
-        "budget_estimate": str(budget),
-    }
-    event_resp = api_client.post("/api/events", json=payload)
-    assert event_resp.status_code == 201
-
-    return (
-        client_id,
-        location_id,
-        event_resp.json()["event_id"],
-        planned_start,
-        planned_end,
-    )
+from tests.helpers import create_event_context
 
 
 def test_validate_constraints_supportable(api_client: TestClient) -> None:
