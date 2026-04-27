@@ -254,3 +254,21 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-04-27] Zaimplementowano CP-03 Fazy 3 (resource matcher ranking).
   Cel: zapewnic deterministyczne i audytowalne dobieranie zasobow w walidatorze planner-core.
+
+8.3) FAZA 3 - POSTEP IMPLEMENTACJI (CP-04)
+- Status checkpointu: `phase-3-cp-04-planner-validate-endpoint` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Rozszerzono kontrakt odpowiedzi planner endpointu w `app/schemas/planner.py` o:
+    - `supportable_requirements`,
+    - `unsupported_requirements`.
+  - Rozszerzono `app/services/validation_service.py` o klasyfikacje requirementow na supportable/unsupported na bazie wynikow walidacji.
+  - Zachowano mapowanie bledow endpointu w `app/api/planner.py`:
+    - missing event -> 404,
+    - bledy domenowe -> 400.
+  - Dodano testy CP-04: `tests/test_phase3_cp04.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp04.py tests/test_phase3_cp03.py tests/test_phase3_cp02.py tests/test_phase3_cp01.py tests/test_phase2_cp04.py -q` -> 16 passed.
+  - Lint/format (scope CP-04): `ruff check` + `black` -> passed.
+
+- [2026-04-27] Zaimplementowano CP-04 Fazy 3 (planner validate endpoint report).
+  Cel: dostarczyc pelny raport supportable/unsupportable requirements bez zmiany istniejacego mapowania bledow API.

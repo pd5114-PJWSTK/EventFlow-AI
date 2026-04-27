@@ -32,6 +32,8 @@ class ConstraintCheckResponse(BaseModel):
     checked_at: datetime
     is_supportable: bool
     gaps: list[ConstraintGap] = Field(default_factory=list)
+    supportable_requirements: list[str] = Field(default_factory=list)
+    unsupported_requirements: list[str] = Field(default_factory=list)
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
     cost_breakdown: ConstraintCostBreakdown = Field(
         default_factory=ConstraintCostBreakdown

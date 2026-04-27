@@ -153,6 +153,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
     people_cost = Decimal("0.00")
     equipment_cost = Decimal("0.00")
     vehicles_cost = Decimal("0.00")
+    supportable_requirements: list[str] = []
+    unsupported_requirements: list[str] = []
 
     # Build deterministic ranking map used for final resource selection.
     match_map = match_event_requirements(
@@ -187,6 +189,7 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                     message="required_end must be after required_start",
                 )
             )
+            unsupported_requirements.append(requirement.requirement_id)
             continue
 
         if req_start < event.planned_start or req_end > event.planned_end:
@@ -198,7 +201,10 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                     message="requirement window must fit inside event planned window",
                 )
             )
+            unsupported_requirements.append(requirement.requirement_id)
             continue
+
+        requirement_had_critical_gap = False
 
         if requirement.requirement_type == RequirementType.person_role:
             people = (
@@ -235,6 +241,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                             message=f"required={required_qty}, available={len(hour_eligible_people)}; candidates exceed max_daily_hours",
                         )
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
                 elif candidate_count >= required_qty:
                     _append_availability_gap(
                         gaps,
@@ -243,6 +251,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
                 else:
                     _append_shortage_gap(
                         gaps,
@@ -252,6 +262,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
             ranked_people_ids = [
                 item.resource_id
                 for item in match_map.get(requirement.requirement_id, [])
@@ -309,6 +321,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                             message=f"required={required_qty}, available={len(hour_eligible_people)}; candidates exceed max_daily_hours",
                         )
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
                 elif candidate_count >= required_qty:
                     _append_availability_gap(
                         gaps,
@@ -317,6 +331,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
                 else:
                     _append_shortage_gap(
                         gaps,
@@ -326,6 +342,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
             ranked_people_ids = [
                 item.resource_id
                 for item in match_map.get(requirement.requirement_id, [])
@@ -376,6 +394,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(available_equipment),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
                 else:
                     _append_shortage_gap(
                         gaps,
@@ -385,6 +405,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(available_equipment),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
             ranked_equipment_ids = [
                 item.resource_id
                 for item in match_map.get(requirement.requirement_id, [])
@@ -434,6 +456,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(available_vehicles),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
                 else:
                     _append_shortage_gap(
                         gaps,
@@ -443,6 +467,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         available=len(available_vehicles),
                         mandatory=requirement.mandatory,
                     )
+                    if requirement.mandatory:
+                        requirement_had_critical_gap = True
             ranked_vehicle_ids = [
                 item.resource_id
                 for item in match_map.get(requirement.requirement_id, [])
@@ -460,6 +486,11 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                     component = vehicle.cost_per_hour * req_hours
                     vehicles_cost += component
                     estimated_cost += component
+
+        if requirement_had_critical_gap:
+            unsupported_requirements.append(requirement.requirement_id)
+        else:
+            supportable_requirements.append(requirement.requirement_id)
 
     budget_exceeded = False
     if event.budget_estimate is not None and estimated_cost > event.budget_estimate:
@@ -480,6 +511,8 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
         checked_at=datetime.now(timezone.utc),
         is_supportable=not has_blocking_gap,
         gaps=gaps,
+        supportable_requirements=supportable_requirements,
+        unsupported_requirements=unsupported_requirements,
         estimated_cost=estimated_cost,
         cost_breakdown=ConstraintCostBreakdown(
             people_cost=people_cost,
