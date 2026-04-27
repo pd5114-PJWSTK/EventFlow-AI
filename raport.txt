@@ -141,3 +141,26 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: domknac warstwe danych wejściowych i kalendarzy dostepnosci wymaganą do walidacji constraints.
 - [2026-04-26] Zacommitowano i otagowano CP-03 oraz wypchnieto zmiany do GitHub.
   Cel: zamknac trzeci checkpoint Fazy 2 jako stabilny punkt wejścia do CP-04.
+
+6.3) FAZA 2 - POSTEP IMPLEMENTACJI (CP-04)
+- Status checkpointu: `phase-2-cp-04-domain-validations` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano kontrakt plannera:
+    - `app/schemas/planner.py` (request/response + struktura `gaps`).
+  - Dodano serwis walidacji constraints:
+    - `app/services/validation_service.py`.
+  - Dodano endpoint plannera:
+    - `POST /api/planner/validate-constraints` w `app/api/planner.py`.
+  - Zintegrowano router planner w `app/main.py`.
+  - Dodano walidacje domenowe CP-04:
+    - dopasowanie role/skill/equipment/vehicle do wymagan eventu,
+    - pokrycie okna requirement przez availability zasobow,
+    - wykrywanie niedoboru ilosci zasobow,
+    - estymacja kosztu i walidacja `budget_estimate`,
+    - sanity check czasu requirement wobec okna eventu.
+  - Dodano testy CP-04: `tests/test_phase2_cp04.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase2_cp04.py tests/test_phase2_cp03.py -q` -> 8 passed.
+
+- [2026-04-27] Zaimplementowano CP-04 (domain validations + endpoint planner).
+  Cel: dodac deterministiczny pre-check constraints przed fazami planowania AI/OR.
