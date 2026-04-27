@@ -272,3 +272,31 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-04-27] Zaimplementowano CP-04 Fazy 3 (planner validate endpoint report).
   Cel: dostarczyc pelny raport supportable/unsupportable requirements bez zmiany istniejacego mapowania bledow API.
+
+8.4) FAZA 3 - POSTEP IMPLEMENTACJI (CP-05)
+- Status checkpointu: `phase-3-cp-05-validation-report-tests` -> ZREALIZOWANY (test pack + smoke).
+- Zakres wykonany:
+  - Dodano finalny pakiet testowy Fazy 3: `tests/test_phase3_cp05.py`.
+  - Dodano smoke collection Fazy 3: `docs/smoke/phase3-smoke.md`.
+  - Potwierdzono komplet checkpointow CP-01..CP-05 przez pelny pakiet testow Fazy 3.
+  - Potwierdzono brak regresji przez laczny pakiet testow Fazy 2 + Fazy 3.
+- Walidacja wykonania:
+  - Testy Fazy 3: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp01.py tests/test_phase3_cp02.py tests/test_phase3_cp03.py tests/test_phase3_cp04.py tests/test_phase3_cp05.py -q` -> 12 passed.
+  - Regresja Faza 2 + Faza 3: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase2_cp01.py tests/test_phase2_cp02.py tests/test_phase2_cp03.py tests/test_phase2_cp04.py tests/test_phase3_cp01.py tests/test_phase3_cp02.py tests/test_phase3_cp03.py tests/test_phase3_cp04.py tests/test_phase3_cp05.py -q` -> 26 passed.
+  - Lint/format (scope CP-05): `ruff check` + `black` -> passed.
+
+8.5) FAZA 3 - ZAMKNIECIE KONCOWE
+- Status fazy: ZAMKNIETA.
+- Finalny zakres potwierdzony:
+  - CP-01: `phase-3-cp-01-constraint-validator-availability`
+  - CP-02: `phase-3-cp-02-skill-role-and-cost-constraints`
+  - CP-03: `phase-3-cp-03-resource-matcher-ranking`
+  - CP-04: `phase-3-cp-04-planner-validate-endpoint`
+  - CP-05: `phase-3-cp-05-validation-report-tests`
+- Artifact zamkniecia:
+  - tag koncowy: `phase-3-complete`.
+
+- [2026-04-27] Zaimplementowano CP-05 Fazy 3 (validation report tests + smoke).
+  Cel: domknac warstwe testowa planner-core i potwierdzic gotowosc do kolejnej fazy.
+- [2026-04-27] Oznaczono i wypchnieto tag `phase-3-complete`.
+  Cel: formalnie zamknac Fazę 3 i potwierdzic gotowosc wejscia do Fazy 4.
