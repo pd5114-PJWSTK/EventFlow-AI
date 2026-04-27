@@ -184,3 +184,22 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: zamknac checkpoint walidacji domenowych jako stabilny punkt wejscia do CP-05.
 - [2026-04-27] Zaimplementowano CP-05 (centralizacja fixture + smoke collection).
   Cel: ograniczyc duplikacje test setup i przyspieszyc stabilna regresje Fazy 2.
+
+6.5) FAZA 2 - ZAMKNIECIE KONCOWE
+- Status fazy: ZAMKNIETA.
+- Finalny zakres potwierdzony:
+  - CP-01: `phase-2-cp-01-core-crud-clients-locations-events`
+  - CP-02: `phase-2-cp-02-resources-crud-people-equipment-vehicles`
+  - CP-03: `phase-2-cp-03-requirements-and-availability`
+  - CP-04: `phase-2-cp-04-domain-validations`
+  - CP-05: `phase-2-cp-05-api-tests-and-smoke-collection`
+- Finalna walidacja wykonania Fazy 2:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase2_cp01.py tests/test_phase2_cp02.py tests/test_phase2_cp03.py tests/test_phase2_cp04.py -q` -> 14 passed.
+  - Lint/format (scope CP-05): `ruff check` + `black --check` -> passed.
+- Artifact zamkniecia:
+  - tag koncowy: `phase-2-complete`.
+
+- [2026-04-27] Zacommitowano, otagowano i wypchnieto CP-05.
+  Cel: zamknac checkpoint test infrastructure i smoke collection jako ostatni etap wykonawczy Fazy 2.
+- [2026-04-27] Oznaczono i wypchnieto tag `phase-2-complete`.
+  Cel: formalnie zamknac Fazę 2 i potwierdzic gotowosc wejscia do Fazy 3.
