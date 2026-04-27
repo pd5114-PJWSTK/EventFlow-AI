@@ -19,7 +19,11 @@ from app.models.core import (
     Vehicle,
     VehicleAvailability,
 )
-from app.schemas.planner import ConstraintCheckResponse, ConstraintGap
+from app.schemas.planner import (
+    ConstraintCheckResponse,
+    ConstraintCostBreakdown,
+    ConstraintGap,
+)
 
 
 class ValidationError(ValueError):
@@ -41,6 +45,10 @@ def _required_quantity(requirement: EventRequirement) -> int:
 
 def _window_hours(start: datetime, end: datetime) -> Decimal:
     return Decimal(str((end - start).total_seconds() / 3600.0))
+
+
+def _person_hours_eligible(person: ResourcePerson, required_hours: Decimal) -> bool:
+    return person.max_daily_hours >= required_hours
 
 
 def _person_available(
@@ -141,10 +149,14 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
 
     gaps: list[ConstraintGap] = []
     estimated_cost = Decimal("0.00")
+    people_cost = Decimal("0.00")
+    equipment_cost = Decimal("0.00")
+    vehicles_cost = Decimal("0.00")
 
     for requirement in event.requirements:
         req_start, req_end = _required_window(event, requirement)
         required_qty = _required_quantity(requirement)
+        req_hours = _window_hours(req_start, req_end)
 
         if req_end <= req_start:
             gaps.append(
@@ -190,13 +202,25 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                 for p in people
                 if _person_available(db, p.person_id, req_start, req_end)
             ]
-            if len(available_people) < required_qty:
-                if candidate_count >= required_qty:
+            hour_eligible_people = [
+                p for p in available_people if _person_hours_eligible(p, req_hours)
+            ]
+            if len(hour_eligible_people) < required_qty:
+                if len(available_people) >= required_qty:
+                    gaps.append(
+                        ConstraintGap(
+                            code="MAX_HOURS_EXCEEDED",
+                            requirement_id=requirement.requirement_id,
+                            severity="critical" if requirement.mandatory else "warning",
+                            message=f"required={required_qty}, available={len(hour_eligible_people)}; candidates exceed max_daily_hours",
+                        )
+                    )
+                elif candidate_count >= required_qty:
                     _append_availability_gap(
                         gaps,
                         requirement_id=requirement.requirement_id,
                         expected=required_qty,
-                        available=len(available_people),
+                        available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
                 else:
@@ -205,14 +229,14 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         code="INSUFFICIENT_ROLE",
                         requirement_id=requirement.requirement_id,
                         expected=required_qty,
-                        available=len(available_people),
+                        available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
-            for person in available_people[:required_qty]:
+            for person in hour_eligible_people[:required_qty]:
                 if person.cost_per_hour is not None:
-                    estimated_cost += person.cost_per_hour * _window_hours(
-                        req_start, req_end
-                    )
+                    component = person.cost_per_hour * req_hours
+                    people_cost += component
+                    estimated_cost += component
 
         elif requirement.requirement_type == RequirementType.person_skill:
             people = (
@@ -240,13 +264,25 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                 for p in people
                 if _person_available(db, p.person_id, req_start, req_end)
             ]
-            if len(available_people) < required_qty:
-                if candidate_count >= required_qty:
+            hour_eligible_people = [
+                p for p in available_people if _person_hours_eligible(p, req_hours)
+            ]
+            if len(hour_eligible_people) < required_qty:
+                if len(available_people) >= required_qty:
+                    gaps.append(
+                        ConstraintGap(
+                            code="MAX_HOURS_EXCEEDED",
+                            requirement_id=requirement.requirement_id,
+                            severity="critical" if requirement.mandatory else "warning",
+                            message=f"required={required_qty}, available={len(hour_eligible_people)}; candidates exceed max_daily_hours",
+                        )
+                    )
+                elif candidate_count >= required_qty:
                     _append_availability_gap(
                         gaps,
                         requirement_id=requirement.requirement_id,
                         expected=required_qty,
-                        available=len(available_people),
+                        available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
                 else:
@@ -255,14 +291,14 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                         code="INSUFFICIENT_SKILL",
                         requirement_id=requirement.requirement_id,
                         expected=required_qty,
-                        available=len(available_people),
+                        available=len(hour_eligible_people),
                         mandatory=requirement.mandatory,
                     )
-            for person in available_people[:required_qty]:
+            for person in hour_eligible_people[:required_qty]:
                 if person.cost_per_hour is not None:
-                    estimated_cost += person.cost_per_hour * _window_hours(
-                        req_start, req_end
-                    )
+                    component = person.cost_per_hour * req_hours
+                    people_cost += component
+                    estimated_cost += component
 
         elif requirement.requirement_type == RequirementType.equipment_type:
             equipment = (
@@ -307,9 +343,9 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                     )
             for item in available_equipment[:required_qty]:
                 if item.hourly_cost_estimate is not None:
-                    estimated_cost += item.hourly_cost_estimate * _window_hours(
-                        req_start, req_end
-                    )
+                    component = item.hourly_cost_estimate * req_hours
+                    equipment_cost += component
+                    estimated_cost += component
 
         elif requirement.requirement_type == RequirementType.vehicle_type:
             vehicles = (
@@ -353,9 +389,9 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
                     )
             for vehicle in available_vehicles[:required_qty]:
                 if vehicle.cost_per_hour is not None:
-                    estimated_cost += vehicle.cost_per_hour * _window_hours(
-                        req_start, req_end
-                    )
+                    component = vehicle.cost_per_hour * req_hours
+                    vehicles_cost += component
+                    estimated_cost += component
 
     budget_exceeded = False
     if event.budget_estimate is not None and estimated_cost > event.budget_estimate:
@@ -377,6 +413,12 @@ def validate_event_constraints(db: Session, event_id: str) -> ConstraintCheckRes
         is_supportable=not has_blocking_gap,
         gaps=gaps,
         estimated_cost=estimated_cost,
+        cost_breakdown=ConstraintCostBreakdown(
+            people_cost=people_cost,
+            equipment_cost=equipment_cost,
+            vehicles_cost=vehicles_cost,
+            total_cost=estimated_cost,
+        ),
         budget_available=event.budget_estimate,
         budget_exceeded=budget_exceeded,
     )

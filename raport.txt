@@ -222,3 +222,20 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: wyznaczyc stabilny punkt wejscia i zachowac ten sam workflow checkpointow co w Fazie 2.
 - [2026-04-27] Zaimplementowano CP-01 Fazy 3 (availability-focused constraint checks).
   Cel: poprawic diagnostyke walidatora dla przypadkow, gdzie zasoby istnieja, ale nie sa dostepne w wymaganym oknie czasu.
+
+8.1) FAZA 3 - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-3-cp-02-skill-role-and-cost-constraints` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Rozszerzono kontrakt plannera w `app/schemas/planner.py` o `cost_breakdown`:
+    - `people_cost`, `equipment_cost`, `vehicles_cost`, `total_cost`.
+  - Rozszerzono `app/services/validation_service.py` o:
+    - walidacje ograniczen godzinowych (`max_daily_hours`) z gapem `MAX_HOURS_EXCEEDED`,
+    - rozliczanie kosztow per typ zasobu (people/equipment/vehicles),
+    - spójne wystawianie `estimated_cost` i `cost_breakdown.total_cost`.
+  - Dodano testy CP-02: `tests/test_phase3_cp02.py`.
+- Walidacja wykonania:
+  - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp02.py tests/test_phase3_cp01.py tests/test_phase2_cp04.py -q` -> 11 passed.
+  - Lint/format (scope CP-02): `ruff check` + `black` -> passed.
+
+- [2026-04-27] Zaimplementowano CP-02 Fazy 3 (skill/role/cost constraints).
+  Cel: rozszerzyc walidator o limity godzinowe i szczegolowy breakdown kosztowy pod kolejne etapy planner-core.

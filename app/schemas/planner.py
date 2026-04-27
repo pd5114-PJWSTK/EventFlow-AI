@@ -18,6 +18,13 @@ class ConstraintGap(BaseModel):
     severity: Literal["critical", "warning"] = "critical"
 
 
+class ConstraintCostBreakdown(BaseModel):
+    people_cost: Decimal = Field(default=Decimal("0.00"))
+    equipment_cost: Decimal = Field(default=Decimal("0.00"))
+    vehicles_cost: Decimal = Field(default=Decimal("0.00"))
+    total_cost: Decimal = Field(default=Decimal("0.00"))
+
+
 class ConstraintCheckResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -26,5 +33,8 @@ class ConstraintCheckResponse(BaseModel):
     is_supportable: bool
     gaps: list[ConstraintGap] = Field(default_factory=list)
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    cost_breakdown: ConstraintCostBreakdown = Field(
+        default_factory=ConstraintCostBreakdown
+    )
     budget_available: Decimal | None = None
     budget_exceeded: bool = False
