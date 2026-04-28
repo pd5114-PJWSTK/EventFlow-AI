@@ -316,3 +316,16 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: wyznaczyc punkt startu dla implementacji OR-Tools.
 - [2026-04-28] Zaimplementowano CP-01 Fazy 4 (OR-Tools scaffold + fallback + testy).
   Cel: dostarczyc minimalny solver z deterministycznym fallbackiem i uruchamialnymi testami.
+
+9.1) FAZA 4 - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-4-cp-02-ortools-db-mapping` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano builder wejscia planera: `app/services/planner_input_builder.py` (mapowanie danych na PlannerInput).
+  - Dodano loader danych z DB do buildera (lazy import modeli).
+  - Dodano testy CP-02: `tests/test_phase4_cp02.py` (mapowanie skill/role/availability, ceil quantity, sortowanie kandydatow).
+- Walidacja wykonania:
+  - Testy: `python -m pytest tests/test_phase4_cp02.py` -> 2 passed.
+  - Lint/format (scope CP-02): `ruff check` + `black` -> passed.
+
+- [2026-04-28] Zaimplementowano CP-02 Fazy 4 (mapowanie DB -> PlannerInput).
+  Cel: przygotowac dane do solwera na bazie eventu, requirements i dostepnosci.
