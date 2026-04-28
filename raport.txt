@@ -300,3 +300,19 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: domknac warstwe testowa planner-core i potwierdzic gotowosc do kolejnej fazy.
 - [2026-04-27] Oznaczono i wypchnieto tag `phase-3-complete`.
   Cel: formalnie zamknac Fazę 3 i potwierdzic gotowosc wejscia do Fazy 4.
+
+9) FAZA 4 - POSTEP IMPLEMENTACJI (CP-01)
+- Status fazy: W TOKU (rozpoczeta).
+- Status checkpointu: `phase-4-cp-01-ortools-scaffold` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano scaffold planera: `app/services/ortools_service.py` (PlannerService, modele wej/wyj, greedy fallback).
+  - Dodano testy CP-01: `tests/test_phase4_cp01.py` (fallback, availability, quantity).
+  - Uproszczono `tests/conftest.py` przez leniwy import aplikacji dla unit testow bez API.
+- Walidacja wykonania:
+  - Testy: `python -m pytest tests/test_phase4_cp01.py` -> 2 passed.
+  - Lint/format (scope CP-01): `ruff check` + `black` -> passed.
+
+- [2026-04-28] Uruchomiono Fazę 4 i dodano tag startowy `phase-4-start`.
+  Cel: wyznaczyc punkt startu dla implementacji OR-Tools.
+- [2026-04-28] Zaimplementowano CP-01 Fazy 4 (OR-Tools scaffold + fallback + testy).
+  Cel: dostarczyc minimalny solver z deterministycznym fallbackiem i uruchamialnymi testami.
