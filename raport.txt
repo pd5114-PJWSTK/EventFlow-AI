@@ -719,3 +719,33 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: uruchomic pierwszy trening modelu predykcyjnego i rejestrowac wersje modelu z metrykami w `ai.models`.
 - [2026-05-02] Zacommitowano i otagowano CP-02 Fazy 7 (`phase-7-cp-02-model-training-and-registry`).
   Cel: zamknac drugi checkpoint Fazy 7 jako stabilny punkt wejscia do CP-03.
+
+12.2) FAZA 7 - POSTEP IMPLEMENTACJI (CP-03)
+- Status checkpointu: `phase-7-cp-03-inference-and-outcomes` -> ZREALIZOWANY i zacommitowany + otagowany.
+- Zakres wykonany:
+  - Dodano serwis inference i ewaluacji predykcji:
+    - `app/services/ml_inference_service.py`.
+  - Serwis realizuje CP-03:
+    - generowanie predykcji `duration_estimate` na bazie aktywnego modelu z `ai.models` i snapshotu `ai.event_features`,
+    - zapis predykcji do `ai.predictions` (wartosc, confidence, explanation, feature_snapshot),
+    - ewaluacje predykcji przez zapis ground-truth do `ai.prediction_outcomes`,
+    - obliczanie `error_value` dla predykcji liczbowych,
+    - auto-resolve ground-truth z `ops.actual_timings` dla predykcji czasu trwania.
+  - Dodano kontrakty API:
+    - `app/schemas/ml_predictions.py`.
+  - Dodano endpointy prediction pipeline:
+    - `POST /api/ml/predictions`,
+    - `POST /api/ml/predictions/{prediction_id}/evaluate`,
+    - `GET /api/ml/predictions`.
+  - Dodano router `app/api/ml_predictions.py` i podpiecie w `app/main.py`.
+  - Dodano testy CP-03:
+    - `tests/test_phase7_cp03.py`.
+- Walidacja wykonania:
+  - Testy CP-03: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp03.py -q` -> 3 passed.
+  - Szybka regresja Faza 6 + Faza 7: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase7_cp03.py tests/test_phase6_cp04.py -q` -> 12 passed.
+  - Kontrola skladni: `python -m py_compile app/main.py app/api/ml_predictions.py app/schemas/ml_predictions.py app/services/ml_inference_service.py tests/test_phase7_cp03.py` -> passed.
+
+- [2026-05-02] Zaimplementowano CP-03 Fazy 7 (inference + prediction outcomes + auto ground-truth).
+  Cel: domknac zapis predykcji i ich ewaluacje na danych rzeczywistych jako feedback loop pod monitoring model drift.
+- [2026-05-02] Zacommitowano i otagowano CP-03 Fazy 7 (`phase-7-cp-03-inference-and-outcomes`).
+  Cel: zamknac trzeci checkpoint Fazy 7 jako stabilny punkt wejscia do CP-04.
