@@ -1141,3 +1141,17 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-03 Fazy 8 (DB hardening + frontend wizard contracts + dokumentacja i porzadki struktury).
   Cel: domknac wymagania produkcyjne backendu i przygotowac czytelna baze pod frontend i onboarding osob trzecich.
+
+13.2.1) FAZA 8 - KOREKTA CP-03 (PORZADKOWANIE DOKUMENTACJI)
+- Status: ZREALIZOWANY.
+- Korekty wykonane po review:
+  - Usunieto duplikacje plikow `.md` w root projektu (pozostawiono jedno zrodlo prawdy w `docs/`).
+  - Usunieto zbêdny plik/folder `docs/contracts`.
+  - Przebudowano `docs/database` do pelnego opisu struktury bazy:
+    - `docs/database/README.md` (schematy `core/ops/ai`, tabele, relacje, hardening).
+  - Przebudowano `README.md` do bardziej opisowej i wizualnej formy:
+    - badge statusowe,
+    - diagramy Mermaid (flow + architektura),
+    - czytelny quick start, endpointy i nawigacja dla osob trzecich.
+- Uwaga organizacyjna:
+  - Dokumentacja referencyjna utrzymywana jest centralnie w `docs/`.

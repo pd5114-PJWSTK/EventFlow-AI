@@ -1,64 +1,48 @@
 ﻿# EventFlow AI
 
-EventFlow AI to backendowy system do planowania i replanningu eventow (ludzie, sprzet, pojazdy, czas), z warstwa ML do oceny wariantow planu i runtime operations do pracy na zywo.
+![Status](https://img.shields.io/badge/status-active-success) ![Backend](https://img.shields.io/badge/backend-FastAPI-009688) ![DB](https://img.shields.io/badge/database-PostgreSQL-336791) ![Queue](https://img.shields.io/badge/queue-Celery%20%2B%20Redis-D32F2F) ![ML](https://img.shields.io/badge/ml-scikit--learn-F57C00)
 
-## Co robi program
-- Zarzadza eventami, wymaganiami i zasobami.
-- Generuje plan przydzialow i transportu (OR-Tools + fallback).
-- Wykrywa luki planu i prowadzi decyzje operatora (uzupelnienie zasobow lub przelozenie eventu).
-- Obsluguje live incidenty i replanning z uwzglednieniem zasobow juz zuzytych.
-- Zbiera dane wykonawcze (ops logs) i prowadzi pipeline ML (features -> training -> inference -> retraining).
+EventFlow AI to system backendowy do planowania i live replanningu eventow. Laczy deterministiczny planner zasobów (ludzie/sprzet/pojazdy/czas), runtime operations i warstwe ML do oceny wariantów planu.
 
-## Najwazniejsze moduly
-- `app/api/` - endpointy FastAPI
-- `app/services/` - logika domenowa (planner, runtime, ML, AI)
-- `app/models/` - modele SQLAlchemy (`core`, `ops`, `ai`)
-- `app/schemas/` - kontrakty request/response
-- `app/workers/` - zadania Celery
-- `docker/postgres/init/` - inicjalizacja DB dla nowego srodowiska
-- `tests/` - testy fazowe i regresja
-- `docs/` - dokumentacja funkcjonalna i techniczna
+## Co ten program robi
+- Buduje plan operacyjny eventu (`generate-plan`).
+- Wykrywa luki i prowadzi operatora przez decyzje (`preview-gaps` -> `resolve-gaps`).
+- Obsluguje incidenty i live replanning bez gubienia zasobów juz zuzytych.
+- Prowadzi audit trail wykonania (`ops.*`).
+- Trenuje i wykorzystuje modele ML do predykcji i rankingu planów.
 
-## Struktura dokumentacji
-- indeks: `docs/README.md`
-- plan i architektura: `docs/reference/Plan.md`
-- baza danych: `docs/reference/Baza_danych.md`
-- przykladowe dane: `docs/reference/Przykladowe_dane.md`
-- kontrakt wizard luk: `docs/contracts/frontend-gap-wizard.md`
-- hardening DB (CP-03): `docs/database/cp03-hardening.md`
-- smoke testy: `docs/testing/smoke/`
-- raport implementacji: `raport.txt`
-
-## Szybki start (Docker)
-1. Skopiuj konfiguracje:
-```bash
-cp .env.example .env
+## Jak dziala (wysoki poziom)
+```mermaid
+flowchart LR
+    A["Event + Requirements"] --> B["Planner (OR-Tools/Fallback)"]
+    B --> C["Plan + Gap Analysis"]
+    C --> D["Operator Decision"]
+    D --> E["Resolve Gaps (augment/reschedule)"]
+    E --> F["Committed Assignments"]
+    F --> G["Runtime Logs / Incidents"]
+    G --> H["Live Replan"]
+    G --> I["ML Features + Outcomes"]
+    I --> J["Model Training / Retraining"]
+    J --> B
 ```
 
-2. Uruchom stack:
-```bash
-docker compose up --build
+## Architektura komponentów
+```mermaid
+flowchart TB
+    UI["Frontend/UI"] --> API["FastAPI API"]
+    API --> CORE["Core Services"]
+    API --> RUNTIME["Runtime Services"]
+    API --> ML["ML Services"]
+    CORE --> DB[("PostgreSQL: core/ops/ai")]
+    RUNTIME --> DB
+    ML --> DB
+    API --> REDIS[("Redis")]
+    API --> CELERY["Celery Worker/Beat"]
+    CELERY --> REDIS
+    CELERY --> DB
 ```
 
-3. Sprawdz health:
-- `GET http://localhost:8000/health`
-- `GET http://localhost:8000/ready`
-
-4. Swagger:
-- `http://localhost:8000/docs`
-
-## Uruchamianie testow
-Lokalnie (jesli masz `pytest`):
-```bash
-pytest -q
-```
-
-W kontenerze backend:
-```bash
-docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q
-```
-
-## Kluczowe endpointy (przeglad)
+## Kluczowe endpointy
 ### Planner
 - `POST /api/planner/generate-plan`
 - `POST /api/planner/replan/{event_id}`
@@ -66,7 +50,7 @@ docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q
 - `POST /api/planner/preview-gaps/{event_id}`
 - `POST /api/planner/resolve-gaps/{event_id}`
 
-### Runtime operations
+### Runtime
 - `POST /api/runtime/events/{event_id}/start`
 - `POST /api/runtime/events/{event_id}/checkpoint`
 - `POST /api/runtime/events/{event_id}/incident`
@@ -79,18 +63,42 @@ docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q
 - `POST /api/ml/models/train-plan-evaluator`
 - `POST /api/ml/predictions`
 
-## Kontrakty i niezawodnosc
-- Idempotency dla runtime/replan/resolve-gaps (`idempotency_key`, replay header).
-- Stabilne domenowe kody bledow przez `X-Error-Code`.
-- Guardraile ML przy wyborze planu.
-- Hardening DB (constraints + indeksy) opisany w `docs/database/cp03-hardening.md`.
+## Quick start
+1. Skopiuj konfiguracje:
+```bash
+cp .env.example .env
+```
 
-## Praca na branchach i checkpointach
-- Integracja fazowa: `phase/*`
-- Checkpointy: `phase-N-cp-XX-*`
-- Stabilne domkniecia: `phase-N-complete`
+2. Uruchom projekt:
+```bash
+docker compose up --build
+```
 
-## Dla osob trzecich (jak czytac projekt)
-1. Zacznij od `docs/README.md` i `docs/reference/Plan.md`.
-2. Przejrzyj API przez `/docs` i kontrakt wizarda w `docs/contracts/frontend-gap-wizard.md`.
-3. Uruchom testy (`pytest -q` lub Docker) i sprawdz raport `raport.txt`.
+3. Sprawdz API:
+- `http://localhost:8000/health`
+- `http://localhost:8000/ready`
+- `http://localhost:8000/docs`
+
+## Testy
+Pełna regresja w kontenerze backend:
+```bash
+docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q
+```
+
+## Struktura projektu
+- `app/api/` - endpointy
+- `app/services/` - logika biznesowa
+- `app/models/` - modele SQLAlchemy
+- `app/schemas/` - kontrakty API
+- `app/workers/` - zadania Celery
+- `docker/postgres/init/` - schema + seed dla nowych srodowisk
+- `scripts/sql/` - patche SQL dla istniejących instancji
+- `tests/` - testy fazowe i regresyjne
+- `docs/` - dokumentacja techniczna i operacyjna
+
+## Dokumentacja dla osób trzecich
+- Start od: `docs/README.md`
+- Architektura/plan: `docs/reference/Plan.md`
+- Baza danych: `docs/database/README.md`
+- Scenariusze testowe: `docs/reports/Test_programu.md`
+- Dziennik implementacji: `raport.txt`
