@@ -22,6 +22,7 @@ class RuntimeStartRequest(BaseModel):
     phase_name: OpsPhaseName = OpsPhaseName.event_runtime
     delay_reason_code: str | None = None
     notes: str | None = None
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class RuntimeStartResponse(BaseModel):
@@ -45,6 +46,7 @@ class RuntimeCheckpointRequest(BaseModel):
     author_type: OpsAuthorType = OpsAuthorType.system
     author_reference: str | None = None
     message: str | None = None
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
     @model_validator(mode="after")
     def validate_resource_identity(self) -> "RuntimeCheckpointRequest":
@@ -78,6 +80,7 @@ class RuntimeIncidentRequest(BaseModel):
     sla_impact: bool = False
     author_type: OpsAuthorType = OpsAuthorType.system
     author_reference: str | None = None
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class RuntimeIncidentResponse(BaseModel):
@@ -94,6 +97,7 @@ class RuntimeIncidentParseRequest(BaseModel):
     author_type: OpsAuthorType = OpsAuthorType.system
     author_reference: str | None = None
     prefer_llm: bool = True
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class RuntimeIncidentParseResponse(BaseModel):
@@ -128,6 +132,7 @@ class RuntimeCompleteRequest(BaseModel):
     message: str | None = None
     phase_name: OpsPhaseName = OpsPhaseName.event_runtime
     delay_reason_code: str | None = None
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class RuntimeCompleteResponse(BaseModel):

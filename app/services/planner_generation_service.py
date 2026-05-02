@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
-from datetime import datetime, timedelta
+from dataclasses import asdict, dataclass, is_dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import pickle
 from math import asin, cos, radians, sin, sqrt
@@ -26,12 +26,19 @@ from app.models.core import (
     Assignment,
     AssignmentResourceType,
     AssignmentStatus,
+    Equipment,
     Event,
     EventStatus,
     Location,
     ResourcePerson,
     TransportLeg,
     Vehicle,
+)
+from app.models.ops import (
+    ActualTiming,
+    EventExecutionLog,
+    OpsLogType,
+    ResourceCheckpoint,
 )
 from app.schemas.planner import (
     GeneratedPlanAssignment,
@@ -53,11 +60,22 @@ from app.services.ortools_service import (
     PlannerTimeoutError,
 )
 from app.services.planner_input_builder import PlannerInputError, load_planner_input
+from app.services.datetime_service import to_utc
+from app.services.observability_service import emit_event
 from app.services.runtime_notification_service import enqueue_runtime_notification
 
 
 class PlanGenerationError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ConsumedAssignment:
+    assignment_id: str
+    requirement_id: str
+    resource_type: str
+    resource_id: str
+    estimated_cost: Decimal
 
 
 def generate_plan(
@@ -69,12 +87,23 @@ def generate_plan(
     commit_to_assignments: bool = True,
     solver_timeout_seconds: float = 10.0,
     fallback_enabled: bool = True,
+    preserve_consumed_resources: bool = False,
+    expected_event_updated_at: datetime | None = None,
 ) -> GeneratePlanResponse:
-    event = db.get(Event, event_id)
+    event = _get_event_for_update(db, event_id)
     if event is None:
         raise PlannerInputError("Event not found")
+    _validate_expected_event_version(event, expected_event_updated_at)
 
-    model = load_planner_input(db, event_id)
+    original_model = load_planner_input(db, event_id)
+    model = original_model
+    consumed_assignments: list[ConsumedAssignment] = []
+    if preserve_consumed_resources:
+        consumed_assignments = _collect_consumed_assignments(db, event_id=event_id)
+        model = _apply_consumed_assignments_to_input(
+            planner_input=original_model,
+            consumed_assignments=consumed_assignments,
+        )
     planner_run = PlannerRun(
         objective_version="phase-4-cp-04-v1",
         initiated_by=initiated_by,
@@ -84,7 +113,9 @@ def generate_plan(
             "policy": {
                 "timeout_seconds": solver_timeout_seconds,
                 "fallback_enabled": fallback_enabled,
+                "preserve_consumed_resources": preserve_consumed_resources,
             },
+            "consumed_assignments": _jsonable([asdict(item) for item in consumed_assignments]),
         },
     )
     db.add(planner_run)
@@ -96,8 +127,15 @@ def generate_plan(
             fallback_enabled=fallback_enabled,
         )
         result = PlannerService(policy=policy).solve(model)
+        if consumed_assignments:
+            result = _merge_consumed_with_planner_result(
+                planner_result=result,
+                original_input=original_model,
+                consumed_assignments=consumed_assignments,
+            )
         requirement_by_id = {
-            requirement.requirement_id: requirement for requirement in model.requirements
+            requirement.requirement_id: requirement
+            for requirement in original_model.requirements
         }
         recommendation = _create_recommendation(
             db=db,
@@ -118,6 +156,7 @@ def generate_plan(
                 planner_run=planner_run,
                 requirements=requirement_by_id,
                 assignments=result.assignments,
+                consumed_assignments=consumed_assignments,
             )
             transport_leg_ids = _create_transport_legs(
                 db=db,
@@ -125,16 +164,25 @@ def generate_plan(
                 planner_run=planner_run,
                 assignments=result.assignments,
                 requirements=requirement_by_id,
+                preserve_existing_legs=preserve_consumed_resources,
             )
             if _is_fully_assigned(result.assignments):
                 event.status = EventStatus.planned
 
-        planner_run.finished_at = datetime.utcnow()
+        planner_run.finished_at = datetime.now(UTC)
         planner_run.run_status = PlannerRunStatus.completed
         planner_run.total_cost = _money(result.estimated_cost)
         planner_run.notes = _run_notes(result.assignments)
         db.commit()
         db.refresh(recommendation)
+        emit_event(
+            "planner.generate.completed",
+            event_id=event_id,
+            planner_run_id=planner_run.planner_run_id,
+            recommendation_id=recommendation.recommendation_id,
+            fully_assigned=_is_fully_assigned(result.assignments),
+            preserve_consumed_resources=preserve_consumed_resources,
+        )
 
         return GeneratePlanResponse(
             event_id=event_id,
@@ -156,13 +204,13 @@ def generate_plan(
             estimated_cost=_money(result.estimated_cost),
         )
     except (PlannerPolicyError, PlannerTimeoutError) as exc:
-        planner_run.finished_at = datetime.utcnow()
+        planner_run.finished_at = datetime.now(UTC)
         planner_run.run_status = PlannerRunStatus.failed
         planner_run.notes = str(exc)
         db.commit()
         raise PlanGenerationError(str(exc)) from exc
     except Exception as exc:
-        planner_run.finished_at = datetime.utcnow()
+        planner_run.finished_at = datetime.now(UTC)
         planner_run.run_status = PlannerRunStatus.failed
         planner_run.notes = str(exc)
         db.commit()
@@ -179,6 +227,8 @@ def replan_event(
     commit_to_assignments: bool = True,
     solver_timeout_seconds: float = 10.0,
     fallback_enabled: bool = True,
+    preserve_consumed_resources: bool = True,
+    expected_event_updated_at: datetime | None = None,
 ) -> ReplanResponse:
     baseline = _latest_recommendation_for_event(db, event_id)
 
@@ -190,6 +240,8 @@ def replan_event(
         commit_to_assignments=commit_to_assignments,
         solver_timeout_seconds=solver_timeout_seconds,
         fallback_enabled=fallback_enabled,
+        preserve_consumed_resources=preserve_consumed_resources,
+        expected_event_updated_at=expected_event_updated_at,
     )
 
     planner_run = db.get(PlannerRun, generated.planner_run_id)
@@ -220,6 +272,14 @@ def replan_event(
             if comparison.risk_delta is not None
             else None,
         },
+    )
+    emit_event(
+        "planner.replan.completed",
+        event_id=event_id,
+        incident_id=incident_id,
+        planner_run_id=generated.planner_run_id,
+        recommendation_id=generated.recommendation_id,
+        preserve_consumed_resources=preserve_consumed_resources,
     )
 
     return ReplanResponse(
@@ -466,7 +526,7 @@ def recommend_best_plan_with_ml(
         if _is_fully_assigned(selected_result.assignments):
             event.status = EventStatus.planned
 
-    planner_run.finished_at = datetime.utcnow()
+    planner_run.finished_at = datetime.now(UTC)
     planner_run.run_status = PlannerRunStatus.completed
     planner_run.total_cost = _money(selected_result.estimated_cost)
     planner_run.total_risk_score = selected["predicted_risk"].quantize(Decimal("0.0001"))
@@ -607,22 +667,32 @@ def _commit_assignments(
     planner_run: PlannerRun,
     requirements: dict[str, PlannerRequirement],
     assignments: list[PlannerAssignment],
+    consumed_assignments: list[ConsumedAssignment] | None = None,
 ) -> list[str]:
-    db.execute(
-        delete(Assignment).where(
-            Assignment.event_id == event.event_id,
-            Assignment.is_manual_override.is_(False),
-            Assignment.status.in_(
-                [AssignmentStatus.proposed, AssignmentStatus.planned]
-            ),
-        )
+    consumed_assignment_ids = {
+        item.assignment_id for item in (consumed_assignments or [])
+    }
+    delete_query = delete(Assignment).where(
+        Assignment.event_id == event.event_id,
+        Assignment.is_manual_override.is_(False),
+        Assignment.status.in_([AssignmentStatus.proposed, AssignmentStatus.planned]),
     )
+    if consumed_assignment_ids:
+        delete_query = delete_query.where(
+            Assignment.assignment_id.notin_(consumed_assignment_ids)
+        )
+    db.execute(delete_query)
     db.flush()
 
-    assignment_ids: list[str] = []
+    consumed_key_set = {
+        (item.requirement_id, item.resource_id) for item in (consumed_assignments or [])
+    }
+    assignment_ids: list[str] = list(consumed_assignment_ids)
     for assignment in assignments:
         requirement = requirements[assignment.requirement_id]
         for resource_id in assignment.resource_ids:
+            if (assignment.requirement_id, resource_id) in consumed_key_set:
+                continue
             core_assignment = Assignment(
                 event_id=event.event_id,
                 resource_type=_assignment_resource_type(requirement),
@@ -649,21 +719,35 @@ def _create_transport_legs(
     planner_run: PlannerRun,
     assignments: list[PlannerAssignment],
     requirements: dict[str, PlannerRequirement],
+    preserve_existing_legs: bool = False,
 ) -> list[str]:
     if not event.requires_transport:
         return []
 
-    db.execute(
-        delete(TransportLeg).where(
-            TransportLeg.event_id == event.event_id,
-            TransportLeg.notes.like("Generated by planner run%"),
+    existing_leg_by_vehicle: dict[str, str] = {}
+    if preserve_existing_legs:
+        existing_legs = (
+            db.query(TransportLeg)
+            .filter(TransportLeg.event_id == event.event_id)
+            .all()
         )
-    )
-    db.flush()
+        for leg in existing_legs:
+            if leg.vehicle_id:
+                existing_leg_by_vehicle[leg.vehicle_id] = leg.transport_leg_id
+    else:
+        db.execute(
+            delete(TransportLeg).where(
+                TransportLeg.event_id == event.event_id,
+                TransportLeg.notes.like("Generated by planner run%"),
+            )
+        )
+        db.flush()
 
     driver_id = _first_driver(db, assignments, requirements)
-    leg_ids: list[str] = []
+    leg_ids: list[str] = list(existing_leg_by_vehicle.values())
     for vehicle_id in _assigned_vehicle_ids(assignments, requirements):
+        if vehicle_id in existing_leg_by_vehicle:
+            continue
         vehicle = db.get(Vehicle, vehicle_id)
         if vehicle is None or vehicle.home_location_id is None:
             continue
@@ -694,6 +778,191 @@ def _create_transport_legs(
         leg_ids.append(transport_leg.transport_leg_id)
 
     return leg_ids
+
+
+def _collect_consumed_assignments(
+    db: Session,
+    *,
+    event_id: str,
+) -> list[ConsumedAssignment]:
+    consumed_ids = _consumed_assignment_ids(db, event_id=event_id)
+    if not consumed_ids:
+        return []
+
+    assignments = (
+        db.query(Assignment)
+        .filter(
+            Assignment.event_id == event_id,
+            Assignment.assignment_id.in_(consumed_ids),
+        )
+        .all()
+    )
+
+    consumed: list[ConsumedAssignment] = []
+    for assignment in assignments:
+        requirement_id = _extract_requirement_id_from_role(assignment.assignment_role)
+        if not requirement_id:
+            continue
+        resource_id = _assignment_resource_id(assignment)
+        if resource_id is None:
+            continue
+        consumed.append(
+            ConsumedAssignment(
+                assignment_id=assignment.assignment_id,
+                requirement_id=requirement_id,
+                resource_type=assignment.resource_type.value,
+                resource_id=resource_id,
+                estimated_cost=_assignment_estimated_cost(db, assignment),
+            )
+        )
+    return consumed
+
+
+def _consumed_assignment_ids(db: Session, *, event_id: str) -> set[str]:
+    consumed_ids: set[str] = set()
+    consumed_by_flag = (
+        db.query(Assignment.assignment_id)
+        .filter(
+            Assignment.event_id == event_id,
+            Assignment.is_consumed_in_execution.is_(True),
+        )
+        .all()
+    )
+    consumed_ids.update(item[0] for item in consumed_by_flag if item[0])
+
+    status_consumed = (
+        db.query(Assignment.assignment_id)
+        .filter(
+            Assignment.event_id == event_id,
+            Assignment.status.in_(
+                [
+                    AssignmentStatus.active,
+                    AssignmentStatus.completed,
+                    AssignmentStatus.confirmed,
+                ]
+            ),
+        )
+        .all()
+    )
+    consumed_ids.update(item[0] for item in status_consumed if item[0])
+
+    checkpoint_consumed = (
+        db.query(ResourceCheckpoint.assignment_id)
+        .filter(
+            ResourceCheckpoint.event_id == event_id,
+            ResourceCheckpoint.assignment_id.isnot(None),
+        )
+        .all()
+    )
+    consumed_ids.update(item[0] for item in checkpoint_consumed if item[0])
+
+    timing_consumed = (
+        db.query(ActualTiming.assignment_id)
+        .filter(
+            ActualTiming.event_id == event_id,
+            ActualTiming.assignment_id.isnot(None),
+            ActualTiming.actual_start.isnot(None),
+        )
+        .all()
+    )
+    consumed_ids.update(item[0] for item in timing_consumed if item[0])
+
+    log_consumed = (
+        db.query(EventExecutionLog.assignment_id)
+        .filter(
+            EventExecutionLog.event_id == event_id,
+            EventExecutionLog.assignment_id.isnot(None),
+            EventExecutionLog.log_type.in_(
+                [
+                    OpsLogType.transport_started,
+                    OpsLogType.transport_arrived,
+                    OpsLogType.setup_started,
+                    OpsLogType.setup_completed,
+                    OpsLogType.teardown_started,
+                    OpsLogType.teardown_completed,
+                    OpsLogType.event_started,
+                ]
+            ),
+        )
+        .all()
+    )
+    consumed_ids.update(item[0] for item in log_consumed if item[0])
+
+    return consumed_ids
+
+
+def _apply_consumed_assignments_to_input(
+    *,
+    planner_input: PlannerInput,
+    consumed_assignments: list[ConsumedAssignment],
+) -> PlannerInput:
+    consumed_by_requirement: dict[str, set[str]] = {}
+    for item in consumed_assignments:
+        consumed_by_requirement.setdefault(item.requirement_id, set()).add(item.resource_id)
+
+    adjusted_requirements: list[PlannerRequirement] = []
+    for requirement in planner_input.requirements:
+        consumed_ids = consumed_by_requirement.get(requirement.requirement_id, set())
+        adjusted_quantity = max(requirement.quantity - len(consumed_ids), 0)
+        adjusted_candidates = [
+            candidate
+            for candidate in requirement.candidates
+            if candidate.resource_id not in consumed_ids
+        ]
+        adjusted_requirements.append(
+            PlannerRequirement(
+                requirement_id=requirement.requirement_id,
+                resource_type=requirement.resource_type,
+                quantity=adjusted_quantity,
+                mandatory=requirement.mandatory,
+                required_start=requirement.required_start,
+                required_end=requirement.required_end,
+                candidates=adjusted_candidates,
+            )
+        )
+    return PlannerInput(requirements=adjusted_requirements)
+
+
+def _merge_consumed_with_planner_result(
+    *,
+    planner_result: PlannerResult,
+    original_input: PlannerInput,
+    consumed_assignments: list[ConsumedAssignment],
+) -> PlannerResult:
+    requirement_map = {
+        requirement.requirement_id: requirement for requirement in original_input.requirements
+    }
+    consumed_by_requirement: dict[str, list[ConsumedAssignment]] = {}
+    for item in consumed_assignments:
+        consumed_by_requirement.setdefault(item.requirement_id, []).append(item)
+
+    merged_assignments: list[PlannerAssignment] = []
+    merged_cost = Decimal("0")
+    for assignment in planner_result.assignments:
+        requirement = requirement_map.get(assignment.requirement_id)
+        consumed_items = consumed_by_requirement.get(assignment.requirement_id, [])
+        consumed_resource_ids = [item.resource_id for item in consumed_items]
+        merged_ids = list(dict.fromkeys(consumed_resource_ids + assignment.resource_ids))
+        required_qty = requirement.quantity if requirement is not None else len(merged_ids)
+        unassigned_count = max(required_qty - len(merged_ids), 0)
+        consumed_cost = sum((item.estimated_cost for item in consumed_items), Decimal("0"))
+        merged_assignment = PlannerAssignment(
+            requirement_id=assignment.requirement_id,
+            resource_ids=merged_ids,
+            unassigned_count=unassigned_count,
+            estimated_cost=assignment.estimated_cost + consumed_cost,
+        )
+        merged_assignments.append(merged_assignment)
+        merged_cost += merged_assignment.estimated_cost
+
+    return PlannerResult(
+        plan_id=planner_result.plan_id,
+        solver=planner_result.solver,
+        assignments=merged_assignments,
+        estimated_cost=merged_cost,
+        duration_ms=planner_result.duration_ms,
+        fallback_reason=planner_result.fallback_reason,
+    )
 
 
 def _response_assignment(
@@ -732,6 +1001,46 @@ def _resource_fk(resource_type: str, resource_id: str) -> dict[str, str]:
 
 def _assignment_role(requirement: PlannerRequirement) -> str:
     return f"requirement:{requirement.requirement_id}"
+
+
+def _extract_requirement_id_from_role(assignment_role: str | None) -> str | None:
+    if not assignment_role:
+        return None
+    prefix = "requirement:"
+    if not assignment_role.startswith(prefix):
+        return None
+    requirement_id = assignment_role[len(prefix):].strip()
+    if not requirement_id:
+        return None
+    return requirement_id
+
+
+def _assignment_resource_id(assignment: Assignment) -> str | None:
+    if assignment.resource_type == AssignmentResourceType.person:
+        return assignment.person_id
+    if assignment.resource_type == AssignmentResourceType.equipment:
+        return assignment.equipment_id
+    if assignment.resource_type == AssignmentResourceType.vehicle:
+        return assignment.vehicle_id
+    return None
+
+
+def _assignment_estimated_cost(db: Session, assignment: Assignment) -> Decimal:
+    duration_seconds = max((assignment.planned_end - assignment.planned_start).total_seconds(), 0)
+    duration_hours = Decimal(str(duration_seconds / 3600.0))
+    if assignment.resource_type == AssignmentResourceType.person and assignment.person_id:
+        person = db.get(ResourcePerson, assignment.person_id)
+        if person is not None and person.cost_per_hour is not None:
+            return _money(person.cost_per_hour * duration_hours)
+    if assignment.resource_type == AssignmentResourceType.equipment and assignment.equipment_id:
+        equipment = db.get(Equipment, assignment.equipment_id)
+        if equipment is not None and equipment.hourly_cost_estimate is not None:
+            return _money(equipment.hourly_cost_estimate * duration_hours)
+    if assignment.resource_type == AssignmentResourceType.vehicle and assignment.vehicle_id:
+        vehicle = db.get(Vehicle, assignment.vehicle_id)
+        if vehicle is not None and vehicle.cost_per_hour is not None:
+            return _money(vehicle.cost_per_hour * duration_hours)
+    return Decimal("0.00")
 
 
 def _resource_cost_share(assignment: PlannerAssignment) -> Decimal:
@@ -1331,6 +1640,31 @@ def _latest_recommendation_for_event(
         .order_by(PlannerRecommendation.created_at.desc())
         .first()
     )
+
+
+def _get_event_for_update(db: Session, event_id: str) -> Event | None:
+    return (
+        db.query(Event)
+        .filter(Event.event_id == event_id)
+        .with_for_update()
+        .first()
+    )
+
+
+def _validate_expected_event_version(
+    event: Event,
+    expected_event_updated_at: datetime | None,
+) -> None:
+    if expected_event_updated_at is None:
+        return
+    current = to_utc(event.updated_at)
+    expected = to_utc(expected_event_updated_at)
+    if current is None or expected is None:
+        return
+    if current != expected:
+        raise PlanGenerationError(
+            "Event changed concurrently. Refresh event state before replanning."
+        )
 
 
 def attach_plan_outcome_feedback(

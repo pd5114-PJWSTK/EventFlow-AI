@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.core import Event, EventStatus
+from app.models.core import Assignment, Event, EventStatus
 from app.models.ops import (
     ActualTiming,
     EventExecutionLog,
@@ -25,6 +25,8 @@ from app.schemas.runtime_ops import (
 )
 from app.services.runtime_notification_service import enqueue_runtime_notification
 from app.services.planner_generation_service import attach_plan_outcome_feedback
+from app.services.datetime_service import minutes_between_utc, to_utc
+from app.services.observability_service import emit_event
 
 
 class RuntimeOpsError(ValueError):
@@ -34,8 +36,8 @@ class RuntimeOpsError(ValueError):
 def start_event_execution(
     db: Session, *, event_id: str, payload: RuntimeStartRequest
 ) -> RuntimeStartResponse:
-    event = _get_event_or_error(db, event_id)
-    started_at = payload.started_at or datetime.utcnow()
+    event = _get_event_or_error(db, event_id, for_update=True)
+    started_at = to_utc(payload.started_at) or datetime.now(UTC)
 
     event.status = EventStatus.in_progress
 
@@ -63,6 +65,13 @@ def start_event_execution(
     db.commit()
     db.refresh(log)
     db.refresh(timing)
+    emit_event(
+        "runtime.start",
+        event_id=event.event_id,
+        timing_id=timing.timing_id,
+        log_id=log.log_id,
+        phase_name=payload.phase_name.value,
+    )
     enqueue_runtime_notification(
         event_id=event.event_id,
         notification_type="event_started",
@@ -85,8 +94,8 @@ def start_event_execution(
 def create_resource_checkpoint(
     db: Session, *, event_id: str, payload: RuntimeCheckpointRequest
 ) -> RuntimeCheckpointResponse:
-    event = _get_event_or_error(db, event_id)
-    checkpoint_time = payload.checkpoint_time or datetime.utcnow()
+    event = _get_event_or_error(db, event_id, for_update=True)
+    checkpoint_time = to_utc(payload.checkpoint_time) or datetime.now(UTC)
 
     checkpoint = ResourceCheckpoint(
         event_id=event.event_id,
@@ -120,10 +129,22 @@ def create_resource_checkpoint(
         },
     )
     db.add(log)
+    _mark_assignment_consumed(
+        db,
+        assignment_id=payload.assignment_id,
+        consumed_at=checkpoint_time,
+    )
 
     db.commit()
     db.refresh(checkpoint)
     db.refresh(log)
+    emit_event(
+        "runtime.checkpoint",
+        event_id=event.event_id,
+        checkpoint_id=checkpoint.checkpoint_id,
+        assignment_id=payload.assignment_id,
+        resource_type=payload.resource_type.value,
+    )
     enqueue_runtime_notification(
         event_id=event.event_id,
         notification_type="resource_checkpoint",
@@ -142,8 +163,8 @@ def create_resource_checkpoint(
 def report_incident(
     db: Session, *, event_id: str, payload: RuntimeIncidentRequest
 ) -> RuntimeIncidentResponse:
-    event = _get_event_or_error(db, event_id)
-    reported_at = payload.reported_at or datetime.utcnow()
+    event = _get_event_or_error(db, event_id, for_update=True)
+    reported_at = to_utc(payload.reported_at) or datetime.now(UTC)
 
     incident = Incident(
         event_id=event.event_id,
@@ -174,9 +195,21 @@ def report_incident(
         },
     )
     db.add(log)
+    _mark_assignment_consumed(
+        db,
+        assignment_id=payload.assignment_id,
+        consumed_at=reported_at,
+    )
     db.commit()
     db.refresh(incident)
     db.refresh(log)
+    emit_event(
+        "runtime.incident",
+        event_id=event.event_id,
+        incident_id=incident.incident_id,
+        incident_type=payload.incident_type.value,
+        severity=payload.severity.value,
+    )
     enqueue_runtime_notification(
         event_id=event.event_id,
         notification_type="incident_reported",
@@ -196,8 +229,8 @@ def report_incident(
 def complete_event_execution(
     db: Session, *, event_id: str, payload: RuntimeCompleteRequest
 ) -> RuntimeCompleteResponse:
-    event = _get_event_or_error(db, event_id)
-    completed_at = payload.completed_at or datetime.utcnow()
+    event = _get_event_or_error(db, event_id, for_update=True)
+    completed_at = to_utc(payload.completed_at) or datetime.now(UTC)
 
     event.status = EventStatus.completed
 
@@ -256,14 +289,21 @@ def complete_event_execution(
         if payload.summary_notes:
             timing.notes = payload.summary_notes
         if timing.planned_end is not None and timing.actual_end is not None:
-            timing.delay_minutes = int(
-                (timing.actual_end - timing.planned_end).total_seconds() // 60
+            timing.delay_minutes = minutes_between_utc(
+                timing.actual_end, timing.planned_end
             )
 
     db.commit()
     db.refresh(outcome)
     db.refresh(log)
     db.refresh(timing)
+    emit_event(
+        "runtime.complete",
+        event_id=event.event_id,
+        timing_id=timing.timing_id,
+        outcome_event_id=outcome.event_id,
+        sla_breached=payload.sla_breached,
+    )
     enqueue_runtime_notification(
         event_id=event.event_id,
         notification_type="event_completed",
@@ -285,8 +325,11 @@ def complete_event_execution(
     )
 
 
-def _get_event_or_error(db: Session, event_id: str) -> Event:
-    event = db.get(Event, event_id)
+def _get_event_or_error(db: Session, event_id: str, *, for_update: bool = False) -> Event:
+    query = db.query(Event).filter(Event.event_id == event_id)
+    if for_update:
+        query = query.with_for_update()
+    event = query.first()
     if event is None:
         raise RuntimeOpsError("Event not found")
     return event
@@ -305,3 +348,19 @@ def _get_open_timing(
         .order_by(ActualTiming.created_at.desc())
         .first()
     )
+
+
+def _mark_assignment_consumed(
+    db: Session,
+    *,
+    assignment_id: str | None,
+    consumed_at: datetime,
+) -> None:
+    if not assignment_id:
+        return
+    assignment = db.get(Assignment, assignment_id)
+    if assignment is None:
+        return
+    assignment.is_consumed_in_execution = True
+    assignment.consumed_at = consumed_at
+    db.add(assignment)

@@ -975,3 +975,41 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: pelna gotowosc warstwy ML do wyboru planu i bezpiecznego fallbacku przy niskim zaufaniu/wysokim ryzyku.
 - [2026-05-02] Zrealizowano CP-08 (2 realne scenariusze E2E + dokument `Test_programu.md`).
   Cel: potwierdzic praktyczne dzialanie programu od ingestu eventu, przez planowanie/replanning, do finalizacji i logowania outcome.
+
+13) FAZA 8 - POSTEP IMPLEMENTACJI (CP-01)
+- Status fazy: W TOKU (hardening backend przed frontendem).
+- Status checkpointu: `phase-8-cp-01-runtime-hardening-idempotency-concurrency` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano jawny mechanizm idempotency dla operacji runtime i replanningu:
+    - nowy model `IdempotencyRecord` w `ops` (`app/models/ops.py`),
+    - serwis `app/services/idempotency_service.py` (reserve/complete/fail + replay),
+    - wsparcie `idempotency_key` w requestach runtime i replan (`app/schemas/runtime_ops.py`, `app/schemas/planner.py`),
+    - replay z naglowkiem `X-Idempotency-Replayed: true`.
+  - Dodano twardsza obsluge bledow API pod frontend:
+    - `app/api/error_utils.py` + naglowek `X-Error-Code`,
+    - mapowanie bledow domenowych w runtime/planner do stabilnych kodow.
+  - Dodano explicit consumed/frozen execution state:
+    - `core.assignments`: `is_consumed_in_execution`, `consumed_at` (`app/models/core.py`),
+    - markowanie consumed assignmentow przy runtime checkpoint/incident,
+    - replan z opcja `preserve_consumed_resources=true` domyslnie.
+  - Dodano kontrole wspolbieznosci i wersjonowania replanu:
+    - mutujace operacje runtime na lockowanym odczycie eventu,
+    - `expected_event_updated_at` dla ochrony przed stale write w replan.
+  - Ujednolicono obsluge czasu:
+    - `app/services/datetime_service.py` (normalizacja do UTC, obliczenia minut),
+    - runtime/replan licza opoznienia i checkpointy na danych timezone-safe.
+  - Dodano observability:
+    - `app/services/observability_service.py`,
+    - emitowanie structured eventow runtime/replan.
+  - Dodano testy niefunkcjonalne i regresyjne CP-01:
+    - `tests/test_phase8_cp01.py` (idempotency replay/conflict, stale version, timezone handling, preserve consumed resources, performance smoke).
+- Walidacja wykonania:
+  - Kontrola skladni:
+    - `python -m py_compile app/api/planner.py app/api/runtime_ops.py app/models/ops.py app/models/core.py app/schemas/planner.py app/schemas/runtime_ops.py app/services/planner_generation_service.py app/services/runtime_ops_service.py app/services/idempotency_service.py app/services/datetime_service.py app/services/observability_service.py tests/test_phase8_cp01.py` -> passed.
+  - Testy regresyjne CP:
+    - `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q tests/test_phase6_cp04.py tests/test_phase7_cp05.py tests/test_phase7_cp08.py tests/test_phase8_cp01.py` -> 12 passed.
+  - Pelny pakiet:
+    - `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 93 passed.
+
+- [2026-05-02] Zaimplementowano CP-01 Fazy 8 (runtime hardening: idempotency, concurrency, consumed state, timezone, observability).
+  Cel: przygotowac backend pod stabilny frontend i ograniczyc ryzyko niespojnych zapisow przy live operacjach.

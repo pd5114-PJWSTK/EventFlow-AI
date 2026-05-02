@@ -14,6 +14,7 @@ from sqlalchemy import (
     JSON,
     Numeric,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -100,6 +101,12 @@ class OpsIncidentSeverity(str, Enum):
     medium = "medium"
     high = "high"
     critical = "critical"
+
+
+class IdempotencyStatus(str, Enum):
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
 
 
 class EventExecutionLog(Base):
@@ -266,3 +273,39 @@ class ResourceCheckpoint(Base):
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        UniqueConstraint("scope", "idempotency_key", name="uq_idempotency_scope_key"),
+        {"schema": OPS_SCHEMA},
+    )
+
+    idempotency_record_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4())
+    )
+    scope: Mapped[str] = mapped_column(Text, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    event_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("events.event_id"), ondelete="SET NULL"),
+    )
+    request_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[IdempotencyStatus] = mapped_column(
+        SAEnum(IdempotencyStatus, native_enum=False),
+        default=IdempotencyStatus.processing,
+        nullable=False,
+    )
+    response_payload: Mapped[dict | None] = mapped_column(JSON)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )

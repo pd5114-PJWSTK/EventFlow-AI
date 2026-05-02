@@ -517,6 +517,10 @@ class Assignment(Base):
     is_manual_override: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+    is_consumed_in_execution: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
