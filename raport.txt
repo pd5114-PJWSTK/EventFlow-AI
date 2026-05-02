@@ -749,3 +749,55 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: domknac zapis predykcji i ich ewaluacje na danych rzeczywistych jako feedback loop pod monitoring model drift.
 - [2026-05-02] Zacommitowano i otagowano CP-03 Fazy 7 (`phase-7-cp-03-inference-and-outcomes`).
   Cel: zamknac trzeci checkpoint Fazy 7 jako stabilny punkt wejscia do CP-04.
+
+12.3) FAZA 7 - POSTEP IMPLEMENTACJI (CP-04)
+- Status checkpointu: `phase-7-cp-04-retraining-workflow` -> ZREALIZOWANY i zacommitowany + otagowany.
+- Zakres wykonany:
+  - Rozszerzono konfiguracje retraining workflow:
+    - `ML_RETRAIN_ENABLED`,
+    - `ML_RETRAIN_SCHEDULE_MINUTES`,
+    - `ML_RETRAIN_ACTIVATION_MIN_SAMPLES`,
+    - `ML_RETRAIN_ACTIVATION_MIN_R2_IMPROVEMENT`,
+    - `ML_RETRAIN_ACTIVATION_MAX_MAE_RATIO` (`app/config.py`, `.env.example`).
+  - Rozszerzono serwis treningu o workflow retraining i warunki aktywacji:
+    - `retrain_duration_model(...)` w `app/services/ml_training_service.py`.
+  - Dodano decyzje aktywacji modelu na bazie polityki:
+    - min liczba probek,
+    - minimalna poprawa `r2`,
+    - limit pogorszenia `mae` vs aktywny baseline,
+    - fallback aktywacji przy braku baseline (`activated_no_baseline`).
+  - Dodano endpoint retraining workflow:
+    - `POST /api/ml/models/retrain-duration`.
+  - Dodano kontrakty API retrainingu:
+    - `RetrainDurationModelRequest`,
+    - `RetrainDurationModelResponse` (`app/schemas/ml_models.py`).
+  - Dodano Celery task retrainingu:
+    - `app/workers/ml_tasks.py` (`app.workers.ml_tasks.retrain_duration_model`).
+  - Rozszerzono konfiguracje Celery o:
+    - import `app.workers.ml_tasks`,
+    - harmonogram beat `ml-retrain-duration-model` (co `ML_RETRAIN_SCHEDULE_MINUTES`) przy `ML_RETRAIN_ENABLED=true`.
+  - Dodano testy CP-04:
+    - `tests/test_phase7_cp04.py`.
+- Walidacja wykonania:
+  - Testy CP-04: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp04.py -q` -> 3 passed.
+  - Testy Fazy 7: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase7_cp03.py tests/test_phase7_cp04.py -q` -> 12 passed.
+  - Pelny pakiet regresji: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 80 passed.
+
+12.4) FAZA 7 - ZAMKNIECIE KONCOWE
+- Status fazy: ZAMKNIETA.
+- Finalny zakres potwierdzony:
+  - CP-01: `phase-7-cp-01-ml-feature-engineering-pipeline`
+  - CP-02: `phase-7-cp-02-model-training-and-registry`
+  - CP-03: `phase-7-cp-03-inference-and-outcomes`
+  - CP-04: `phase-7-cp-04-retraining-workflow`
+- Finalna walidacja wykonania Fazy 7:
+  - Testy Fazy 7: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase7_cp03.py tests/test_phase7_cp04.py -q` -> 12 passed.
+  - Regresja Faza 6 + Faza 7: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp04.py tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase7_cp03.py tests/test_phase7_cp04.py -q` -> 15 passed.
+  - Pelny pakiet: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 80 passed.
+- Artifact zamkniecia:
+  - tag koncowy: `phase-7-complete`.
+
+- [2026-05-02] Zaimplementowano CP-04 Fazy 7 (retraining workflow + activation policy + celery beat scheduler).
+  Cel: zautomatyzowac cykliczny retraining i kontrolowane aktywowanie nowych wersji modeli na podstawie metryk.
+- [2026-05-02] Oznaczono Faze 7 jako zamknieta.
+  Cel: potwierdzic domkniecie pelnego ML pipeline (features -> training -> inference -> outcomes -> retraining).
