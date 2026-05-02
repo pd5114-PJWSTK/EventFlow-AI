@@ -28,10 +28,17 @@ from app.models.core import (
 	VehicleType,
 )
 from app.models.ai import (
+	EventFeature,
+	ModelRegistry,
+	ModelStatus,
 	PlannerRecommendation,
 	PlannerRecommendationAssignment,
 	PlannerRun,
 	PlannerRunStatus,
+	Prediction,
+	PredictionOutcome,
+	PredictionType,
+	ResourceFeature,
 )
 from app.models.ops import (
     ActualTiming,
@@ -67,6 +74,13 @@ __all__ = [
 	"PlannerRecommendationAssignment",
 	"PlannerRun",
 	"PlannerRunStatus",
+	"EventFeature",
+	"ResourceFeature",
+	"ModelRegistry",
+	"ModelStatus",
+	"Prediction",
+	"PredictionOutcome",
+	"PredictionType",
 	"PriorityLevel",
 	"ActualTiming",
 	"EventExecutionLog",
