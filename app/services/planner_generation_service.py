@@ -45,6 +45,7 @@ from app.models.ops import (
     ResourceCheckpoint,
 )
 from app.schemas.planner import (
+    GapResolutionPreviewResponse,
     GapResolutionGuidance,
     GapResolutionOption,
     GeneratedPlanAssignment,
@@ -471,6 +472,31 @@ def resolve_plan_gaps(
         updated_event_window_end=updated_end,
         generated_plan=generated,
         decision_summary=summary,
+    )
+
+
+def build_gap_resolution_preview(
+    db: Session,
+    *,
+    event_id: str,
+    initiated_by: str | None = None,
+    solver_timeout_seconds: float = 10.0,
+    fallback_enabled: bool = True,
+) -> GapResolutionPreviewResponse:
+    generated = generate_plan(
+        db,
+        event_id=event_id,
+        initiated_by=initiated_by,
+        trigger_reason="gap_preview",
+        commit_to_assignments=False,
+        solver_timeout_seconds=solver_timeout_seconds,
+        fallback_enabled=fallback_enabled,
+        preserve_consumed_resources=True,
+    )
+    return GapResolutionPreviewResponse(
+        event_id=event_id,
+        preview_generated_at=datetime.now(UTC),
+        generated_plan=generated,
     )
 
 

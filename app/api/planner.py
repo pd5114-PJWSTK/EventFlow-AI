@@ -6,6 +6,8 @@ from app.database import get_db
 from app.schemas.planner import (
     ConstraintCheckRequest,
     ConstraintCheckResponse,
+    GapResolutionPreviewRequest,
+    GapResolutionPreviewResponse,
     GeneratePlanRequest,
     GeneratePlanResponse,
     RecommendBestPlanRequest,
@@ -17,6 +19,7 @@ from app.schemas.planner import (
 )
 from app.services.planner_generation_service import (
     PlanGenerationError,
+    build_gap_resolution_preview,
     generate_plan,
     recommend_best_plan_with_ml,
     resolve_plan_gaps,
@@ -290,6 +293,43 @@ def resolve_plan_gaps_endpoint(
             error_code="PLANNER_GENERATION_ERROR",
             error_message=str(exc),
         )
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="PLANNER_GENERATION_ERROR",
+            message=str(exc),
+        ) from exc
+
+
+@router.post("/preview-gaps/{event_id}", response_model=GapResolutionPreviewResponse)
+def preview_plan_gaps_endpoint(
+    event_id: str,
+    payload: GapResolutionPreviewRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> GapResolutionPreviewResponse:
+    try:
+        result = build_gap_resolution_preview(
+            db,
+            event_id=event_id,
+            initiated_by=payload.initiated_by,
+            solver_timeout_seconds=payload.solver_timeout_seconds,
+            fallback_enabled=payload.fallback_enabled,
+        )
+        response.headers["X-Operation-Status"] = "success"
+        return result
+    except PlannerInputError as exc:
+        if str(exc) == "Event not found":
+            raise http_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_code="PLANNER_EVENT_NOT_FOUND",
+                message=str(exc),
+            ) from exc
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="PLANNER_INPUT_ERROR",
+            message=str(exc),
+        ) from exc
+    except PlanGenerationError as exc:
         raise http_error(
             status_code=status.HTTP_400_BAD_REQUEST,
             error_code="PLANNER_GENERATION_ERROR",

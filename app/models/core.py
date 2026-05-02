@@ -7,16 +7,19 @@ from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     SmallInteger,
     String,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -473,7 +476,86 @@ class VehicleAvailability(Base):
 
 class Assignment(Base):
     __tablename__ = "assignments"
-    __table_args__ = {"schema": CORE_SCHEMA}
+    __table_args__ = (
+        CheckConstraint(
+            "planned_end > planned_start",
+            name="ck_assignments_time_window",
+        ),
+        CheckConstraint(
+            "(consumed_at IS NULL) OR (consumed_at >= created_at)",
+            name="ck_assignments_consumed_after_create",
+        ),
+        CheckConstraint(
+            "("
+            "(resource_type = 'person' AND person_id IS NOT NULL AND equipment_id IS NULL AND vehicle_id IS NULL) OR "
+            "(resource_type = 'equipment' AND equipment_id IS NOT NULL AND person_id IS NULL AND vehicle_id IS NULL) OR "
+            "(resource_type = 'vehicle' AND vehicle_id IS NOT NULL AND person_id IS NULL AND equipment_id IS NULL)"
+            ")",
+            name="ck_assignments_resource_identity",
+        ),
+        Index(
+            "uq_assignments_person_active_slot",
+            "event_id",
+            "person_id",
+            "planned_start",
+            "planned_end",
+            "status",
+            unique=True,
+            postgresql_where=text("resource_type = 'person'"),
+            sqlite_where=text("resource_type = 'person'"),
+        ),
+        Index(
+            "uq_assignments_equipment_active_slot",
+            "event_id",
+            "equipment_id",
+            "planned_start",
+            "planned_end",
+            "status",
+            unique=True,
+            postgresql_where=text("resource_type = 'equipment'"),
+            sqlite_where=text("resource_type = 'equipment'"),
+        ),
+        Index(
+            "uq_assignments_vehicle_active_slot",
+            "event_id",
+            "vehicle_id",
+            "planned_start",
+            "planned_end",
+            "status",
+            unique=True,
+            postgresql_where=text("resource_type = 'vehicle'"),
+            sqlite_where=text("resource_type = 'vehicle'"),
+        ),
+        Index(
+            "ix_assignments_event_window_status",
+            "event_id",
+            "planned_start",
+            "planned_end",
+            "status",
+        ),
+        Index(
+            "ix_assignments_person_window_status",
+            "person_id",
+            "planned_start",
+            "planned_end",
+            "status",
+        ),
+        Index(
+            "ix_assignments_equipment_window_status",
+            "equipment_id",
+            "planned_start",
+            "planned_end",
+            "status",
+        ),
+        Index(
+            "ix_assignments_vehicle_window_status",
+            "vehicle_id",
+            "planned_start",
+            "planned_end",
+            "status",
+        ),
+        {"schema": CORE_SCHEMA},
+    )
 
     assignment_id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4())

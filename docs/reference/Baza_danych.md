@@ -1,4 +1,83 @@
-﻿BEGIN;
+Baza danych:
+1. Klient i lokalizacja trafiają do:
+   - core.clients
+   - core.locations
+
+2. Zlecenie eventowe trafia do:
+   - core.events
+
+3. Wymagania eventu trafiają do:
+   - core.event_requirements
+
+4. Dostępne zasoby są przechowywane w:
+   - core.resources_people
+   - core.equipment
+   - core.vehicles
+   - tabele availability
+
+5. Planner generuje plan i zapisuje go w:
+   - core.assignments
+   - core.transport_legs
+   - ai.planner_runs
+   - ai.planner_recommendations
+
+6. AI generuje predykcje i zapisuje je w:
+   - ai.event_features
+   - ai.resource_features
+   - ai.predictions
+
+7. Realizacja eventu zapisuje faktyczny przebieg w:
+   - ops.event_execution_logs
+   - ops.actual_timings
+   - ops.incidents
+   - ops.resource_checkpoints
+
+8. Po evencie wynik końcowy trafia do:
+   - ops.event_outcomes
+
+9. Na podstawie outcome i actuals AI może ocenić swoje predykcje:
+   - ai.prediction_outcomes
+
+-- =========================================================
+CLIENTS ──< EVENTS >── LOCATIONS
+              |
+              +──< EVENT_REQUIREMENTS
+              |
+              +──< ASSIGNMENTS >── PEOPLE
+              |                 └── EQUIPMENT
+              |                 └── VEHICLES
+              |
+              +──< TRANSPORT_LEGS
+              |
+              +──< ACTUAL_TIMINGS
+              +──< INCIDENTS
+              +──< EXECUTION_LOGS
+              |
+              +── EVENT_OUTCOMES
+              +── EVENT_FEATURES
+              +──< PREDICTIONS
+
+PLANNER_RUNS ──< ASSIGNMENTS
+PLANNER_RUNS ──< PLANNER_RECOMMENDATIONS ──< PLANNER_RECOMMENDATION_ASSIGNMENTS
+
+MODELS ──< PREDICTIONS
+
+PREDICTIONS ──< PREDICTION_OUTCOMES
+-- =========================================================
+
+-- =========================================================
+-- EventFlow AI - PostgreSQL Schema
+-- =========================================================
+-- Assumptions:
+-- - PostgreSQL 14+
+-- - UUID primary keys
+-- - 3 logical schemas: core, ops, ai
+-- - Planner works mainly on core
+-- - Operational history is stored in ops
+-- - AI features/predictions live in ai
+-- =========================================================
+
+BEGIN;
 
 -- ---------------------------------------------------------
 -- Extensions
@@ -900,110 +979,6 @@ CREATE INDEX idx_execution_logs_meta_gin ON ops.event_execution_logs USING GIN (
 CREATE INDEX idx_models_metrics_gin ON ai.models USING GIN (metrics);
 CREATE INDEX idx_predictions_feature_snapshot_gin ON ai.predictions USING GIN (feature_snapshot);
 CREATE INDEX idx_planner_runs_input_snapshot_gin ON ai.planner_runs USING GIN (input_snapshot);
-
--- =========================================================
--- CP-03 hardening constraints and indexes
--- =========================================================
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ck_assignments_time_window'
-    ) THEN
-        ALTER TABLE core.assignments
-            ADD CONSTRAINT ck_assignments_time_window
-            CHECK (planned_end > planned_start);
-    END IF;
-END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ck_assignments_consumed_after_create'
-    ) THEN
-        ALTER TABLE core.assignments
-            ADD CONSTRAINT ck_assignments_consumed_after_create
-            CHECK (consumed_at IS NULL OR consumed_at >= created_at);
-    END IF;
-END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ck_assignments_resource_identity'
-    ) THEN
-        ALTER TABLE core.assignments
-            ADD CONSTRAINT ck_assignments_resource_identity
-            CHECK (
-                (resource_type = 'person' AND person_id IS NOT NULL AND equipment_id IS NULL AND vehicle_id IS NULL)
-                OR
-                (resource_type = 'equipment' AND equipment_id IS NOT NULL AND person_id IS NULL AND vehicle_id IS NULL)
-                OR
-                (resource_type = 'vehicle' AND vehicle_id IS NOT NULL AND person_id IS NULL AND equipment_id IS NULL)
-            );
-    END IF;
-END $$;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assignments_person_active_slot
-    ON core.assignments(event_id, person_id, planned_start, planned_end, status)
-    WHERE resource_type = 'person';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assignments_equipment_active_slot
-    ON core.assignments(event_id, equipment_id, planned_start, planned_end, status)
-    WHERE resource_type = 'equipment';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assignments_vehicle_active_slot
-    ON core.assignments(event_id, vehicle_id, planned_start, planned_end, status)
-    WHERE resource_type = 'vehicle';
-
-CREATE INDEX IF NOT EXISTS ix_assignments_event_window_status
-    ON core.assignments(event_id, planned_start, planned_end, status);
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ck_actual_timings_planned_window'
-    ) THEN
-        ALTER TABLE ops.actual_timings
-            ADD CONSTRAINT ck_actual_timings_planned_window
-            CHECK ((planned_start IS NULL OR planned_end IS NULL) OR (planned_end >= planned_start));
-    END IF;
-END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ck_actual_timings_actual_window'
-    ) THEN
-        ALTER TABLE ops.actual_timings
-            ADD CONSTRAINT ck_actual_timings_actual_window
-            CHECK ((actual_start IS NULL OR actual_end IS NULL) OR (actual_end >= actual_start));
-    END IF;
-END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ck_resource_checkpoints_resource_identity'
-    ) THEN
-        ALTER TABLE ops.resource_checkpoints
-            ADD CONSTRAINT ck_resource_checkpoints_resource_identity
-            CHECK (
-                (resource_type = 'person' AND person_id IS NOT NULL AND equipment_id IS NULL AND vehicle_id IS NULL)
-                OR
-                (resource_type = 'equipment' AND equipment_id IS NOT NULL AND person_id IS NULL AND vehicle_id IS NULL)
-                OR
-                (resource_type = 'vehicle' AND vehicle_id IS NOT NULL AND person_id IS NULL AND equipment_id IS NULL)
-            );
-    END IF;
-END $$;
-
-CREATE INDEX IF NOT EXISTS ix_event_execution_logs_event_time
-    ON ops.event_execution_logs(event_id, timestamp_at);
-CREATE INDEX IF NOT EXISTS ix_actual_timings_event_phase
-    ON ops.actual_timings(event_id, phase_name);
-CREATE INDEX IF NOT EXISTS ix_resource_checkpoints_event_time
-    ON ops.resource_checkpoints(event_id, checkpoint_time);
 
 -- =========================================================
 -- Updated_at triggers

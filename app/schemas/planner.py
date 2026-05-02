@@ -263,3 +263,16 @@ class ResolvePlanGapsResponse(BaseModel):
     updated_event_window_end: datetime | None = None
     generated_plan: GeneratePlanResponse
     decision_summary: str
+
+
+class GapResolutionPreviewResponse(BaseModel):
+    event_id: str
+    preview_generated_at: datetime
+    contract_version: str = "cp03.v1"
+    generated_plan: GeneratePlanResponse
+
+
+class GapResolutionPreviewRequest(BaseModel):
+    initiated_by: str | None = None
+    solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    fallback_enabled: bool = True

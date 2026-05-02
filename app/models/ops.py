@@ -7,9 +7,11 @@ from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     Numeric,
@@ -111,7 +113,10 @@ class IdempotencyStatus(str, Enum):
 
 class EventExecutionLog(Base):
     __tablename__ = "event_execution_logs"
-    __table_args__ = {"schema": OPS_SCHEMA}
+    __table_args__ = (
+        Index("ix_event_execution_logs_event_time", "event_id", "timestamp_at"),
+        {"schema": OPS_SCHEMA},
+    )
 
     log_id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4())
@@ -143,7 +148,18 @@ class EventExecutionLog(Base):
 
 class ActualTiming(Base):
     __tablename__ = "actual_timings"
-    __table_args__ = {"schema": OPS_SCHEMA}
+    __table_args__ = (
+        CheckConstraint(
+            "(planned_start IS NULL OR planned_end IS NULL) OR (planned_end >= planned_start)",
+            name="ck_actual_timings_planned_window",
+        ),
+        CheckConstraint(
+            "(actual_start IS NULL OR actual_end IS NULL) OR (actual_end >= actual_start)",
+            name="ck_actual_timings_actual_window",
+        ),
+        Index("ix_actual_timings_event_phase", "event_id", "phase_name"),
+        {"schema": OPS_SCHEMA},
+    )
 
     timing_id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4())
@@ -237,7 +253,18 @@ class EventOutcome(Base):
 
 class ResourceCheckpoint(Base):
     __tablename__ = "resource_checkpoints"
-    __table_args__ = {"schema": OPS_SCHEMA}
+    __table_args__ = (
+        CheckConstraint(
+            "("
+            "(resource_type = 'person' AND person_id IS NOT NULL AND equipment_id IS NULL AND vehicle_id IS NULL) OR "
+            "(resource_type = 'equipment' AND equipment_id IS NOT NULL AND person_id IS NULL AND vehicle_id IS NULL) OR "
+            "(resource_type = 'vehicle' AND vehicle_id IS NOT NULL AND person_id IS NULL AND equipment_id IS NULL)"
+            ")",
+            name="ck_resource_checkpoints_resource_identity",
+        ),
+        Index("ix_resource_checkpoints_event_time", "event_id", "checkpoint_time"),
+        {"schema": OPS_SCHEMA},
+    )
 
     checkpoint_id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4())
