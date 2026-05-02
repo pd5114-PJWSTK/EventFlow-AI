@@ -110,7 +110,7 @@ def test_phase7_cp02_trains_baseline_duration_model_and_registers_it(
 
     assert payload["trained_samples"] >= 3
     assert payload["backend"] in {
-        "sklearn_linear_regression",
+        "sklearn_multi_algorithm_selector",
         "heuristic_mean_regressor",
     }
     assert payload["artifact_path"] is not None
@@ -122,6 +122,8 @@ def test_phase7_cp02_trains_baseline_duration_model_and_registers_it(
     assert model["prediction_type"] == "duration_estimate"
     assert model["status"] == "active"
     assert model["metrics"]["sample_count"] >= 3
+    assert model["metrics"]["dataset"]["real_samples"] >= 3
+    assert model["metrics"]["dataset"]["total_samples"] >= model["metrics"]["dataset"]["real_samples"]
     assert "mae_minutes" in model["metrics"]
     assert "artifact_path" in model["metrics"]
 

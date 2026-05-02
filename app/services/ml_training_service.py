@@ -4,9 +4,10 @@ import json
 import pickle
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
+from random import Random
 from statistics import mean
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -46,6 +47,7 @@ class _TrainingSample:
     x: list[float]
     y: float
     observed_at: datetime
+    is_synthetic: bool = False
 
 
 def train_baseline_model(
@@ -58,23 +60,35 @@ def train_baseline_model(
             "Only duration_estimate baseline training is supported in phase-7-cp-02."
         )
 
-    samples, feature_names = _collect_duration_training_samples(db)
-    if len(samples) < 1:
+    settings = get_settings()
+    samples, feature_names, real_sample_count = _collect_duration_training_samples(
+        db,
+        synthetic_samples_per_real=settings.ml_synthetic_samples_per_real,
+        random_seed=settings.ml_training_random_seed,
+    )
+    if real_sample_count < 1:
         raise ModelTrainingError(
             "No training samples found. Generate event features and runtime timings first."
         )
+    augmented_sample_count = max(len(samples) - real_sample_count, 0)
 
-    settings = get_settings()
     backend = "heuristic_mean_regressor"
     artifact_payload: dict = {}
     predictions: list[float]
     y_values = [sample.y for sample in samples]
+    model_selection: dict[str, Any] | None = None
 
-    sklearn_result = _try_train_sklearn(samples)
-    if sklearn_result is not None and len(samples) >= settings.ml_min_training_samples:
-        backend = "sklearn_linear_regression"
+    sklearn_result = _try_train_sklearn(
+        samples=samples,
+        feature_names=feature_names,
+        test_split_ratio=settings.ml_train_test_split_ratio,
+        random_seed=settings.ml_training_random_seed,
+    )
+    if sklearn_result is not None and real_sample_count >= settings.ml_min_training_samples:
+        backend = "sklearn_multi_algorithm_selector"
         artifact_payload = sklearn_result["artifact"]
         predictions = sklearn_result["predictions"]
+        model_selection = sklearn_result["model_selection"]
     else:
         mean_value = mean(y_values)
         predictions = [mean_value for _ in y_values]
@@ -91,6 +105,15 @@ def train_baseline_model(
         backend=backend,
         feature_names=feature_names,
     )
+    metrics["dataset"] = {
+        "real_samples": real_sample_count,
+        "augmented_samples": augmented_sample_count,
+        "total_samples": len(samples),
+        "synthetic_samples_per_real": settings.ml_synthetic_samples_per_real,
+    }
+    if model_selection is not None:
+        metrics["model_selection"] = model_selection
+
     version = datetime.now(UTC).strftime("v%Y%m%d%H%M%S")
 
     if payload.activate_model:
@@ -244,12 +267,15 @@ def retrain_duration_model(
 
 def _collect_duration_training_samples(
     db: Session,
-) -> tuple[list[_TrainingSample], list[str]]:
+    *,
+    synthetic_samples_per_real: int,
+    random_seed: int,
+) -> tuple[list[_TrainingSample], list[str], int]:
     from app.models.ai import EventFeature
 
     features = db.query(EventFeature).all()
     if not features:
-        return [], []
+        return [], [], 0
 
     timings = (
         db.query(ActualTiming)
@@ -295,7 +321,7 @@ def _collect_duration_training_samples(
     event_lookup = {
         event.event_id: event for event in db.query(Event.event_id, Event.created_at).all()
     }
-    samples: list[_TrainingSample] = []
+    real_samples: list[_TrainingSample] = []
 
     for feature in features:
         time_window = window_by_event.get(feature.event_id)
@@ -329,34 +355,172 @@ def _collect_duration_training_samples(
             1.0 if feature.feature_requires_setup else 0.0,
             1.0 if feature.feature_requires_teardown else 0.0,
         ]
-        samples.append(
+        real_samples.append(
             _TrainingSample(
                 event_id=feature.event_id,
                 x=x_vector,
                 y=float(actual_minutes),
                 observed_at=observed_time,
+                is_synthetic=False,
             )
         )
+    synthetic_samples = _augment_duration_samples(
+        real_samples=real_samples,
+        synthetic_samples_per_real=synthetic_samples_per_real,
+        random_seed=random_seed,
+    )
+    return (
+        real_samples + synthetic_samples,
+        feature_names,
+        len(real_samples),
+    )
 
-    return samples, feature_names
 
-
-def _try_train_sklearn(samples: list[_TrainingSample]) -> dict | None:
+def _try_train_sklearn(
+    *,
+    samples: list[_TrainingSample],
+    feature_names: list[str],
+    test_split_ratio: float,
+    random_seed: int,
+) -> dict | None:
     try:
-        from sklearn.linear_model import LinearRegression
+        from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+        from sklearn.linear_model import LinearRegression, Ridge
+        from sklearn.model_selection import train_test_split
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
     except Exception:
         return None
 
     x_values = [sample.x for sample in samples]
     y_values = [sample.y for sample in samples]
-    model = LinearRegression()
-    model.fit(x_values, y_values)
-    y_pred = list(model.predict(x_values))
+
+    test_count = _resolve_test_count(len(samples), test_split_ratio)
+    if test_count <= 0 or test_count >= len(samples):
+        return None
+
+    x_train, x_test, y_train, y_test = train_test_split(
+        x_values,
+        y_values,
+        test_size=test_count,
+        random_state=random_seed,
+    )
+
+    candidates: list[dict[str, Any]] = [
+        {
+            "name": "linear_regression",
+            "estimator": Pipeline(
+                steps=[
+                    ("scaler", StandardScaler()),
+                    ("model", LinearRegression()),
+                ]
+            ),
+            "params": {},
+        },
+        {
+            "name": "ridge_regression",
+            "estimator": Pipeline(
+                steps=[
+                    ("scaler", StandardScaler()),
+                    ("model", Ridge(alpha=1.0)),
+                ]
+            ),
+            "params": {"alpha": 1.0},
+        },
+        {
+            "name": "random_forest",
+            "estimator": RandomForestRegressor(
+                n_estimators=300,
+                max_depth=12,
+                min_samples_leaf=2,
+                random_state=random_seed,
+                n_jobs=1,
+            ),
+            "params": {
+                "n_estimators": 300,
+                "max_depth": 12,
+                "min_samples_leaf": 2,
+            },
+        },
+        {
+            "name": "gradient_boosting",
+            "estimator": GradientBoostingRegressor(
+                n_estimators=400,
+                learning_rate=0.05,
+                max_depth=3,
+                subsample=0.9,
+                random_state=random_seed,
+            ),
+            "params": {
+                "n_estimators": 400,
+                "learning_rate": 0.05,
+                "max_depth": 3,
+                "subsample": 0.9,
+            },
+        },
+    ]
+
+    evaluated: list[dict[str, Any]] = []
+    for candidate in candidates:
+        estimator = candidate["estimator"]
+        try:
+            estimator.fit(x_train, y_train)
+            train_pred = _predict_non_negative(estimator, x_train)
+            test_pred = _predict_non_negative(estimator, x_test)
+        except Exception:
+            continue
+
+        train_metrics = _regression_metrics(y_true=y_train, y_pred=train_pred)
+        test_metrics = _regression_metrics(y_true=y_test, y_pred=test_pred)
+        evaluated.append(
+            {
+                "name": candidate["name"],
+                "estimator": estimator,
+                "params": candidate["params"],
+                "train_metrics": train_metrics,
+                "test_metrics": test_metrics,
+            }
+        )
+
+    if not evaluated:
+        return None
+
+    evaluated.sort(
+        key=lambda item: (
+            item["test_metrics"]["mae_minutes"],
+            item["test_metrics"]["rmse_minutes"],
+            -item["test_metrics"]["r2"],
+        )
+    )
+    winner = evaluated[0]
+    y_pred = _predict_non_negative(winner["estimator"], x_values)
+    model_selection = {
+        "selected_algorithm": winner["name"],
+        "train_samples": len(y_train),
+        "test_samples": len(y_test),
+        "split_strategy": "holdout",
+        "test_split_ratio": round(len(y_test) / len(samples), 4),
+        "random_seed": random_seed,
+        "leaderboard": [
+            {
+                "algorithm": item["name"],
+                "params": item["params"],
+                "train_metrics": item["train_metrics"],
+                "test_metrics": item["test_metrics"],
+            }
+            for item in evaluated
+        ],
+    }
+
     return {
         "predictions": y_pred,
+        "model_selection": model_selection,
         "artifact": {
-            "kind": "sklearn_linear_regression",
-            "model": model,
+            "kind": "sklearn_estimator",
+            "algorithm": winner["name"],
+            "feature_names": feature_names,
+            "model": winner["estimator"],
+            "model_selection": model_selection,
         },
     }
 
@@ -396,6 +560,154 @@ def _build_metrics(
         "feature_names": feature_names,
         "trained_at": datetime.now(UTC).isoformat(),
     }
+
+
+def _augment_duration_samples(
+    *,
+    real_samples: list[_TrainingSample],
+    synthetic_samples_per_real: int,
+    random_seed: int,
+) -> list[_TrainingSample]:
+    if synthetic_samples_per_real <= 0 or not real_samples:
+        return []
+
+    rng = Random(random_seed)
+    synthetic: list[_TrainingSample] = []
+    for sample in real_samples:
+        for _ in range(synthetic_samples_per_real):
+            x_aug = _augment_feature_vector(sample.x, rng)
+            y_aug = _augment_target_minutes(
+                base_minutes=sample.y,
+                base_features=sample.x,
+                augmented_features=x_aug,
+                rng=rng,
+            )
+            synthetic.append(
+                _TrainingSample(
+                    event_id=sample.event_id,
+                    x=x_aug,
+                    y=y_aug,
+                    observed_at=sample.observed_at,
+                    is_synthetic=True,
+                )
+            )
+    return synthetic
+
+
+def _augment_feature_vector(base_x: list[float], rng: Random) -> list[float]:
+    attendee = float(max(10, int(round(base_x[0] * rng.uniform(0.75, 1.35)))))
+    setup = float(int(_clamp(round(base_x[1] + rng.randint(-1, 1)), 0, 10)))
+    access = float(int(_clamp(round(base_x[2] + rng.randint(-1, 1)), 0, 10)))
+    parking = float(int(_clamp(round(base_x[3] + rng.randint(-1, 1)), 0, 10)))
+    req_people = float(max(0, int(round(base_x[4] + rng.randint(-1, 2)))))
+    req_equipment = float(max(0, int(round(base_x[5] + rng.randint(-1, 2)))))
+    req_vehicle = float(max(0, int(round(base_x[6] + rng.randint(-1, 1)))))
+    priority = float(int(_clamp(round(base_x[7] + rng.choice([-1, 0, 0, 1])), 1, 4)))
+    day = float(int(_clamp(round(base_x[8] + rng.choice([-1, 0, 1])), 1, 7)))
+    month = float(int(_clamp(round(base_x[9] + rng.choice([-1, 0, 1])), 1, 12)))
+    season = float(int(_clamp(round(base_x[10] + rng.choice([-1, 0, 1])), 1, 4)))
+
+    transport = base_x[11]
+    if rng.random() < 0.08:
+        transport = 0.0 if base_x[11] > 0 else 1.0
+
+    setup_required = base_x[12]
+    if rng.random() < 0.06:
+        setup_required = 0.0 if base_x[12] > 0 else 1.0
+
+    teardown_required = base_x[13]
+    if rng.random() < 0.06:
+        teardown_required = 0.0 if base_x[13] > 0 else 1.0
+
+    return [
+        attendee,
+        setup,
+        access,
+        parking,
+        req_people,
+        req_equipment,
+        req_vehicle,
+        priority,
+        day,
+        month,
+        season,
+        transport,
+        setup_required,
+        teardown_required,
+    ]
+
+
+def _augment_target_minutes(
+    *,
+    base_minutes: float,
+    base_features: list[float],
+    augmented_features: list[float],
+    rng: Random,
+) -> float:
+    attendee_delta = (augmented_features[0] - base_features[0]) / max(base_features[0], 60.0)
+    complexity_delta = (
+        (augmented_features[1] - base_features[1]) * 0.04
+        + (augmented_features[2] - base_features[2]) * 0.03
+        + (augmented_features[3] - base_features[3]) * 0.02
+    )
+    requirements_delta = (
+        (augmented_features[4] - base_features[4]) * 0.02
+        + (augmented_features[5] - base_features[5]) * 0.02
+        + (augmented_features[6] - base_features[6]) * 0.03
+    )
+    flags_delta = (
+        (augmented_features[11] - base_features[11]) * 0.06
+        + (augmented_features[12] - base_features[12]) * 0.08
+        + (augmented_features[13] - base_features[13]) * 0.05
+    )
+    season_delta = (augmented_features[10] - base_features[10]) * 0.015
+    noise = rng.uniform(-0.08, 0.08)
+
+    multiplier = 1 + (attendee_delta * 0.35) + complexity_delta + requirements_delta + flags_delta + season_delta + noise
+    minutes = base_minutes * max(multiplier, 0.35)
+    return float(_clamp(minutes, 30.0, 720.0))
+
+
+def _resolve_test_count(total_samples: int, requested_ratio: float) -> int:
+    if total_samples < 5:
+        return max(1, total_samples // 3)
+    ratio = _clamp(requested_ratio, 0.15, 0.35)
+    test_count = int(round(total_samples * ratio))
+    test_count = max(test_count, 2)
+    test_count = min(test_count, total_samples - 2)
+    return test_count
+
+
+def _predict_non_negative(estimator: Any, x_values: list[list[float]]) -> list[float]:
+    predicted = estimator.predict(x_values)
+    return [float(max(value, 0.0)) for value in predicted]
+
+
+def _regression_metrics(*, y_true: list[float], y_pred: list[float]) -> dict[str, float]:
+    abs_errors = [abs(target - predicted) for target, predicted in zip(y_true, y_pred)]
+    squared_errors = [
+        (target - predicted) ** 2 for target, predicted in zip(y_true, y_pred)
+    ]
+    mae = float(mean(abs_errors)) if abs_errors else 0.0
+    mse = float(mean(squared_errors)) if squared_errors else 0.0
+    rmse = mse**0.5
+
+    y_mean = float(mean(y_true)) if y_true else 0.0
+    total_variance = sum((value - y_mean) ** 2 for value in y_true)
+    residual_variance = sum((target - predicted) ** 2 for target, predicted in zip(y_true, y_pred))
+    r2 = 0.0
+    if total_variance > 0:
+        r2 = 1.0 - (residual_variance / total_variance)
+
+    return {
+        "mae_minutes": round(mae, 4),
+        "rmse_minutes": round(rmse, 4),
+        "r2": round(r2, 6),
+    }
+
+
+def _clamp(value: float, min_value: float, max_value: float) -> float:
+    return max(min_value, min(value, max_value))
 
 
 def _save_model_artifact(

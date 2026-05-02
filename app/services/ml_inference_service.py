@@ -224,7 +224,7 @@ def _run_prediction(artifact: dict[str, Any], feature_vector: list[float]) -> De
     if kind == "mean_regressor":
         value = artifact.get("mean_value", 0.0)
         return _quantize(Decimal(str(value)), "0.0001")
-    if kind == "sklearn_linear_regression":
+    if kind in {"sklearn_linear_regression", "sklearn_estimator"}:
         model = artifact.get("model")
         if model is None:
             raise PredictionServiceError("Missing sklearn model in artifact.")

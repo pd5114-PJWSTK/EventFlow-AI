@@ -43,6 +43,9 @@ class Settings(BaseSettings):
 
     ml_models_dir: str = "./models"
     ml_min_training_samples: int = 3
+    ml_train_test_split_ratio: float = 0.2
+    ml_training_random_seed: int = 42
+    ml_synthetic_samples_per_real: int = 8
     ml_retrain_enabled: bool = True
     ml_retrain_schedule_minutes: int = 360
     ml_retrain_activation_min_samples: int = 3
