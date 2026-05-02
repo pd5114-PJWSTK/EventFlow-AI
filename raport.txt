@@ -682,3 +682,40 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: populowac `ai.event_features` i `ai.resource_features` jako snapshot cech pod trening i inference w kolejnych checkpointach.
 - [2026-05-02] Zacommitowano i otagowano CP-01 Fazy 7 (`phase-7-cp-01-ml-feature-engineering-pipeline`).
   Cel: zamknac pierwszy checkpoint Fazy 7 jako stabilny punkt wejscia do CP-02.
+
+12.1) FAZA 7 - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-7-cp-02-model-training-and-registry` -> ZREALIZOWANY i zacommitowany + otagowany.
+- Zakres wykonany:
+  - Dodano konfiguracje ML pipeline:
+    - `ML_MODELS_DIR`,
+    - `ML_MIN_TRAINING_SAMPLES` (`app/config.py`, `.env.example`).
+  - Rozszerzono zaleznosci projektu o stack treningowy Fazy 7:
+    - `pandas`,
+    - `scikit-learn` (`requirements.txt`).
+  - Dodano serwis treningu baseline modeli:
+    - `app/services/ml_training_service.py`.
+  - Serwis realizuje CP-02:
+    - zebranie datasetu treningowego z `ai.event_features` + `ops.actual_timings`,
+    - trening baseline `duration_estimate` (backend `sklearn_linear_regression` gdy dostepny, fallback `heuristic_mean_regressor`),
+    - liczenie metryk (`mae`, `rmse`, `r2`, `sample_count`),
+    - zapis artefaktu modelu (`model.pkl`) i metadanych (`metadata.json`) do `ML_MODELS_DIR`,
+    - rejestr modelu w `ai.models` (`model_name`, `model_version`, `prediction_type`, `metrics`),
+    - deprecjacja poprzednio aktywnego modelu tego samego typu przy `activate_model=true`.
+  - Dodano kontrakty API:
+    - `app/schemas/ml_models.py`.
+  - Dodano endpointy model registry/training:
+    - `POST /api/ml/models/train-baseline`,
+    - `GET /api/ml/models`.
+  - Dodano router `app/api/ml_models.py` i podpiecie w `app/main.py`.
+  - Dodano testy CP-02:
+    - `tests/test_phase7_cp02.py`.
+  - Dodano `models/` do `.gitignore` (artefakty treningowe jako runtime files).
+- Walidacja wykonania:
+  - Testy CP-02: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp02.py -q` -> 3 passed.
+  - Szybka regresja Faza 6 + Faza 7: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase6_cp04.py -q` -> 9 passed.
+  - Kontrola skladni: `python -m py_compile app/main.py app/config.py app/api/ml_models.py app/schemas/ml_models.py app/services/ml_training_service.py tests/test_phase7_cp02.py` -> passed.
+
+- [2026-05-02] Zaimplementowano CP-02 Fazy 7 (baseline training + model registry + artifact save).
+  Cel: uruchomic pierwszy trening modelu predykcyjnego i rejestrowac wersje modelu z metrykami w `ai.models`.
+- [2026-05-02] Zacommitowano i otagowano CP-02 Fazy 7 (`phase-7-cp-02-model-training-and-registry`).
+  Cel: zamknac drugi checkpoint Fazy 7 jako stabilny punkt wejscia do CP-03.
