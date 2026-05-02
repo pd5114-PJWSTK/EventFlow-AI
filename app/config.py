@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     ai_azure_llm_input_cost_per_1k_usd: float = 0.0004
     ai_azure_llm_output_cost_per_1k_usd: float = 0.0016
 
+    ml_models_dir: str = "./models"
+    ml_min_training_samples: int = 3
+
 
 @lru_cache
 def get_settings() -> Settings:

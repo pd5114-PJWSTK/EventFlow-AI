@@ -30,3 +30,4 @@ htmlcov/
 *.sqlite3
 celerybeat-schedule
 celerybeat-schedule.*
+models/
