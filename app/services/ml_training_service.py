@@ -31,6 +31,19 @@ class TrainBaselineModelResult:
 
 
 @dataclass
+class HardenDurationModelResult:
+    model: ModelRegistryRead
+    trained_samples: int
+    backend: str
+    artifact_path: str | None
+    real_samples_used: int
+    train_samples: int
+    test_samples: int
+    selected_algorithm: str
+    validation_summary: dict[str, Any]
+
+
+@dataclass
 class RetrainDurationModelResult:
     model: ModelRegistryRead
     trained_samples: int
@@ -162,6 +175,136 @@ def train_baseline_model(
     )
 
 
+def harden_duration_model(
+    db: Session,
+    *,
+    model_name: str = "event_duration_hardened",
+    activate_model: bool = True,
+    required_real_samples: int | None = None,
+    train_samples: int | None = None,
+    test_samples: int | None = None,
+    random_seed: int | None = None,
+) -> HardenDurationModelResult:
+    settings = get_settings()
+    required = (
+        required_real_samples
+        if required_real_samples is not None
+        else settings.ml_hardening_required_real_samples
+    )
+    train_size = (
+        train_samples
+        if train_samples is not None
+        else settings.ml_hardening_train_samples
+    )
+    test_size = (
+        test_samples
+        if test_samples is not None
+        else settings.ml_hardening_test_samples
+    )
+    seed = random_seed if random_seed is not None else settings.ml_training_random_seed
+
+    if train_size + test_size != required:
+        raise ModelTrainingError(
+            "Invalid hardening split: train_samples + test_samples must equal required_real_samples."
+        )
+
+    real_samples, feature_names = _collect_real_duration_training_samples(db)
+    if len(real_samples) < required:
+        raise ModelTrainingError(
+            f"Insufficient real samples for hardening. Required={required}, available={len(real_samples)}."
+        )
+
+    selected = sorted(real_samples, key=lambda sample: sample.observed_at)[-required:]
+    validation_summary = _validate_hardening_dataset(
+        selected_samples=selected,
+        required_real_samples=required,
+        train_samples=train_size,
+        test_samples=test_size,
+    )
+    if not validation_summary["is_valid"]:
+        raise ModelTrainingError("Hardening dataset validation failed.")
+
+    train_set = selected[:train_size]
+    test_set = selected[train_size : train_size + test_size]
+    hardened_result = _train_and_tune_with_fixed_holdout(
+        train_samples=train_set,
+        test_samples=test_set,
+        feature_names=feature_names,
+        random_seed=seed,
+    )
+
+    y_values = [sample.y for sample in selected]
+    metrics = _build_metrics(
+        y_true=y_values,
+        y_pred=hardened_result["predictions"],
+        sample_count=len(selected),
+        backend="sklearn_hardened_duration_model",
+        feature_names=feature_names,
+    )
+    metrics["dataset"] = {
+        "real_samples": len(selected),
+        "augmented_samples": 0,
+        "total_samples": len(selected),
+        "split_strategy": "time_ordered_holdout",
+        "train_samples": len(train_set),
+        "test_samples": len(test_set),
+    }
+    metrics["dataset_validation"] = validation_summary
+    metrics["model_selection"] = hardened_result["model_selection"]
+    metrics["hyperparameter_tuning"] = hardened_result["hyperparameter_tuning"]
+
+    version = datetime.now(UTC).strftime("v%Y%m%d%H%M%S")
+    if activate_model:
+        (
+            db.query(ModelRegistry)
+            .filter(
+                ModelRegistry.model_name == model_name,
+                ModelRegistry.prediction_type == PredictionType.duration_estimate,
+                ModelRegistry.status == ModelStatus.active,
+            )
+            .update({ModelRegistry.status: ModelStatus.deprecated}, synchronize_session=False)
+        )
+
+    model = ModelRegistry(
+        model_name=model_name,
+        model_version=version,
+        prediction_type=PredictionType.duration_estimate,
+        status=ModelStatus.active if activate_model else ModelStatus.training,
+        training_data_from=min(sample.observed_at for sample in selected),
+        training_data_to=max(sample.observed_at for sample in selected),
+        metrics=metrics,
+    )
+    db.add(model)
+    db.flush()
+
+    artifact_path = _save_model_artifact(
+        model_name=model_name,
+        model_version=version,
+        model_id=model.model_id,
+        prediction_type=PredictionType.duration_estimate.value,
+        backend="sklearn_hardened_duration_model",
+        feature_names=feature_names,
+        metrics=metrics,
+        artifact_payload=hardened_result["artifact"],
+    )
+
+    model.metrics = {**model.metrics, "artifact_path": artifact_path}
+    db.commit()
+    db.refresh(model)
+
+    return HardenDurationModelResult(
+        model=_to_model_read(model),
+        trained_samples=len(selected),
+        backend="sklearn_hardened_duration_model",
+        artifact_path=artifact_path,
+        real_samples_used=len(selected),
+        train_samples=len(train_set),
+        test_samples=len(test_set),
+        selected_algorithm=str(hardened_result["model_selection"]["selected_algorithm"]),
+        validation_summary=validation_summary,
+    )
+
+
 def list_registered_models(
     db: Session,
     *,
@@ -271,11 +414,27 @@ def _collect_duration_training_samples(
     synthetic_samples_per_real: int,
     random_seed: int,
 ) -> tuple[list[_TrainingSample], list[str], int]:
+    real_samples, feature_names = _collect_real_duration_training_samples(db)
+    synthetic_samples = _augment_duration_samples(
+        real_samples=real_samples,
+        synthetic_samples_per_real=synthetic_samples_per_real,
+        random_seed=random_seed,
+    )
+    return (
+        real_samples + synthetic_samples,
+        feature_names,
+        len(real_samples),
+    )
+
+
+def _collect_real_duration_training_samples(
+    db: Session,
+) -> tuple[list[_TrainingSample], list[str]]:
     from app.models.ai import EventFeature
 
     features = db.query(EventFeature).all()
     if not features:
-        return [], [], 0
+        return [], []
 
     timings = (
         db.query(ActualTiming)
@@ -364,16 +523,7 @@ def _collect_duration_training_samples(
                 is_synthetic=False,
             )
         )
-    synthetic_samples = _augment_duration_samples(
-        real_samples=real_samples,
-        synthetic_samples_per_real=synthetic_samples_per_real,
-        random_seed=random_seed,
-    )
-    return (
-        real_samples + synthetic_samples,
-        feature_names,
-        len(real_samples),
-    )
+    return real_samples, feature_names
 
 
 def _try_train_sklearn(
@@ -384,11 +534,7 @@ def _try_train_sklearn(
     random_seed: int,
 ) -> dict | None:
     try:
-        from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-        from sklearn.linear_model import LinearRegression, Ridge
         from sklearn.model_selection import train_test_split
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
     except Exception:
         return None
 
@@ -406,92 +552,18 @@ def _try_train_sklearn(
         random_state=random_seed,
     )
 
-    candidates: list[dict[str, Any]] = [
-        {
-            "name": "linear_regression",
-            "estimator": Pipeline(
-                steps=[
-                    ("scaler", StandardScaler()),
-                    ("model", LinearRegression()),
-                ]
-            ),
-            "params": {},
-        },
-        {
-            "name": "ridge_regression",
-            "estimator": Pipeline(
-                steps=[
-                    ("scaler", StandardScaler()),
-                    ("model", Ridge(alpha=1.0)),
-                ]
-            ),
-            "params": {"alpha": 1.0},
-        },
-        {
-            "name": "random_forest",
-            "estimator": RandomForestRegressor(
-                n_estimators=300,
-                max_depth=12,
-                min_samples_leaf=2,
-                random_state=random_seed,
-                n_jobs=1,
-            ),
-            "params": {
-                "n_estimators": 300,
-                "max_depth": 12,
-                "min_samples_leaf": 2,
-            },
-        },
-        {
-            "name": "gradient_boosting",
-            "estimator": GradientBoostingRegressor(
-                n_estimators=400,
-                learning_rate=0.05,
-                max_depth=3,
-                subsample=0.9,
-                random_state=random_seed,
-            ),
-            "params": {
-                "n_estimators": 400,
-                "learning_rate": 0.05,
-                "max_depth": 3,
-                "subsample": 0.9,
-            },
-        },
-    ]
-
-    evaluated: list[dict[str, Any]] = []
-    for candidate in candidates:
-        estimator = candidate["estimator"]
-        try:
-            estimator.fit(x_train, y_train)
-            train_pred = _predict_non_negative(estimator, x_train)
-            test_pred = _predict_non_negative(estimator, x_test)
-        except Exception:
-            continue
-
-        train_metrics = _regression_metrics(y_true=y_train, y_pred=train_pred)
-        test_metrics = _regression_metrics(y_true=y_test, y_pred=test_pred)
-        evaluated.append(
-            {
-                "name": candidate["name"],
-                "estimator": estimator,
-                "params": candidate["params"],
-                "train_metrics": train_metrics,
-                "test_metrics": test_metrics,
-            }
-        )
+    candidates = _candidate_model_specs()
+    evaluated = _evaluate_candidates(
+        candidates=candidates,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        random_seed=random_seed,
+    )
 
     if not evaluated:
         return None
-
-    evaluated.sort(
-        key=lambda item: (
-            item["test_metrics"]["mae_minutes"],
-            item["test_metrics"]["rmse_minutes"],
-            -item["test_metrics"]["r2"],
-        )
-    )
     winner = evaluated[0]
     y_pred = _predict_non_negative(winner["estimator"], x_values)
     model_selection = {
@@ -522,6 +594,318 @@ def _try_train_sklearn(
             "model": winner["estimator"],
             "model_selection": model_selection,
         },
+    }
+
+
+def _train_and_tune_with_fixed_holdout(
+    *,
+    train_samples: list[_TrainingSample],
+    test_samples: list[_TrainingSample],
+    feature_names: list[str],
+    random_seed: int,
+) -> dict[str, Any]:
+    x_train = [sample.x for sample in train_samples]
+    y_train = [sample.y for sample in train_samples]
+    x_test = [sample.x for sample in test_samples]
+    y_test = [sample.y for sample in test_samples]
+    x_all = x_train + x_test
+
+    if not x_train or not x_test:
+        raise ModelTrainingError("Hardening requires non-empty train and test sets.")
+
+    baseline_candidates = _candidate_model_specs()
+    baseline_results = _evaluate_candidates(
+        candidates=baseline_candidates,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        random_seed=random_seed,
+    )
+    if not baseline_results:
+        raise ModelTrainingError("Unable to train baseline candidates for hardening.")
+
+    baseline_winner = baseline_results[0]
+    winner_algorithm = str(baseline_winner["name"])
+
+    tuned_results = _tune_best_algorithm(
+        algorithm=winner_algorithm,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        random_seed=random_seed,
+    )
+    tuned_winner = tuned_results["winner"]
+    tuned_estimator = tuned_winner["estimator"]
+    tuned_estimator.fit(x_train, y_train)
+    y_all_pred = _predict_non_negative(tuned_estimator, x_all)
+
+    model_selection = {
+        "selected_algorithm": winner_algorithm,
+        "train_samples": len(train_samples),
+        "test_samples": len(test_samples),
+        "split_strategy": "time_ordered_holdout",
+        "test_split_ratio": round(len(test_samples) / len(x_all), 4),
+        "random_seed": random_seed,
+        "leaderboard": [
+            {
+                "algorithm": item["name"],
+                "params": item["params"],
+                "train_metrics": item["train_metrics"],
+                "test_metrics": item["test_metrics"],
+            }
+            for item in baseline_results
+        ],
+    }
+    hyperparameter_tuning = {
+        "algorithm": winner_algorithm,
+        "winning_params": tuned_winner["params"],
+        "trials": [
+            {
+                "params": item["params"],
+                "train_metrics": item["train_metrics"],
+                "test_metrics": item["test_metrics"],
+            }
+            for item in tuned_results["trials"]
+        ],
+    }
+
+    artifact = {
+        "kind": "sklearn_estimator",
+        "algorithm": winner_algorithm,
+        "feature_names": feature_names,
+        "model": tuned_estimator,
+        "model_selection": model_selection,
+        "hyperparameter_tuning": hyperparameter_tuning,
+    }
+    return {
+        "predictions": y_all_pred,
+        "artifact": artifact,
+        "model_selection": model_selection,
+        "hyperparameter_tuning": hyperparameter_tuning,
+    }
+
+
+def _candidate_model_specs() -> list[dict[str, Any]]:
+    return [
+        {"name": "linear_regression", "params": {}},
+        {"name": "ridge_regression", "params": {"alpha": 1.0}},
+        {
+            "name": "random_forest",
+            "params": {
+                "n_estimators": 300,
+                "max_depth": 12,
+                "min_samples_leaf": 2,
+            },
+        },
+        {
+            "name": "gradient_boosting",
+            "params": {
+                "n_estimators": 400,
+                "learning_rate": 0.05,
+                "max_depth": 3,
+                "subsample": 0.9,
+            },
+        },
+    ]
+
+
+def _evaluate_candidates(
+    *,
+    candidates: list[dict[str, Any]],
+    x_train: list[list[float]],
+    y_train: list[float],
+    x_test: list[list[float]],
+    y_test: list[float],
+    random_seed: int,
+) -> list[dict[str, Any]]:
+    evaluated: list[dict[str, Any]] = []
+    for candidate in candidates:
+        try:
+            estimator = _build_estimator(
+                algorithm=str(candidate["name"]),
+                params=dict(candidate.get("params", {})),
+                random_seed=random_seed,
+            )
+            estimator.fit(x_train, y_train)
+            train_pred = _predict_non_negative(estimator, x_train)
+            test_pred = _predict_non_negative(estimator, x_test)
+        except Exception:
+            continue
+
+        evaluated.append(
+            {
+                "name": candidate["name"],
+                "params": candidate["params"],
+                "estimator": estimator,
+                "train_metrics": _regression_metrics(y_true=y_train, y_pred=train_pred),
+                "test_metrics": _regression_metrics(y_true=y_test, y_pred=test_pred),
+            }
+        )
+
+    evaluated.sort(
+        key=lambda item: (
+            item["test_metrics"]["mae_minutes"],
+            item["test_metrics"]["rmse_minutes"],
+            -item["test_metrics"]["r2"],
+        )
+    )
+    return evaluated
+
+
+def _tune_best_algorithm(
+    *,
+    algorithm: str,
+    x_train: list[list[float]],
+    y_train: list[float],
+    x_test: list[list[float]],
+    y_test: list[float],
+    random_seed: int,
+) -> dict[str, Any]:
+    param_grid = _tuning_param_grid(algorithm)
+    trials: list[dict[str, Any]] = []
+    for params in param_grid:
+        estimator = _build_estimator(
+            algorithm=algorithm,
+            params=params,
+            random_seed=random_seed,
+        )
+        try:
+            estimator.fit(x_train, y_train)
+            train_pred = _predict_non_negative(estimator, x_train)
+            test_pred = _predict_non_negative(estimator, x_test)
+        except Exception:
+            continue
+
+        trials.append(
+            {
+                "params": params,
+                "estimator": estimator,
+                "train_metrics": _regression_metrics(y_true=y_train, y_pred=train_pred),
+                "test_metrics": _regression_metrics(y_true=y_test, y_pred=test_pred),
+            }
+        )
+
+    if not trials:
+        raise ModelTrainingError("Hyperparameter tuning failed for the selected algorithm.")
+
+    trials.sort(
+        key=lambda item: (
+            item["test_metrics"]["mae_minutes"],
+            item["test_metrics"]["rmse_minutes"],
+            -item["test_metrics"]["r2"],
+        )
+    )
+    return {"winner": trials[0], "trials": trials}
+
+
+def _build_estimator(algorithm: str, params: dict[str, Any], random_seed: int) -> Any:
+    from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+    from sklearn.linear_model import LinearRegression, Ridge
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    if algorithm == "linear_regression":
+        return Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                ("model", LinearRegression()),
+            ]
+        )
+    if algorithm == "ridge_regression":
+        alpha = float(params.get("alpha", 1.0))
+        return Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                ("model", Ridge(alpha=alpha)),
+            ]
+        )
+    if algorithm == "random_forest":
+        return RandomForestRegressor(
+            n_estimators=int(params.get("n_estimators", 300)),
+            max_depth=int(params.get("max_depth", 12)),
+            min_samples_leaf=int(params.get("min_samples_leaf", 2)),
+            random_state=random_seed,
+            n_jobs=1,
+        )
+    if algorithm == "gradient_boosting":
+        return GradientBoostingRegressor(
+            n_estimators=int(params.get("n_estimators", 400)),
+            learning_rate=float(params.get("learning_rate", 0.05)),
+            max_depth=int(params.get("max_depth", 3)),
+            subsample=float(params.get("subsample", 0.9)),
+            random_state=random_seed,
+        )
+    raise ModelTrainingError(f"Unsupported algorithm for estimator build: {algorithm}")
+
+
+def _tuning_param_grid(algorithm: str) -> list[dict[str, Any]]:
+    if algorithm == "gradient_boosting":
+        return [
+            {"n_estimators": 200, "learning_rate": 0.05, "max_depth": 2, "subsample": 0.85},
+            {"n_estimators": 300, "learning_rate": 0.05, "max_depth": 3, "subsample": 0.9},
+            {"n_estimators": 500, "learning_rate": 0.03, "max_depth": 3, "subsample": 0.9},
+            {"n_estimators": 400, "learning_rate": 0.04, "max_depth": 4, "subsample": 0.95},
+        ]
+    if algorithm == "random_forest":
+        return [
+            {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 2},
+            {"n_estimators": 400, "max_depth": 14, "min_samples_leaf": 1},
+            {"n_estimators": 500, "max_depth": 12, "min_samples_leaf": 2},
+        ]
+    if algorithm == "ridge_regression":
+        return [{"alpha": 0.2}, {"alpha": 1.0}, {"alpha": 2.0}, {"alpha": 5.0}]
+    if algorithm == "linear_regression":
+        return [{}]
+    raise ModelTrainingError(f"Unsupported algorithm for tuning: {algorithm}")
+
+
+def _validate_hardening_dataset(
+    *,
+    selected_samples: list[_TrainingSample],
+    required_real_samples: int,
+    train_samples: int,
+    test_samples: int,
+) -> dict[str, Any]:
+    duplicate_event_count = len(selected_samples) - len({item.event_id for item in selected_samples})
+    invalid_target_count = sum(1 for item in selected_samples if item.y <= 0)
+    invalid_feature_count = 0
+    for sample in selected_samples:
+        feature_checks = [
+            0 <= sample.x[1] <= 10,
+            0 <= sample.x[2] <= 10,
+            0 <= sample.x[3] <= 10,
+            1 <= sample.x[7] <= 4,
+            1 <= sample.x[8] <= 7,
+            1 <= sample.x[9] <= 12,
+            0 <= sample.x[10] <= 4,
+        ]
+        if not all(feature_checks):
+            invalid_feature_count += 1
+
+    issues: list[str] = []
+    if len(selected_samples) != required_real_samples:
+        issues.append("sample_count_mismatch")
+    if duplicate_event_count > 0:
+        issues.append("duplicate_events_detected")
+    if invalid_target_count > 0:
+        issues.append("invalid_target_values")
+    if invalid_feature_count > 0:
+        issues.append("invalid_feature_values")
+    if train_samples + test_samples != required_real_samples:
+        issues.append("split_mismatch")
+
+    return {
+        "is_valid": len(issues) == 0,
+        "issues": issues,
+        "sample_count": len(selected_samples),
+        "required_real_samples": required_real_samples,
+        "duplicate_event_count": duplicate_event_count,
+        "invalid_target_count": invalid_target_count,
+        "invalid_feature_count": invalid_feature_count,
+        "train_samples": train_samples,
+        "test_samples": test_samples,
     }
 
 

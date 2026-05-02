@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.ai import PredictionType
 from app.schemas.ml_models import (
+    HardenDurationModelRequest,
+    HardenDurationModelResponse,
     ModelRegistryListResponse,
     RetrainDurationModelRequest,
     RetrainDurationModelResponse,
@@ -14,6 +16,7 @@ from app.schemas.ml_models import (
 )
 from app.services.ml_training_service import (
     ModelTrainingError,
+    harden_duration_model,
     list_registered_models,
     retrain_duration_model,
     train_baseline_model,
@@ -52,6 +55,38 @@ def list_models_endpoint(
         db, prediction_type=prediction_type, limit=limit
     )
     return ModelRegistryListResponse(items=items, total=total)
+
+
+@router.post("/harden-duration", response_model=HardenDurationModelResponse)
+def harden_duration_model_endpoint(
+    payload: HardenDurationModelRequest,
+    db: Session = Depends(get_db),
+) -> HardenDurationModelResponse:
+    try:
+        result = harden_duration_model(
+            db,
+            model_name=payload.model_name,
+            activate_model=payload.activate_model,
+            required_real_samples=payload.required_real_samples,
+            train_samples=payload.train_samples,
+            test_samples=payload.test_samples,
+            random_seed=payload.random_seed,
+        )
+        return HardenDurationModelResponse(
+            model=result.model,
+            trained_samples=result.trained_samples,
+            backend=result.backend,
+            artifact_path=result.artifact_path,
+            real_samples_used=result.real_samples_used,
+            train_samples=result.train_samples,
+            test_samples=result.test_samples,
+            selected_algorithm=result.selected_algorithm,
+            validation_summary=result.validation_summary,
+        )
+    except ModelTrainingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
 
 
 @router.post("/retrain-duration", response_model=RetrainDurationModelResponse)

@@ -33,6 +33,27 @@ class TrainBaselineModelResponse(BaseModel):
     artifact_path: str | None = None
 
 
+class HardenDurationModelRequest(BaseModel):
+    model_name: str = Field(default="event_duration_hardened", min_length=1, max_length=120)
+    activate_model: bool = True
+    required_real_samples: int | None = Field(default=None, ge=10)
+    train_samples: int | None = Field(default=None, ge=1)
+    test_samples: int | None = Field(default=None, ge=1)
+    random_seed: int | None = None
+
+
+class HardenDurationModelResponse(BaseModel):
+    model: ModelRegistryRead
+    trained_samples: int
+    backend: str
+    artifact_path: str | None = None
+    real_samples_used: int
+    train_samples: int
+    test_samples: int
+    selected_algorithm: str
+    validation_summary: dict[str, Any] = Field(default_factory=dict)
+
+
 class RetrainDurationModelRequest(BaseModel):
     model_name: str = Field(default="event_duration_baseline", min_length=1, max_length=120)
     min_samples_required: int | None = Field(default=None, ge=1)
