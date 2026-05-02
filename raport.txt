@@ -476,3 +476,42 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-02 Fazy 5 (LangGraph state machine + guardrails + fallback heuristics).
   Cel: dostarczyc deterministyczny workflow agentowy gotowy pod endpointy AI Agents w kolejnych checkpointach.
+
+10.2) FAZA 5 - POSTEP IMPLEMENTACJI (CP-03)
+- Status checkpointu: `phase-5-cp-03-ai-agents-api-optimize-evaluate` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano API agentow:
+    - `POST /api/ai-agents/optimize`,
+    - `POST /api/ai-agents/evaluate`.
+  - Dodano router: `app/api/ai_agents.py` i podpiecie w `app/main.py`.
+  - Dodano schematy request/response:
+    - `app/schemas/ai_agents.py`.
+  - Rozszerzono orkiestracje o optimize-only path:
+    - `run_ai_optimization(...)`.
+  - Endpoint `/optimize` wykonuje flow: input generation -> optimize (bez etapu evaluate), co ogranicza koszt i czas.
+  - Endpoint `/evaluate` wykonuje pelny flow: input generation -> optimize -> evaluator.
+  - Guardrails i fallback heurystyki z CP-02 dzialaja na obu endpointach.
+  - Dodano testy CP-03:
+    - `tests/test_phase5_cp03.py`.
+- Walidacja wykonania:
+  - Testy CP-03: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp03.py -q` -> 3 passed.
+  - Testy Fazy 5: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase5_cp03.py -q` -> 15 passed.
+  - Szybka regresja Faza 4 + Faza 5: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase4_cp04.py tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase5_cp03.py -q` -> 17 passed.
+
+- [2026-05-02] Zaimplementowano CP-03 Fazy 5 (API AI Agents optimize/evaluate + optimize-only path + testy).
+  Cel: wystawic stabilne endpointy agentowe i domknac wykonawczo zakres Fazy 5.
+
+10.3) FAZA 5 - ZAMKNIECIE KONCOWE
+- Status fazy: ZAMKNIETA.
+- Finalny zakres potwierdzony:
+  - CP-01: `phase-5-cp-01-azure-openai-integration`
+  - CP-02: `phase-5-cp-02-langgraph-state-machine-guardrails`
+  - CP-03: `phase-5-cp-03-ai-agents-api-optimize-evaluate`
+- Finalna walidacja wykonania Fazy 5:
+  - Testy Fazy 5: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase5_cp03.py -q` -> 15 passed.
+  - Regresja Faza 4 + Faza 5: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase4_cp04.py tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase5_cp03.py -q` -> 17 passed.
+- Artifact zamkniecia:
+  - tag koncowy: `phase-5-complete`.
+
+- [2026-05-02] Oznaczono Faze 5 jako zamknieta.
+  Cel: potwierdzic gotowosc warstwy AI Orchestration (LangGraph + Azure guardrails + API agentow) do wejscia w runtime operations.

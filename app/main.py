@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.ai_agents import router as ai_agents_router
 from app.api.auth import router as auth_router
 from app.api.clients import router as clients_router
 from app.api.events import router as events_router
@@ -23,3 +24,4 @@ app.include_router(locations_router)
 app.include_router(events_router)
 app.include_router(resources_router)
 app.include_router(planner_router)
+app.include_router(ai_agents_router)

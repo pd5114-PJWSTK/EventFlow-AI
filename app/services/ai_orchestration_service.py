@@ -81,6 +81,15 @@ class AIOrchestrationResult:
     execution_mode: Literal["langgraph", "sequential"] = "sequential"
 
 
+@dataclass
+class AIOptimizationResult:
+    parsed_input: ParsedPlanningInput
+    optimization: OptimizationProposal
+    used_fallback: bool
+    fallback_steps: list[str] = field(default_factory=list)
+    execution_mode: Literal["langgraph", "sequential"] = "sequential"
+
+
 def run_ai_orchestration(
     *,
     raw_input: str,
@@ -133,6 +142,76 @@ def run_ai_orchestration(
     finally:
         if own_client is not None:
             own_client.close()
+
+
+def run_ai_optimization(
+    *,
+    raw_input: str,
+    planner_snapshot: str,
+    llm_client: AIClientProtocol | None = None,
+    settings: Settings | None = None,
+    prefer_langgraph: bool = True,
+) -> AIOptimizationResult:
+    own_client: AzureOpenAIClient | None = None
+    resolved_settings = settings or get_settings()
+
+    if llm_client is None:
+        own_client = AzureOpenAIClient(settings=resolved_settings)
+        llm_client = own_client
+
+    state: dict[str, Any] = {
+        "raw_input": raw_input,
+        "planner_snapshot": planner_snapshot,
+        "parsed_input": None,
+        "optimization": None,
+        "fallback_steps": [],
+        "used_fallback": False,
+    }
+
+    try:
+        if prefer_langgraph and _LANGGRAPH_AVAILABLE:
+            final_state = _run_optimization_with_langgraph(state, llm_client)
+            mode: Literal["langgraph", "sequential"] = "langgraph"
+        else:
+            final_state = _run_optimization_sequential(state, llm_client)
+            mode = "sequential"
+
+        parsed_payload = final_state.get("parsed_input")
+        optimization_payload = final_state.get("optimization")
+        if parsed_payload is None or optimization_payload is None:
+            raise AIOrchestrationError("AI optimization state is incomplete.")
+
+        return AIOptimizationResult(
+            parsed_input=ParsedPlanningInput.model_validate(parsed_payload),
+            optimization=OptimizationProposal.model_validate(optimization_payload),
+            used_fallback=bool(final_state.get("used_fallback")),
+            fallback_steps=list(final_state.get("fallback_steps") or []),
+            execution_mode=mode,
+        )
+    finally:
+        if own_client is not None:
+            own_client.close()
+
+
+def _run_optimization_with_langgraph(
+    initial_state: dict[str, Any],
+    llm_client: AIClientProtocol,
+) -> dict[str, Any]:
+    graph: StateGraph = StateGraph(dict)
+    graph.add_node("generate_input", lambda state: _generate_input_node(state, llm_client))
+    graph.add_node("optimize", lambda state: _optimize_node(state, llm_client))
+    graph.set_entry_point("generate_input")
+    graph.add_edge("generate_input", "optimize")
+    graph.add_edge("optimize", END)
+    return graph.compile().invoke(initial_state)
+
+
+def _run_optimization_sequential(
+    state: dict[str, Any], llm_client: AIClientProtocol
+) -> dict[str, Any]:
+    state = _generate_input_node(state, llm_client)
+    state = _optimize_node(state, llm_client)
+    return state
 
 
 def _run_with_langgraph(
