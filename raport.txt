@@ -923,3 +923,55 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-07 Fazy 7 (ML plan proposal: training data + evaluator model + najlepszy kandydat planu).
   Cel: przejsc od samej ewaluacji pojedynczej predykcji do aktywnego wyboru najlepszego wariantu planu przez warstwe ML nad solverem.
+
+12.7.1) FAZA 7 - DOMKNIECIE BRAKUJACYCH ELEMENTOW CP-07
+- Status checkpointu: `phase-7-cp-07-ml-plan-proposal-and-evaluator` -> UZUPELNIONY (guardraile + API explainability + feedback loop).
+- Zakres uzupelniajacy wykonany:
+  - Rozszerzono predykcje per plan w `POST /api/planner/recommend-best-plan`:
+    - `predicted_transport_duration_minutes`,
+    - `predicted_setup_duration_minutes`,
+    - `predicted_teardown_duration_minutes`,
+    - `predicted_delay_risk`,
+    - `predicted_incident_risk`,
+    - `predicted_sla_breach_risk`,
+    - `estimated_duration_minutes`,
+    - `estimated_cost`.
+  - Dodano agregacje do `plan_score` (czas/koszt/ryzyko + jakosc ML + coverage).
+  - Dodano guardraile:
+    - `ML_PLAN_GUARDRAIL_CONFIDENCE_MIN`,
+    - `ML_PLAN_GUARDRAIL_OOD_MAX`,
+    - `ML_PLAN_GUARDRAIL_HIGH_RISK_MAX`,
+    - pola wynikowe: `confidence_score`, `ood_score`, `guardrail_applied`, `guardrail_reason`.
+  - Rozszerzono API explainability:
+    - `selected_explanation`,
+    - `selection_explanation` per kandydat.
+  - Dodano feedback loop do retrainingu:
+    - zapis actual outcome po `/api/runtime/events/{event_id}/complete` do `planner_run.input_snapshot.feedback_records`.
+  - Dodano endpoint ingestu nowego eventu:
+    - `POST /api/ai-agents/ingest-event` (LLM/hybrid parse + fallback deterministic).
+  - Rozszerzono testy CP-07:
+    - `tests/test_phase7_cp07.py` o asercje nowych pol predykcji, guardrail i score.
+
+12.8) FAZA 7 - POSTEP IMPLEMENTACJI (CP-08)
+- Status checkpointu: `phase-7-cp-08-e2e-scenarios-program-test` -> ZREALIZOWANY (implementacja + testy + dokumentacja scenariuszy).
+- Zakres wykonany:
+  - Dodano test scenariuszy E2E:
+    - `tests/test_phase7_cp08.py`.
+  - W ramach testu CP-08:
+    - trenowane sa modele na realnych danych (`harden-duration` + `train-plan-evaluator`),
+    - realizowany jest scenariusz 1:
+      - ingest nowego eventu -> generacja cech -> `recommend-best-plan` -> start/complete + log,
+    - realizowany jest scenariusz 2:
+      - live incident parse -> `replan/{event_id}` -> akceptacja zmienionego planu -> complete.
+  - Dodano czytelny opis przebiegow dla uzytkownika:
+    - `Test_programu.md`.
+- Walidacja wykonania:
+  - Kontrola skladni:
+    - `python -m py_compile app/api/ai_agents.py app/schemas/ai_agents.py app/schemas/planner.py app/services/ai_event_ingest_service.py app/services/planner_generation_service.py app/services/runtime_ops_service.py tests/test_phase7_cp07.py tests/test_phase7_cp08.py` -> passed.
+  - Testy CP-07 + CP-08:
+    - `pytest tests/test_phase7_cp07.py tests/test_phase7_cp08.py -q` -> passed.
+
+- [2026-05-02] Domknieto brakujace elementy CP-07 (predykcje per plan + plan_score + guardraile + explainability + feedback loop).
+  Cel: pelna gotowosc warstwy ML do wyboru planu i bezpiecznego fallbacku przy niskim zaufaniu/wysokim ryzyku.
+- [2026-05-02] Zrealizowano CP-08 (2 realne scenariusze E2E + dokument `Test_programu.md`).
+  Cel: potwierdzic praktyczne dzialanie programu od ingestu eventu, przez planowanie/replanning, do finalizacji i logowania outcome.

@@ -1,11 +1,16 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from app.schemas.ai_agents import (
     AIAgentsEvaluateRequest,
     AIAgentsEvaluateResponse,
+    AIAgentsIngestEventRequest,
+    AIAgentsIngestEventResponse,
     AIAgentsOptimizeRequest,
     AIAgentsOptimizeResponse,
 )
+from app.services.ai_event_ingest_service import AIEventIngestError, ingest_event_from_text
 from app.services.ai_orchestration_service import (
     AIOrchestrationError,
     run_ai_optimization,
@@ -62,3 +67,22 @@ def evaluate_endpoint(payload: AIAgentsEvaluateRequest) -> AIAgentsEvaluateRespo
         fallback_steps=result.fallback_steps,
         execution_mode=result.execution_mode,
     )
+
+
+@router.post("/ingest-event", response_model=AIAgentsIngestEventResponse)
+def ingest_event_endpoint(
+    payload: AIAgentsIngestEventRequest,
+    db: Session = Depends(get_db),
+) -> AIAgentsIngestEventResponse:
+    try:
+        return ingest_event_from_text(
+            db,
+            raw_input=payload.raw_input,
+            initiated_by=payload.initiated_by,
+            prefer_langgraph=payload.prefer_langgraph,
+        )
+    except AIEventIngestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc

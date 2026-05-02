@@ -24,6 +24,7 @@ from app.schemas.runtime_ops import (
     RuntimeStartResponse,
 )
 from app.services.runtime_notification_service import enqueue_runtime_notification
+from app.services.planner_generation_service import attach_plan_outcome_feedback
 
 
 class RuntimeOpsError(ValueError):
@@ -216,6 +217,15 @@ def complete_event_execution(
     outcome.margin_estimate = payload.margin_estimate
     outcome.summary_notes = payload.summary_notes
     outcome.closed_at = completed_at
+    attach_plan_outcome_feedback(
+        db,
+        event_id=event.event_id,
+        finished_on_time=payload.finished_on_time,
+        total_delay_minutes=payload.total_delay_minutes,
+        actual_cost=payload.actual_cost,
+        sla_breached=payload.sla_breached,
+        closed_at=completed_at,
+    )
 
     log = EventExecutionLog(
         event_id=event.event_id,

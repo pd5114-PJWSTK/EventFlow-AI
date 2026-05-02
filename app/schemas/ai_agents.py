@@ -56,3 +56,19 @@ class AIAgentsEvaluateResponse(BaseModel):
     used_fallback: bool
     fallback_steps: list[str] = Field(default_factory=list)
     execution_mode: str
+
+
+class AIAgentsIngestEventRequest(BaseModel):
+    raw_input: str = Field(min_length=1, max_length=12000)
+    initiated_by: str | None = None
+    prefer_langgraph: bool = True
+
+
+class AIAgentsIngestEventResponse(BaseModel):
+    client_id: str
+    location_id: str
+    event_id: str
+    requirement_ids: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    parser_mode: str
+    used_fallback: bool

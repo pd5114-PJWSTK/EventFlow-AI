@@ -340,11 +340,22 @@ def test_phase7_cp07_ml_recommends_best_candidate_and_commits_plan(
     assert payload["planner_run_id"]
     assert payload["recommendation_id"]
     assert payload["selected_candidate_name"]
+    assert payload["selected_explanation"]
     assert len(payload["candidates"]) == 4
 
-    scores = [float(item["ml_quality_score"]) for item in payload["candidates"]]
+    scores = [float(item["plan_score"]) for item in payload["candidates"]]
     assert scores == sorted(scores, reverse=True)
-    assert float(payload["selected_quality_score"]) == scores[0]
+    assert float(payload["selected_plan_score"]) == scores[0]
+    for item in payload["candidates"]:
+        assert float(item["predicted_transport_duration_minutes"]) >= 0
+        assert float(item["predicted_setup_duration_minutes"]) >= 0
+        assert float(item["predicted_teardown_duration_minutes"]) >= 0
+        assert 0 <= float(item["predicted_delay_risk"]) <= 1
+        assert 0 <= float(item["predicted_incident_risk"]) <= 1
+        assert 0 <= float(item["predicted_sla_breach_risk"]) <= 1
+        assert 0 <= float(item["confidence_score"]) <= 1
+        assert 0 <= float(item["ood_score"]) <= 1
+        assert item["selection_explanation"]
     assert payload["selected_plan"]["event_id"] == event_id
     assert payload["selected_plan"]["is_fully_assigned"] is True
     assert len(payload["selected_plan"]["assignment_ids"]) >= 3

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     ml_hardening_required_real_samples: int = 60
     ml_hardening_train_samples: int = 50
     ml_hardening_test_samples: int = 10
+    ml_plan_guardrail_confidence_min: float = 0.60
+    ml_plan_guardrail_ood_max: float = 0.55
+    ml_plan_guardrail_high_risk_max: float = 0.70
     ml_retrain_enabled: bool = True
     ml_retrain_schedule_minutes: int = 360
     ml_retrain_activation_min_samples: int = 3

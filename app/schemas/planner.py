@@ -115,11 +115,21 @@ class PlanCandidateEvaluation(BaseModel):
     candidate_name: str
     solver: str
     estimated_cost: Decimal
+    predicted_transport_duration_minutes: Decimal
+    predicted_setup_duration_minutes: Decimal
+    predicted_teardown_duration_minutes: Decimal
     estimated_duration_minutes: Decimal
-    predicted_risk: Decimal
+    predicted_delay_risk: Decimal
+    predicted_incident_risk: Decimal
+    predicted_sla_breach_risk: Decimal
     coverage_ratio: Decimal
     unassigned_count: int
-    ml_quality_score: Decimal
+    confidence_score: Decimal
+    ood_score: Decimal
+    guardrail_applied: bool = False
+    guardrail_reason: str | None = None
+    plan_score: Decimal
+    selection_explanation: str
     profile_weights: dict[str, Decimal] = Field(default_factory=dict)
 
 
@@ -138,6 +148,7 @@ class RecommendBestPlanResponse(BaseModel):
     planner_run_id: str
     recommendation_id: str
     selected_candidate_name: str
-    selected_quality_score: Decimal
+    selected_plan_score: Decimal
+    selected_explanation: str
     selected_plan: GeneratePlanResponse
     candidates: list[PlanCandidateEvaluation] = Field(default_factory=list)

@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.ai import (
     EventFeature,
     ModelRegistry,
@@ -271,6 +272,7 @@ def recommend_best_plan_with_ml(
         preferred_model_id=plan_evaluator_model_id,
     )
 
+    settings = get_settings()
     planner_run = PlannerRun(
         objective_version="phase-7-cp-07-ml-plan-proposal-v1",
         initiated_by=initiated_by,
@@ -282,6 +284,11 @@ def recommend_best_plan_with_ml(
                 "fallback_enabled": fallback_enabled,
             },
             "profiles": [profile["name"] for profile in _proposal_profiles()],
+            "guardrails": {
+                "confidence_min": settings.ml_plan_guardrail_confidence_min,
+                "ood_max": settings.ml_plan_guardrail_ood_max,
+                "high_risk_max": settings.ml_plan_guardrail_high_risk_max,
+            },
         },
     )
     db.add(planner_run)
@@ -319,12 +326,42 @@ def recommend_best_plan_with_ml(
             coverage_ratio=coverage_ratio,
             estimated_cost=solved.estimated_cost,
         )
+        duration_breakdown = _duration_breakdown(
+            event=event,
+            event_feature=event_feature,
+            total_duration_minutes=predicted_duration_minutes,
+        )
+        delay_risk = _candidate_delay_risk(
+            predicted_duration_minutes=predicted_duration_minutes,
+            event=event,
+            coverage_ratio=coverage_ratio,
+            unassigned_count=unassigned_count,
+            total_required=total_required,
+        )
+        incident_risk = _candidate_incident_risk(
+            event_feature=event_feature,
+            coverage_ratio=coverage_ratio,
+            unassigned_count=unassigned_count,
+            risk_bias=Decimal(str(profile["risk_bias"])),
+        )
+        sla_breach_risk = _candidate_sla_risk(
+            delay_risk=delay_risk,
+            incident_risk=incident_risk,
+            event=event,
+            predicted_total_duration_minutes=predicted_duration_minutes,
+        )
         predicted_risk = _candidate_risk(
             coverage_ratio=coverage_ratio,
             unassigned_count=unassigned_count,
             total_required=total_required,
             risk_bias=Decimal(str(profile["risk_bias"])),
         )
+        confidence_score = _plan_confidence_score(
+            plan_evaluator_artifact=plan_evaluator_artifact,
+            coverage_ratio=coverage_ratio,
+            unassigned_count=unassigned_count,
+        )
+        ood_score = _ood_score(event_feature)
         ml_score = _candidate_quality_score(
             event_feature=event_feature,
             coverage_ratio=coverage_ratio,
@@ -336,6 +373,39 @@ def recommend_best_plan_with_ml(
             profile=profile,
             plan_evaluator_artifact=plan_evaluator_artifact,
         )
+        plan_score = _plan_score(
+            estimated_cost=solved.estimated_cost,
+            total_duration_minutes=predicted_duration_minutes,
+            delay_risk=delay_risk,
+            incident_risk=incident_risk,
+            sla_breach_risk=sla_breach_risk,
+            coverage_ratio=coverage_ratio,
+            ml_quality_score=Decimal(str(ml_score)),
+            profile=profile,
+        )
+        guardrail_applied, guardrail_reason = _apply_guardrails(
+            candidate_name=str(profile["name"]),
+            confidence_score=confidence_score,
+            ood_score=ood_score,
+            delay_risk=delay_risk,
+            incident_risk=incident_risk,
+            sla_breach_risk=sla_breach_risk,
+            settings=settings,
+        )
+        if guardrail_applied:
+            plan_score = max(plan_score - Decimal("20.0000"), Decimal("0.0000"))
+        selection_explanation = _selection_explanation(
+            candidate_name=str(profile["name"]),
+            plan_score=plan_score,
+            estimated_cost=solved.estimated_cost,
+            total_duration_minutes=predicted_duration_minutes,
+            delay_risk=delay_risk,
+            incident_risk=incident_risk,
+            sla_breach_risk=sla_breach_risk,
+            coverage_ratio=coverage_ratio,
+            guardrail_applied=guardrail_applied,
+            guardrail_reason=guardrail_reason,
+        )
         candidate_results.append(
             {
                 "profile": profile,
@@ -343,15 +413,27 @@ def recommend_best_plan_with_ml(
                 "coverage_ratio": coverage_ratio,
                 "unassigned_count": unassigned_count,
                 "predicted_duration_minutes": predicted_duration_minutes,
+                "predicted_transport_duration_minutes": duration_breakdown["transport_duration_minutes"],
+                "predicted_setup_duration_minutes": duration_breakdown["setup_duration_minutes"],
+                "predicted_teardown_duration_minutes": duration_breakdown["teardown_duration_minutes"],
+                "predicted_delay_risk": delay_risk,
+                "predicted_incident_risk": incident_risk,
+                "predicted_sla_breach_risk": sla_breach_risk,
                 "predicted_risk": predicted_risk,
+                "confidence_score": confidence_score,
+                "ood_score": ood_score,
                 "ml_score": ml_score,
+                "plan_score": plan_score,
+                "guardrail_applied": guardrail_applied,
+                "guardrail_reason": guardrail_reason,
+                "selection_explanation": selection_explanation,
             }
         )
 
     if not candidate_results:
         raise PlanGenerationError("No candidate plans generated for ML recommendation.")
 
-    candidate_results.sort(key=lambda item: item["ml_score"], reverse=True)
+    candidate_results.sort(key=lambda item: item["plan_score"], reverse=True)
     selected = candidate_results[0]
     selected_result: PlannerResult = selected["planner_result"]
     recommendation = _create_recommendation(
@@ -389,9 +471,31 @@ def recommend_best_plan_with_ml(
     planner_run.total_cost = _money(selected_result.estimated_cost)
     planner_run.total_risk_score = selected["predicted_risk"].quantize(Decimal("0.0001"))
     planner_run.notes = (
-        f"Selected profile={selected['profile']['name']} score={selected['ml_score']:.4f}; "
+        f"Selected profile={selected['profile']['name']} plan_score={selected['plan_score']}; "
         f"candidates={len(candidate_results)}"
     )
+    planner_run.input_snapshot = {
+        **(planner_run.input_snapshot or {}),
+        "selected_candidate": {
+            "name": selected["profile"]["name"],
+            "plan_score": str(selected["plan_score"]),
+            "confidence_score": str(selected["confidence_score"]),
+            "ood_score": str(selected["ood_score"]),
+            "predictions": {
+                "transport_duration_minutes": str(selected["predicted_transport_duration_minutes"]),
+                "setup_duration_minutes": str(selected["predicted_setup_duration_minutes"]),
+                "teardown_duration_minutes": str(selected["predicted_teardown_duration_minutes"]),
+                "total_duration_minutes": str(selected["predicted_duration_minutes"]),
+                "cost_estimate": str(_money(selected_result.estimated_cost)),
+                "delay_risk": str(selected["predicted_delay_risk"]),
+                "incident_risk": str(selected["predicted_incident_risk"]),
+                "sla_breach_risk": str(selected["predicted_sla_breach_risk"]),
+            },
+            "guardrail_applied": selected["guardrail_applied"],
+            "guardrail_reason": selected["guardrail_reason"],
+            "selection_explanation": selected["selection_explanation"],
+        }
+    }
     db.commit()
     db.refresh(recommendation)
 
@@ -420,18 +524,29 @@ def recommend_best_plan_with_ml(
         planner_run_id=planner_run.planner_run_id,
         recommendation_id=recommendation.recommendation_id,
         selected_candidate_name=str(selected["profile"]["name"]),
-        selected_quality_score=Decimal(str(round(selected["ml_score"], 4))).quantize(Decimal("0.0001")),
+        selected_plan_score=selected["plan_score"].quantize(Decimal("0.0001")),
+        selected_explanation=str(selected["selection_explanation"]),
         selected_plan=selected_plan,
         candidates=[
             PlanCandidateEvaluation(
                 candidate_name=str(item["profile"]["name"]),
                 solver=item["planner_result"].solver,
                 estimated_cost=_money(item["planner_result"].estimated_cost),
+                predicted_transport_duration_minutes=item["predicted_transport_duration_minutes"].quantize(Decimal("0.0001")),
+                predicted_setup_duration_minutes=item["predicted_setup_duration_minutes"].quantize(Decimal("0.0001")),
+                predicted_teardown_duration_minutes=item["predicted_teardown_duration_minutes"].quantize(Decimal("0.0001")),
                 estimated_duration_minutes=item["predicted_duration_minutes"].quantize(Decimal("0.0001")),
-                predicted_risk=item["predicted_risk"].quantize(Decimal("0.0001")),
+                predicted_delay_risk=item["predicted_delay_risk"].quantize(Decimal("0.0001")),
+                predicted_incident_risk=item["predicted_incident_risk"].quantize(Decimal("0.0001")),
+                predicted_sla_breach_risk=item["predicted_sla_breach_risk"].quantize(Decimal("0.0001")),
                 coverage_ratio=item["coverage_ratio"].quantize(Decimal("0.0001")),
                 unassigned_count=int(item["unassigned_count"]),
-                ml_quality_score=Decimal(str(round(item["ml_score"], 4))).quantize(Decimal("0.0001")),
+                confidence_score=item["confidence_score"].quantize(Decimal("0.0001")),
+                ood_score=item["ood_score"].quantize(Decimal("0.0001")),
+                guardrail_applied=bool(item["guardrail_applied"]),
+                guardrail_reason=item["guardrail_reason"],
+                plan_score=item["plan_score"].quantize(Decimal("0.0001")),
+                selection_explanation=str(item["selection_explanation"]),
                 profile_weights={
                     "score_weight": Decimal(str(item["profile"]["score_weight"])),
                     "cost_weight": Decimal(str(item["profile"]["cost_weight"])),
@@ -996,6 +1111,211 @@ def _candidate_quality_score(
     return max(min(score, 100.0), 0.0)
 
 
+def _duration_breakdown(
+    *,
+    event: Event,
+    event_feature: EventFeature,
+    total_duration_minutes: Decimal,
+) -> dict[str, Decimal]:
+    complexity = Decimal(str(float(event_feature.feature_setup_complexity_score or 1)))
+    transport_share = Decimal("0.20") if event.requires_transport else Decimal("0.05")
+    setup_share = Decimal("0.27") if event.requires_setup else Decimal("0.08")
+    teardown_share = Decimal("0.18") if event.requires_teardown else Decimal("0.05")
+    # Adjust split with setup complexity to better reflect heavier setups.
+    setup_share += min(complexity / Decimal("100"), Decimal("0.10"))
+    teardown_share += min(complexity / Decimal("140"), Decimal("0.06"))
+    used_share = transport_share + setup_share + teardown_share
+    if used_share > Decimal("0.85"):
+        scale = Decimal("0.85") / used_share
+        transport_share *= scale
+        setup_share *= scale
+        teardown_share *= scale
+
+    transport = (total_duration_minutes * transport_share).quantize(Decimal("0.0001"))
+    setup = (total_duration_minutes * setup_share).quantize(Decimal("0.0001"))
+    teardown = (total_duration_minutes * teardown_share).quantize(Decimal("0.0001"))
+    return {
+        "transport_duration_minutes": max(transport, Decimal("0")),
+        "setup_duration_minutes": max(setup, Decimal("0")),
+        "teardown_duration_minutes": max(teardown, Decimal("0")),
+    }
+
+
+def _candidate_delay_risk(
+    *,
+    predicted_duration_minutes: Decimal,
+    event: Event,
+    coverage_ratio: Decimal,
+    unassigned_count: int,
+    total_required: int,
+) -> Decimal:
+    event_window = Decimal(max(_event_duration_minutes(event), 1))
+    duration_pressure = max((predicted_duration_minutes / event_window) - Decimal("1"), Decimal("0"))
+    unassigned_ratio = Decimal(unassigned_count) / Decimal(max(total_required, 1))
+    risk = (
+        duration_pressure * Decimal("0.50")
+        + (Decimal("1") - coverage_ratio) * Decimal("0.30")
+        + unassigned_ratio * Decimal("0.20")
+    )
+    return min(max(risk, Decimal("0.01")), Decimal("0.99")).quantize(Decimal("0.0001"))
+
+
+def _candidate_incident_risk(
+    *,
+    event_feature: EventFeature,
+    coverage_ratio: Decimal,
+    unassigned_count: int,
+    risk_bias: Decimal,
+) -> Decimal:
+    setup_complexity = Decimal(str(float(event_feature.feature_setup_complexity_score or 1))) / Decimal("10")
+    access = Decimal(str(float(event_feature.feature_access_difficulty or 1))) / Decimal("10")
+    parking = Decimal(str(float(event_feature.feature_parking_difficulty or 1))) / Decimal("10")
+    unassigned_penalty = min(Decimal(unassigned_count) * Decimal("0.05"), Decimal("0.40"))
+    risk = (
+        setup_complexity * Decimal("0.35")
+        + access * Decimal("0.20")
+        + parking * Decimal("0.10")
+        + (Decimal("1") - coverage_ratio) * Decimal("0.20")
+        + unassigned_penalty
+        + risk_bias
+    )
+    return min(max(risk, Decimal("0.01")), Decimal("0.99")).quantize(Decimal("0.0001"))
+
+
+def _candidate_sla_risk(
+    *,
+    delay_risk: Decimal,
+    incident_risk: Decimal,
+    event: Event,
+    predicted_total_duration_minutes: Decimal,
+) -> Decimal:
+    event_window = Decimal(max(_event_duration_minutes(event), 1))
+    duration_ratio = predicted_total_duration_minutes / event_window
+    breach_pressure = max(duration_ratio - Decimal("1"), Decimal("0"))
+    risk = delay_risk * Decimal("0.55") + incident_risk * Decimal("0.35") + breach_pressure * Decimal("0.10")
+    return min(max(risk, Decimal("0.01")), Decimal("0.99")).quantize(Decimal("0.0001"))
+
+
+def _plan_confidence_score(
+    *,
+    plan_evaluator_artifact: dict[str, Any] | None,
+    coverage_ratio: Decimal,
+    unassigned_count: int,
+) -> Decimal:
+    if plan_evaluator_artifact is None:
+        base = Decimal("0.68")
+    else:
+        metrics = (
+            plan_evaluator_artifact.get("model_selection", {})
+            .get("leaderboard", [{}])[0]
+            .get("test_metrics", {})
+        )
+        mae = Decimal(str(metrics.get("mae_minutes", 1.0)))
+        base = Decimal("1") - min(mae / Decimal("20"), Decimal("0.40"))
+    penalty = (Decimal("1") - coverage_ratio) * Decimal("0.40") + min(Decimal(unassigned_count) * Decimal("0.04"), Decimal("0.20"))
+    confidence = base - penalty
+    return min(max(confidence, Decimal("0.05")), Decimal("0.99")).quantize(Decimal("0.0001"))
+
+
+def _ood_score(event_feature: EventFeature) -> Decimal:
+    attendee = Decimal(str(float(event_feature.feature_attendee_count or 0)))
+    setup = Decimal(str(float(event_feature.feature_setup_complexity_score or 1)))
+    access = Decimal(str(float(event_feature.feature_access_difficulty or 1)))
+    parking = Decimal(str(float(event_feature.feature_parking_difficulty or 1)))
+
+    score = Decimal("0")
+    if attendee > Decimal("2000"):
+        score += Decimal("0.45")
+    elif attendee > Decimal("1200"):
+        score += Decimal("0.30")
+    elif attendee > Decimal("800"):
+        score += Decimal("0.15")
+    score += max(setup - Decimal("8"), Decimal("0")) * Decimal("0.06")
+    score += max(access - Decimal("4"), Decimal("0")) * Decimal("0.05")
+    score += max(parking - Decimal("4"), Decimal("0")) * Decimal("0.04")
+    return min(score, Decimal("0.99")).quantize(Decimal("0.0001"))
+
+
+def _plan_score(
+    *,
+    estimated_cost: Decimal,
+    total_duration_minutes: Decimal,
+    delay_risk: Decimal,
+    incident_risk: Decimal,
+    sla_breach_risk: Decimal,
+    coverage_ratio: Decimal,
+    ml_quality_score: Decimal,
+    profile: dict[str, float | str],
+) -> Decimal:
+    cost_norm = min(estimated_cost / Decimal("100000"), Decimal("1"))
+    duration_norm = min(total_duration_minutes / Decimal("1200"), Decimal("1"))
+    risk_norm = min((delay_risk + incident_risk + sla_breach_risk) / Decimal("3"), Decimal("1"))
+
+    time_weight = Decimal("0.30")
+    cost_weight = Decimal("0.25")
+    risk_weight = Decimal("0.45")
+    weighted_penalty = (
+        duration_norm * time_weight
+        + cost_norm * cost_weight
+        + risk_norm * risk_weight
+    )
+    score = Decimal("100") * (Decimal("1") - weighted_penalty)
+    score += coverage_ratio * Decimal("8")
+    score += ml_quality_score * Decimal("0.15")
+    score += Decimal(str(float(profile["reliability_bias"]))) * Decimal("10")
+    score = min(max(score, Decimal("0")), Decimal("100"))
+    return score.quantize(Decimal("0.0001"))
+
+
+def _apply_guardrails(
+    *,
+    candidate_name: str,
+    confidence_score: Decimal,
+    ood_score: Decimal,
+    delay_risk: Decimal,
+    incident_risk: Decimal,
+    sla_breach_risk: Decimal,
+    settings,
+) -> tuple[bool, str | None]:
+    if confidence_score < Decimal(str(settings.ml_plan_guardrail_confidence_min)):
+        return True, "low_confidence"
+    if ood_score > Decimal(str(settings.ml_plan_guardrail_ood_max)):
+        return True, "out_of_distribution"
+    if max(delay_risk, incident_risk, sla_breach_risk) > Decimal(
+        str(settings.ml_plan_guardrail_high_risk_max)
+    ):
+        if candidate_name != "coverage_guarded":
+            return True, "high_risk_switch_to_guarded_profile"
+    return False, None
+
+
+def _selection_explanation(
+    *,
+    candidate_name: str,
+    plan_score: Decimal,
+    estimated_cost: Decimal,
+    total_duration_minutes: Decimal,
+    delay_risk: Decimal,
+    incident_risk: Decimal,
+    sla_breach_risk: Decimal,
+    coverage_ratio: Decimal,
+    guardrail_applied: bool,
+    guardrail_reason: str | None,
+) -> str:
+    guardrail_text = (
+        f" Guardrail applied: {guardrail_reason}."
+        if guardrail_applied and guardrail_reason
+        else ""
+    )
+    return (
+        f"Profile {candidate_name} selected with plan_score={plan_score}. "
+        f"Cost={_money(estimated_cost)} PLN, total_duration={total_duration_minutes} min, "
+        f"delay_risk={delay_risk}, incident_risk={incident_risk}, sla_breach_risk={sla_breach_risk}, "
+        f"coverage_ratio={coverage_ratio}."
+        f"{guardrail_text}"
+    )
+
+
 def _ratio_decimal(numerator: Decimal, denominator: Decimal) -> Decimal:
     if denominator <= 0:
         return Decimal("0")
@@ -1011,6 +1331,50 @@ def _latest_recommendation_for_event(
         .order_by(PlannerRecommendation.created_at.desc())
         .first()
     )
+
+
+def attach_plan_outcome_feedback(
+    db: Session,
+    *,
+    event_id: str,
+    finished_on_time: bool | None,
+    total_delay_minutes: int | None,
+    actual_cost: Decimal | None,
+    sla_breached: bool,
+    closed_at: datetime,
+) -> None:
+    recommendation = _latest_recommendation_for_event(db, event_id)
+    if recommendation is None:
+        return
+    planner_run = db.get(PlannerRun, recommendation.planner_run_id)
+    if planner_run is None:
+        return
+
+    snapshot = dict(planner_run.input_snapshot or {})
+    selected = dict(snapshot.get("selected_candidate") or {})
+    selected["actual_outcome"] = {
+        "finished_on_time": finished_on_time,
+        "total_delay_minutes": total_delay_minutes,
+        "actual_cost": str(actual_cost) if actual_cost is not None else None,
+        "sla_breached": sla_breached,
+        "closed_at": closed_at.isoformat(),
+    }
+    feedback = list(snapshot.get("feedback_records") or [])
+    feedback.append(
+        {
+            "event_id": event_id,
+            "planner_run_id": planner_run.planner_run_id,
+            "recommendation_id": recommendation.recommendation_id,
+            "selected_candidate_name": selected.get("name"),
+            "predicted_plan_score": selected.get("plan_score"),
+            "predictions": selected.get("predictions"),
+            "actual_outcome": selected.get("actual_outcome"),
+        }
+    )
+    snapshot["selected_candidate"] = selected
+    snapshot["feedback_records"] = feedback[-50:]
+    planner_run.input_snapshot = snapshot
+    db.add(planner_run)
 
 
 def _compare_recommendations(
