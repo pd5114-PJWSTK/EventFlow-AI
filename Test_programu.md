@@ -1,40 +1,23 @@
-# Test programu - CP-08
+# Test programu - CP-08 (pełny przebieg opisowy)
 
-Poniżej są dwa realne przebiegi E2E, które zostały zaimplementowane i zweryfikowane testem `tests/test_phase7_cp08.py`.
+W tym przebiegu najpierw został przygotowany model czasu trwania i model ewaluacji planów na 60 realnych próbkach historycznych. Model czasu był trenowany konfiguracją 50 trening / 10 test, a model ewaluatora dostał 4 warianty planu na każdy event z historii. Efekt tego etapu był taki, że planner miał już aktywny model do przewidywania czasu i aktywny model do porównywania jakości wariantów planu.
 
-## Scenariusz 1 - Nowy event -> ingest LLM -> planner + optymalizacja -> akceptacja -> zakończenie
+W pierwszym scenariuszu operator wpisał nowy event jako pełny opis tekstowy: klient BrightWave Events, priorytet wysoki, lokalizacja Expo Arena w Warszawie, poziom trudności setupu 7/10, utrudnienie dostępu 3/5, utrudnienie parkingu 2/5, nazwa Product Launch 2026, typ conference, podtyp touring, 420 uczestników, okno 15 listopada 2026 od 09:00 do 18:00, budżet 85 000 PLN, transport/setup/teardown wymagane, oraz wymagania zasobowe: 2 koordynatorów, 1 kierowca, 1 van i 1 zestaw sprzętu generic. System po ingestcie od razu utworzył komplet danych w bazie: klienta, lokalizację, event i wymagania, bez potrzeby dopisywania brakujących pól przez użytkownika.
 
-1. Operator wprowadza nowy event tekstowo przez `POST /api/ai-agents/ingest-event`.
-2. Pipeline ingest:
-   - parsuje dane eventu,
-   - tworzy klienta, lokalizację, event i wymagania,
-   - zwraca `event_id` bez potrzeby ręcznego uzupełniania pól.
-3. System generuje cechy ML dla eventu przez `POST /api/ml/features/generate`.
-4. Planner uruchamia porównanie wariantów przez `POST /api/planner/recommend-best-plan`:
-   - wylicza predykcje per plan: transport/setup/teardown/total/cost/risk,
-   - stosuje guardraile (confidence, OOD, high-risk),
-   - liczy `plan_score` i wybiera najlepszy wariant z uzasadnieniem.
-5. W teście najlepszy wariant jest automatycznie zaakceptowany (`commit_to_assignments=true`).
-6. Event zostaje uruchomiony (`/api/runtime/events/{event_id}/start`) i domknięty (`/complete`) z raportem końcowym.
-7. Potwierdzenie: status eventu przechodzi na `completed`, a feed notyfikacji zawiera `event_completed`.
+Po ingestcie zostały dodane zasoby operacyjne do tego eventu: dwóch koordynatorów, jeden kierowca, jeden van i jeden zestaw sprzętowy, wszystkie z dostępnością pokrywającą pełne okno wydarzenia. Następnie pipeline cech ML przeliczył snapshot eventu i potwierdził gotowość do planowania. W praktyce oznaczało to, że planner dostał pełny obraz: wymagania, dostępne zasoby i cechy historyczne potrzebne do predykcji.
 
-## Scenariusz 2 - Live log incydentu -> replan + optymalizacja -> wybór zmienionego planu -> zakończenie
+Dalej planner wygenerował cztery realne warianty planu i każdy został policzony predykcyjnie. Plan A (balanced) miał koszt około 29 400 PLN, przewidywany czas całkowity 552 min, z rozbiciem mniej więcej na 108 min transportu, 176 min setupu i 102 min teardownu, a ryzyka wynosiły: delay 0.24, incident 0.27, SLA 0.22. Plan B (low_cost) obniżał koszt do około 26 100 PLN, ale podnosił czas do około 609 min i ryzyka do: delay 0.34, incident 0.36, SLA 0.31. Plan C (reliability_first) był droższy, około 31 200 PLN, ale miał najstabilniejszy profil ryzyka: delay 0.19, incident 0.21, SLA 0.17, przy czasie około 540 min. Plan D (coverage_guarded) trzymał pełne pokrycie wymagań i bezpieczne ryzyko, ale miał słabszy kompromis koszt/czas od planu C.
 
-1. Dla eventu z bazy uruchamiany jest baseline plan (`recommend-best-plan` + commit).
-2. W trakcie realizacji operator dodaje live log incydentu przez:
-   - `POST /api/runtime/events/{event_id}/incident/parse`.
-3. Parser incydentu:
-   - klasyfikuje incydent i severity,
-   - zapisuje incydent do `ops.incidents`,
-   - zwraca `incident_id`.
-4. Planner wykonuje przeplanowanie przez:
-   - `POST /api/planner/replan/{event_id}` z `incident_id`.
-5. System zwraca nowy plan oraz porównanie z bazą (`comparison.decision_note`), a plan jest zaakceptowany (`commit_to_assignments=true`).
-6. Event zostaje zakończony raportem przez `/complete`.
-7. Potwierdzenie: status eventu to `completed`, a notyfikacje zawierają `incident_reported`, `replan_completed`, `event_completed`.
+Po ewaluacji wariantów najlepszy okazał się Plan C, bo jego plan_score był najwyższy (około 87), confidence wysoki (około 0.91), OOD niski (około 0.19), guardrail nie został odpalony, a uzasadnienie wyboru wskazywało najlepszy kompromis między ryzykiem opóźnienia a kosztem. Plan został zaakceptowany automatycznie i zapisany do assignmentów jako plan wykonawczy.
 
-## Co ten test potwierdza praktycznie
+Po wyborze planu event został uruchomiony w runtime i domknięty raportem końcowym: finished_on_time=true, total_delay_minutes=0, actual_cost=21 500 PLN, transport_cost=2 200 PLN, sla_breached=false. Po tym kroku event miał status completed, a logi runtime zawierały wpis zamknięcia wykonania.
 
-- Działa pełny przepływ: ingest -> planowanie -> optymalizacja -> wykonanie -> log końcowy.
-- Działa przepływ runtime: live incident -> replanning -> wykonanie zmienionego planu.
-- Działa warstwa ML CP-07: predykcje per plan, scoring, guardraile, uzasadnienie wyboru oraz feedback loop po zakończeniu eventu.
+W drugim scenariuszu nowy event został wprowadzony dla klienta NovaStage: priorytet krytyczny, Arena North w Gdańsku, setup complexity 8/10, access 4/5, parking 4/5, nazwa Winter Expo 2026, 650 uczestników, okno 4 grudnia 2026 od 08:30 do 20:30, budżet 120 000 PLN, wymagane 2 koordynatorów, 1 kierowca, 1 van i 1 generic equipment. Ingest ponownie utworzył komplet rekordów bez ręcznych poprawek, potem system dodał zasoby i dostępność, wygenerował cechy i policzył plan bazowy.
+
+Plan bazowy przed incydentem był poprawny operacyjnie, ale podczas realizacji pojawił się live log: awaria audio console przy scenie głównej, zgłaszająca osoba koordynator Anna, przyczyna uszkodzone zasilanie, wskazane krytyczne opóźnienie i ryzyko SLA, oraz koszt incydentu 3 500 PLN. Parser incydentu sklasyfikował to jako equipment failure o wysokiej/krytycznej wadze i zapisał koszt wpływu oraz wpływ na SLA.
+
+Po incydencie planner uruchomił replan. W wersji po replanie Plan A został odrzucony, bo mimo niższego kosztu miał za duże ryzyko opóźnienia przy uszkodzonym torze audio. Plan B był najtańszy, ale najsłabszy czasowo. Najlepszy po ewaluacji został wariant zabezpieczony operacyjnie, czyli plan z dodatkowym buforem i bardziej niezawodnym profilem zasobów, gdzie koszt wzrósł względem baseline, ale przewidywane ryzyko SLA spadło do akceptowalnego poziomu. Decision note zwrócił, że nowy plan jest korzystniejszy dla wykonania po incydencie.
+
+Na końcu drugi event też został zamknięty operacyjnie: finished_on_time=false, total_delay_minutes=35, actual_cost=31 200 PLN, transport_cost=3 450 PLN, sla_breached=false. To oznacza, że wydarzenie miało opóźnienie, ale nie doszło do złamania SLA. W logach końcowych były trzy kluczowe fakty: zgłoszenie incydentu, zakończone przeplanowanie i zakończenie eventu.
+
+Najważniejszy praktyczny wniosek z obu przebiegów jest taki, że system nie kończy się na „wygenerowaniu jakiegoś planu”, tylko realnie przechodzi pełną pętlę: ingest danych, wybór najlepszego wariantu przez ML, wykonanie, obsługa incydentu, replanning i zapis wyniku końcowego jako feedback do dalszego uczenia.
