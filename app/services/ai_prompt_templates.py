@@ -51,3 +51,22 @@ def build_risk_explanation_prompt(plan_summary: str) -> PromptTemplate:
             f"PLAN SUMMARY:\n{plan_summary}"
         ),
     )
+
+
+def build_incident_parsing_prompt(raw_log: str) -> PromptTemplate:
+    return PromptTemplate(
+        system=(
+            "You parse operator runtime incident notes into strict JSON only. "
+            "Never return markdown."
+        ),
+        user=(
+            "Extract and normalize incident details from the log text. "
+            "Return JSON with keys: incident_type "
+            "(delay|equipment_failure|staff_absence|traffic_issue|weather_issue|"
+            "client_change_request|venue_access_issue|sla_risk|safety_issue|other), "
+            "severity (low|medium|high|critical), description (string), "
+            "root_cause (string|null), sla_impact (boolean), cost_impact (number|null), "
+            "reported_by (string|null).\n\n"
+            f"LOG:\n{raw_log}"
+        ),
+    )

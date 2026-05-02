@@ -546,3 +546,26 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Uruchomiono Faze 6 i zaimplementowano CP-01 (runtime logging endpoints + zapis do ops.* + testy).
   Cel: dostarczyc operacyjny audit trail start/checkpoint/incident/complete jako baze pod live reactions i replanning.
+
+11.1) FAZA 6 - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-6-cp-02-manual-log-parsing-to-incidents` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano parsing logow operatora (manual log parsing 4.4.d) i normalizacje do `ops.incidents`:
+    - `app/services/runtime_incident_parser.py`.
+  - Parser wspiera tryby:
+    - `llm` (Azure OpenAI, gdy dostepne i wlaczone),
+    - `heuristic` fallback (deterministyczny, bez kosztu API).
+  - Dodano prompt template do ekstrakcji incydentu:
+    - `app/services/ai_prompt_templates.py` (`build_incident_parsing_prompt`).
+  - Dodano nowe kontrakty API:
+    - `RuntimeIncidentParseRequest`,
+    - `RuntimeIncidentParseResponse` w `app/schemas/runtime_ops.py`.
+  - Dodano endpoint CP-02:
+    - `POST /api/runtime/events/{event_id}/incident/parse`.
+  - Endpoint parsuje wpis operatora i zapisuje znormalizowany incydent do `ops.incidents` (oraz log `ops.event_execution_logs`).
+- Walidacja wykonania:
+  - Testy CP-02: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp02.py -q` -> 2 passed.
+  - Szybka regresja: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase5_cp03.py -q` -> 9 passed.
+
+- [2026-05-02] Zaimplementowano CP-02 Fazy 6 (manual log parsing + normalizacja do ops.incidents + endpoint parse).
+  Cel: przetworzyc wpisy operatora do ustrukturyzowanych incydentow runtime jako wejscie pod live replanning.

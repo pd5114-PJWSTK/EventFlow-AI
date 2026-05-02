@@ -7,10 +7,16 @@ from app.schemas.runtime_ops import (
     RuntimeCheckpointResponse,
     RuntimeCompleteRequest,
     RuntimeCompleteResponse,
+    RuntimeIncidentParseRequest,
+    RuntimeIncidentParseResponse,
     RuntimeIncidentRequest,
     RuntimeIncidentResponse,
     RuntimeStartRequest,
     RuntimeStartResponse,
+)
+from app.services.runtime_incident_parser import (
+    RuntimeIncidentParsingError,
+    parse_and_report_incident,
 )
 from app.services.runtime_ops_service import (
     RuntimeOpsError,
@@ -60,6 +66,24 @@ def incident_event_endpoint(
 ) -> RuntimeIncidentResponse:
     try:
         return report_incident(db, event_id=event_id, payload=payload)
+    except RuntimeOpsError as exc:
+        if str(exc) == "Event not found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/events/{event_id}/incident/parse", response_model=RuntimeIncidentParseResponse)
+def parse_incident_event_endpoint(
+    event_id: str,
+    payload: RuntimeIncidentParseRequest,
+    db: Session = Depends(get_db),
+) -> RuntimeIncidentParseResponse:
+    try:
+        return parse_and_report_incident(db, event_id=event_id, payload=payload)
+    except RuntimeIncidentParsingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     except RuntimeOpsError as exc:
         if str(exc) == "Event not found":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

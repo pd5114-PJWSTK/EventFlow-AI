@@ -86,6 +86,31 @@ class RuntimeIncidentResponse(BaseModel):
     log_id: str
 
 
+class RuntimeIncidentParseRequest(BaseModel):
+    raw_log: str = Field(min_length=1, max_length=4000)
+    assignment_id: str | None = None
+    reported_at: datetime | None = None
+    reported_by: str | None = None
+    author_type: OpsAuthorType = OpsAuthorType.system
+    author_reference: str | None = None
+    prefer_llm: bool = True
+
+
+class RuntimeIncidentParseResponse(BaseModel):
+    event_id: str
+    incident_id: str
+    log_id: str
+    incident_type: str
+    severity: str
+    description: str
+    root_cause: str | None = None
+    sla_impact: bool
+    cost_impact: Decimal | None = None
+    reported_by: str | None = None
+    parser_mode: str
+    parse_confidence: float
+
+
 class RuntimeCompleteRequest(BaseModel):
     completed_at: datetime | None = None
     finished_on_time: bool | None = None
