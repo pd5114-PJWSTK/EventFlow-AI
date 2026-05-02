@@ -136,3 +136,16 @@ class RuntimeCompleteResponse(BaseModel):
     outcome_event_id: str
     log_id: str
     timing_id: str
+
+
+class RuntimeNotificationItem(BaseModel):
+    event_id: str
+    notification_type: str
+    payload: dict = Field(default_factory=dict)
+    emitted_at: str
+
+
+class RuntimeNotificationFeedResponse(BaseModel):
+    event_id: str
+    items: list[RuntimeNotificationItem] = Field(default_factory=list)
+    total: int

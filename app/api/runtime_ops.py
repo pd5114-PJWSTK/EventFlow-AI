@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -11,9 +13,11 @@ from app.schemas.runtime_ops import (
     RuntimeIncidentParseResponse,
     RuntimeIncidentRequest,
     RuntimeIncidentResponse,
+    RuntimeNotificationFeedResponse,
     RuntimeStartRequest,
     RuntimeStartResponse,
 )
+from app.services.runtime_notification_service import list_runtime_notifications
 from app.services.runtime_incident_parser import (
     RuntimeIncidentParsingError,
     parse_and_report_incident,
@@ -102,3 +106,38 @@ def complete_event_endpoint(
         if str(exc) == "Event not found":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/events/{event_id}/notifications", response_model=RuntimeNotificationFeedResponse)
+def runtime_notifications_endpoint(
+    event_id: str,
+    limit: int = Query(50, ge=1, le=200),
+) -> RuntimeNotificationFeedResponse:
+    items = list_runtime_notifications(event_id, limit=limit)
+    return RuntimeNotificationFeedResponse(
+        event_id=event_id,
+        items=items,
+        total=len(items),
+    )
+
+
+@router.websocket("/ws/events/{event_id}/notifications")
+async def runtime_notifications_websocket(websocket: WebSocket, event_id: str) -> None:
+    await websocket.accept()
+    last_fingerprint = ""
+    try:
+        while True:
+            items = list_runtime_notifications(event_id, limit=50)
+            fingerprint = items[-1]["emitted_at"] if items else ""
+            if fingerprint != last_fingerprint:
+                await websocket.send_json(
+                    {
+                        "event_id": event_id,
+                        "items": items,
+                        "total": len(items),
+                    }
+                )
+                last_fingerprint = fingerprint
+            await asyncio.sleep(1.0)
+    except WebSocketDisconnect:
+        return

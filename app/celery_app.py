@@ -10,6 +10,6 @@ celery_app.conf.update(
     task_default_queue="eventflow",
     task_always_eager=settings.celery_always_eager,
     task_eager_propagates=True,
-    imports=("app.workers.test_tasks",),
+    imports=("app.workers.test_tasks", "app.workers.runtime_tasks"),
 )
 

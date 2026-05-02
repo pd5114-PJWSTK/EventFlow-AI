@@ -595,3 +595,52 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-03 Fazy 6 (live replanning + evaluator porownania planow + trigger_reason incident).
   Cel: umo¿liwic operacyjne przeplanowanie po incydencie i uzasadniona decyzje plan-vs-plan.
+
+11.3) FAZA 6 - POSTEP IMPLEMENTACJI (CP-04)
+- Status checkpointu: `phase-6-cp-04-runtime-notifications-celery-feed` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano runtime notifications service:
+    - `app/services/runtime_notification_service.py`.
+  - Dodano Celery task notyfikacyjny:
+    - `app/workers/runtime_tasks.py` (`app.workers.runtime_tasks.send_runtime_notification`).
+  - Rozszerzono konfiguracje Celery imports o runtime tasks:
+    - `app/celery_app.py`.
+  - Dodano feed notyfikacji runtime dla UI:
+    - `GET /api/runtime/events/{event_id}/notifications`.
+  - Dodano opcjonalny websocket feed dla UI:
+    - `WS /api/runtime/ws/events/{event_id}/notifications`.
+  - Rozszerzono runtime API schematami feedu:
+    - `RuntimeNotificationItem`,
+    - `RuntimeNotificationFeedResponse`.
+  - Podpieto dispatch notyfikacji do kluczowych akcji runtime:
+    - event start,
+    - resource checkpoint,
+    - incident reported,
+    - event complete,
+    - replan completed.
+  - Dispatch dziala w trybie local-first (natychmiastowy feed) + async Celery (gdy dostepne).
+  - Dodano testy CP-04:
+    - `tests/test_phase6_cp04.py`.
+- Walidacja wykonania:
+  - Testy CP-04: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp04.py -q` -> 3 passed.
+  - Testy Fazy 6: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase6_cp04.py -q` -> 11 passed.
+  - Regresja Faza 5 + Faza 6: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase5_cp03.py tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase6_cp04.py -q` -> 26 passed.
+
+- [2026-05-02] Zaimplementowano CP-04 Fazy 6 (runtime notifications: Celery tasks + feed API + websocket).
+  Cel: dostarczyc mechanizm live notyfikacji dla operatora/UI po zdarzeniach runtime i replanningu.
+
+11.4) FAZA 6 - ZAMKNIECIE KONCOWE
+- Status fazy: ZAMKNIETA.
+- Finalny zakres potwierdzony:
+  - CP-01: `phase-6-cp-01-runtime-logging-endpoints`
+  - CP-02: `phase-6-cp-02-manual-log-parsing-to-incidents`
+  - CP-03: `phase-6-cp-03-live-replanning-evaluator`
+  - CP-04: `phase-6-cp-04-runtime-notifications-celery-feed`
+- Finalna walidacja wykonania Fazy 6:
+  - Testy Fazy 6: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase6_cp04.py -q` -> 11 passed.
+  - Regresja Faza 5 + Faza 6: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase5_cp03.py tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase6_cp04.py -q` -> 26 passed.
+- Artifact zamkniecia:
+  - tag koncowy: `phase-6-complete`.
+
+- [2026-05-02] Oznaczono Faze 6 jako zamknieta.
+  Cel: potwierdzic gotowosc runtime operations + live reactions (incident parse, replan, notyfikacje) do dalszych prac nad Faza 7.

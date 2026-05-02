@@ -41,6 +41,7 @@ from app.services.ortools_service import (
     PlannerTimeoutError,
 )
 from app.services.planner_input_builder import PlannerInputError, load_planner_input
+from app.services.runtime_notification_service import enqueue_runtime_notification
 
 
 class PlanGenerationError(ValueError):
@@ -190,6 +191,23 @@ def replan_event(
     comparison = _compare_recommendations(
         previous=baseline,
         current=new_recommendation,
+    )
+    enqueue_runtime_notification(
+        event_id=event_id,
+        notification_type="replan_completed",
+        payload={
+            "planner_run_id": generated.planner_run_id,
+            "recommendation_id": generated.recommendation_id,
+            "incident_id": incident_id,
+            "is_improved": comparison.is_improved,
+            "cost_delta": str(comparison.cost_delta)
+            if comparison.cost_delta is not None
+            else None,
+            "duration_delta_minutes": comparison.duration_delta_minutes,
+            "risk_delta": str(comparison.risk_delta)
+            if comparison.risk_delta is not None
+            else None,
+        },
     )
 
     return ReplanResponse(

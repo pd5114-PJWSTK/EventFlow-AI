@@ -23,6 +23,7 @@ from app.schemas.runtime_ops import (
     RuntimeStartRequest,
     RuntimeStartResponse,
 )
+from app.services.runtime_notification_service import enqueue_runtime_notification
 
 
 class RuntimeOpsError(ValueError):
@@ -61,6 +62,16 @@ def start_event_execution(
     db.commit()
     db.refresh(log)
     db.refresh(timing)
+    enqueue_runtime_notification(
+        event_id=event.event_id,
+        notification_type="event_started",
+        payload={
+            "log_id": log.log_id,
+            "timing_id": timing.timing_id,
+            "phase_name": payload.phase_name.value,
+            "event_status": event.status.value,
+        },
+    )
 
     return RuntimeStartResponse(
         event_id=event.event_id,
@@ -112,6 +123,16 @@ def create_resource_checkpoint(
     db.commit()
     db.refresh(checkpoint)
     db.refresh(log)
+    enqueue_runtime_notification(
+        event_id=event.event_id,
+        notification_type="resource_checkpoint",
+        payload={
+            "checkpoint_id": checkpoint.checkpoint_id,
+            "log_id": log.log_id,
+            "resource_type": payload.resource_type.value,
+            "checkpoint_type": payload.checkpoint_type,
+        },
+    )
     return RuntimeCheckpointResponse(
         event_id=event.event_id, checkpoint_id=checkpoint.checkpoint_id, log_id=log.log_id
     )
@@ -155,6 +176,17 @@ def report_incident(
     db.commit()
     db.refresh(incident)
     db.refresh(log)
+    enqueue_runtime_notification(
+        event_id=event.event_id,
+        notification_type="incident_reported",
+        payload={
+            "incident_id": incident.incident_id,
+            "log_id": log.log_id,
+            "incident_type": payload.incident_type.value,
+            "severity": payload.severity.value,
+            "sla_impact": payload.sla_impact,
+        },
+    )
     return RuntimeIncidentResponse(
         event_id=event.event_id, incident_id=incident.incident_id, log_id=log.log_id
     )
@@ -222,6 +254,17 @@ def complete_event_execution(
     db.refresh(outcome)
     db.refresh(log)
     db.refresh(timing)
+    enqueue_runtime_notification(
+        event_id=event.event_id,
+        notification_type="event_completed",
+        payload={
+            "outcome_event_id": outcome.event_id,
+            "log_id": log.log_id,
+            "timing_id": timing.timing_id,
+            "event_status": event.status.value,
+            "sla_breached": payload.sla_breached,
+        },
+    )
 
     return RuntimeCompleteResponse(
         event_id=event.event_id,
