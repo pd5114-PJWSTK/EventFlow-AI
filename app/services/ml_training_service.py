@@ -30,6 +30,17 @@ class TrainBaselineModelResult:
 
 
 @dataclass
+class RetrainDurationModelResult:
+    model: ModelRegistryRead
+    trained_samples: int
+    backend: str
+    artifact_path: str | None
+    activated: bool
+    decision_reason: str
+    previous_active_model_id: str | None = None
+
+
+@dataclass
 class _TrainingSample:
     event_id: str
     x: list[float]
@@ -139,6 +150,96 @@ def list_registered_models(
         query = query.filter(ModelRegistry.prediction_type == prediction_type)
     items = query.limit(limit).all()
     return ([_to_model_read(item) for item in items], len(items))
+
+
+def retrain_duration_model(
+    db: Session,
+    *,
+    model_name: str = "event_duration_baseline",
+    min_samples_required: int | None = None,
+    min_r2_improvement: float | None = None,
+    max_mae_ratio: float | None = None,
+) -> RetrainDurationModelResult:
+    settings = get_settings()
+    effective_min_samples = (
+        min_samples_required
+        if min_samples_required is not None
+        else settings.ml_retrain_activation_min_samples
+    )
+    effective_min_r2_improvement = (
+        min_r2_improvement
+        if min_r2_improvement is not None
+        else settings.ml_retrain_activation_min_r2_improvement
+    )
+    effective_max_mae_ratio = (
+        max_mae_ratio
+        if max_mae_ratio is not None
+        else settings.ml_retrain_activation_max_mae_ratio
+    )
+
+    baseline_active = (
+        db.query(ModelRegistry)
+        .filter(
+            ModelRegistry.model_name == model_name,
+            ModelRegistry.prediction_type == PredictionType.duration_estimate,
+            ModelRegistry.status == ModelStatus.active,
+        )
+        .order_by(ModelRegistry.created_at.desc())
+        .first()
+    )
+
+    candidate = train_baseline_model(
+        db,
+        payload=TrainBaselineModelRequest(
+            prediction_type=PredictionType.duration_estimate,
+            model_name=model_name,
+            activate_model=False,
+        ),
+    )
+
+    candidate_db = db.get(ModelRegistry, candidate.model.model_id)
+    if candidate_db is None:
+        raise ModelTrainingError("Candidate model not found after training.")
+
+    activation = _evaluate_activation(
+        candidate_model=candidate_db,
+        baseline_active=baseline_active,
+        min_samples_required=effective_min_samples,
+        min_r2_improvement=effective_min_r2_improvement,
+        max_mae_ratio=effective_max_mae_ratio,
+    )
+
+    if activation["activate"]:
+        if baseline_active is not None:
+            baseline_active.status = ModelStatus.deprecated
+        candidate_db.status = ModelStatus.active
+    else:
+        candidate_db.status = ModelStatus.deprecated
+
+    candidate_db.metrics = {
+        **(candidate_db.metrics or {}),
+        "activation_decision": {
+            "activated": activation["activate"],
+            "reason": activation["reason"],
+            "min_samples_required": effective_min_samples,
+            "min_r2_improvement": effective_min_r2_improvement,
+            "max_mae_ratio": effective_max_mae_ratio,
+            "evaluated_at": datetime.now(UTC).isoformat(),
+            "baseline_model_id": baseline_active.model_id if baseline_active else None,
+        },
+    }
+    db.commit()
+    db.refresh(candidate_db)
+
+    return RetrainDurationModelResult(
+        model=_to_model_read(candidate_db),
+        trained_samples=candidate.trained_samples,
+        backend=candidate.backend,
+        artifact_path=candidate.artifact_path,
+        activated=bool(activation["activate"]),
+        decision_reason=str(activation["reason"]),
+        previous_active_model_id=baseline_active.model_id if baseline_active else None,
+    )
 
 
 def _collect_duration_training_samples(
@@ -335,6 +436,54 @@ def _save_model_artifact(
         pickle.dump(artifact_payload, file_obj)
 
     return str(model_path)
+
+
+def _evaluate_activation(
+    *,
+    candidate_model: ModelRegistry,
+    baseline_active: ModelRegistry | None,
+    min_samples_required: int,
+    min_r2_improvement: float,
+    max_mae_ratio: float,
+) -> dict[str, bool | str]:
+    candidate_metrics = candidate_model.metrics or {}
+    candidate_samples = int(candidate_metrics.get("sample_count", 0))
+    if candidate_samples < min_samples_required:
+        return {
+            "activate": False,
+            "reason": "insufficient_samples",
+        }
+
+    if baseline_active is None:
+        return {
+            "activate": True,
+            "reason": "activated_no_baseline",
+        }
+
+    baseline_metrics = baseline_active.metrics or {}
+    candidate_r2 = float(candidate_metrics.get("r2", 0.0))
+    baseline_r2 = float(baseline_metrics.get("r2", 0.0))
+    candidate_mae = float(candidate_metrics.get("mae_minutes", 0.0))
+    baseline_mae = float(baseline_metrics.get("mae_minutes", 0.0))
+
+    required_r2 = baseline_r2 + float(min_r2_improvement)
+    mae_limit = baseline_mae * float(max_mae_ratio)
+
+    if candidate_r2 < required_r2:
+        return {
+            "activate": False,
+            "reason": "r2_below_threshold",
+        }
+    if baseline_mae > 0 and candidate_mae > mae_limit:
+        return {
+            "activate": False,
+            "reason": "mae_above_threshold",
+        }
+
+    return {
+        "activate": True,
+        "reason": "activated_metrics_improved",
+    }
 
 
 def _priority_to_score(priority: str | None) -> int:

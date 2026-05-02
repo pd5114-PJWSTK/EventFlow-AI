@@ -43,6 +43,11 @@ class Settings(BaseSettings):
 
     ml_models_dir: str = "./models"
     ml_min_training_samples: int = 3
+    ml_retrain_enabled: bool = True
+    ml_retrain_schedule_minutes: int = 360
+    ml_retrain_activation_min_samples: int = 3
+    ml_retrain_activation_min_r2_improvement: float = 0.0
+    ml_retrain_activation_max_mae_ratio: float = 1.0
 
 
 @lru_cache

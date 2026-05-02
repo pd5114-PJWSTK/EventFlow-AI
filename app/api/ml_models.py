@@ -7,12 +7,15 @@ from app.database import get_db
 from app.models.ai import PredictionType
 from app.schemas.ml_models import (
     ModelRegistryListResponse,
+    RetrainDurationModelRequest,
+    RetrainDurationModelResponse,
     TrainBaselineModelRequest,
     TrainBaselineModelResponse,
 )
 from app.services.ml_training_service import (
     ModelTrainingError,
     list_registered_models,
+    retrain_duration_model,
     train_baseline_model,
 )
 
@@ -49,3 +52,31 @@ def list_models_endpoint(
         db, prediction_type=prediction_type, limit=limit
     )
     return ModelRegistryListResponse(items=items, total=total)
+
+
+@router.post("/retrain-duration", response_model=RetrainDurationModelResponse)
+def retrain_duration_model_endpoint(
+    payload: RetrainDurationModelRequest,
+    db: Session = Depends(get_db),
+) -> RetrainDurationModelResponse:
+    try:
+        result = retrain_duration_model(
+            db,
+            model_name=payload.model_name,
+            min_samples_required=payload.min_samples_required,
+            min_r2_improvement=payload.min_r2_improvement,
+            max_mae_ratio=payload.max_mae_ratio,
+        )
+        return RetrainDurationModelResponse(
+            model=result.model,
+            trained_samples=result.trained_samples,
+            backend=result.backend,
+            artifact_path=result.artifact_path,
+            activated=result.activated,
+            decision_reason=result.decision_reason,
+            previous_active_model_id=result.previous_active_model_id,
+        )
+    except ModelTrainingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc

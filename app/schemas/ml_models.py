@@ -33,6 +33,23 @@ class TrainBaselineModelResponse(BaseModel):
     artifact_path: str | None = None
 
 
+class RetrainDurationModelRequest(BaseModel):
+    model_name: str = Field(default="event_duration_baseline", min_length=1, max_length=120)
+    min_samples_required: int | None = Field(default=None, ge=1)
+    min_r2_improvement: float | None = None
+    max_mae_ratio: float | None = Field(default=None, gt=0)
+
+
+class RetrainDurationModelResponse(BaseModel):
+    model: ModelRegistryRead
+    trained_samples: int
+    backend: str
+    artifact_path: str | None = None
+    activated: bool
+    decision_reason: str
+    previous_active_model_id: str | None = None
+
+
 class ModelRegistryListResponse(BaseModel):
     items: list[ModelRegistryRead] = Field(default_factory=list)
     total: int
