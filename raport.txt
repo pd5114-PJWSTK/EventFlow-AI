@@ -644,3 +644,41 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Oznaczono Faze 6 jako zamknieta.
   Cel: potwierdzic gotowosc runtime operations + live reactions (incident parse, replan, notyfikacje) do dalszych prac nad Faza 7.
+
+12) FAZA 7 - POSTEP IMPLEMENTACJI (CP-01)
+- Status fazy: W TOKU (rozpoczeta).
+- Status checkpointu: `phase-7-cp-01-ml-feature-engineering-pipeline` -> ZREALIZOWANY i zacommitowany + otagowany.
+- Zakres wykonany:
+  - Rozszerzono ORM `app/models/ai.py` o encje ML feature/prediction pipeline:
+    - `ai.event_features`,
+    - `ai.resource_features`,
+    - `ai.models`,
+    - `ai.predictions`,
+    - `ai.prediction_outcomes`.
+  - Zaktualizowano eksport modeli w `app/models/__init__.py`.
+  - Dodano serwis feature engineering:
+    - `app/services/ml_feature_service.py`.
+  - Serwis realizuje CP-01:
+    - upsert snapshotu eventu do `ai.event_features`,
+    - generowanie snapshotow zasobow do `ai.resource_features` (people/equipment/vehicle),
+    - estymacje metryk historycznych: delay, variance, utilization, incident rate, fatigue, reliability.
+  - Dodano kontrakty API:
+    - `app/schemas/ml_features.py`.
+  - Dodano endpointy ML features:
+    - `POST /api/ml/features/generate`,
+    - `GET /api/ml/features/events/{event_id}`,
+    - `GET /api/ml/features/resources/latest`.
+  - Dodano router `app/api/ml_features.py` i podpiecie w `app/main.py`.
+  - Dodano testy CP-01:
+    - `tests/test_phase7_cp01.py`.
+- Walidacja wykonania:
+  - Testy CP-01: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py -q` -> 3 passed.
+  - Szybka regresja Faza 6 + Faza 7 CP-01: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp04.py tests/test_phase7_cp01.py -q` -> 6 passed.
+  - Kontrola skladni: `python -m py_compile app/models/ai.py app/services/ml_feature_service.py app/api/ml_features.py app/schemas/ml_features.py tests/test_phase7_cp01.py` -> passed.
+
+- [2026-05-02] Uruchomiono Faze 7 i dodano tag startowy `phase-7-start`.
+  Cel: wyznaczyc stabilny punkt wejscia dla warstwy ML pipeline i zachowac ten sam workflow checkpointow.
+- [2026-05-02] Zaimplementowano CP-01 Fazy 7 (feature engineering pipeline + API + testy).
+  Cel: populowac `ai.event_features` i `ai.resource_features` jako snapshot cech pod trening i inference w kolejnych checkpointach.
+- [2026-05-02] Zacommitowano i otagowano CP-01 Fazy 7 (`phase-7-cp-01-ml-feature-engineering-pipeline`).
+  Cel: zamknac pierwszy checkpoint Fazy 7 jako stabilny punkt wejscia do CP-02.
