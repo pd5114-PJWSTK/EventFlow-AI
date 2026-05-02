@@ -18,6 +18,10 @@ class PlannerInputError(ValueError):
     pass
 
 
+_LOCKING_EVENT_STATUSES = {"planned", "confirmed", "in_progress"}
+_LOCKING_ASSIGNMENT_STATUSES = {"proposed", "planned", "confirmed", "active"}
+
+
 def build_planner_input(
     *,
     event,
@@ -29,6 +33,9 @@ def build_planner_input(
     equipment_availability: Mapping[str, Sequence],
     vehicle_availability: Mapping[str, Sequence],
     skills_by_person: Mapping[str, set[str]],
+    locked_people_windows: Mapping[str, Sequence] | None = None,
+    locked_equipment_windows: Mapping[str, Sequence] | None = None,
+    locked_vehicle_windows: Mapping[str, Sequence] | None = None,
 ) -> PlannerInput:
     """Build a planner input payload without importing ORM models."""
     planner_requirements: list[PlannerRequirement] = []
@@ -48,6 +55,7 @@ def build_planner_input(
                 required_start=req_start,
                 required_end=req_end,
                 required_hours=req_hours,
+                locked_windows=locked_people_windows or {},
             )
             resource_type = "person"
         elif req_type == "equipment_type":
@@ -57,6 +65,7 @@ def build_planner_input(
                 availability_map=equipment_availability,
                 required_start=req_start,
                 required_end=req_end,
+                locked_windows=locked_equipment_windows or {},
             )
             resource_type = "equipment"
         elif req_type == "vehicle_type":
@@ -66,6 +75,7 @@ def build_planner_input(
                 availability_map=vehicle_availability,
                 required_start=req_start,
                 required_end=req_end,
+                locked_windows=locked_vehicle_windows or {},
             )
             resource_type = "vehicle"
         else:
@@ -157,6 +167,14 @@ def load_planner_input(db: Session, event_id: str) -> PlannerInput:
         .all(),
         "vehicle_id",
     )
+    (
+        locked_people_windows,
+        locked_equipment_windows,
+        locked_vehicle_windows,
+    ) = _build_priority_locks(
+        db,
+        event=event,
+    )
 
     return build_planner_input(
         event=event,
@@ -168,6 +186,9 @@ def load_planner_input(db: Session, event_id: str) -> PlannerInput:
         equipment_availability=equipment_availability,
         vehicle_availability=vehicle_availability,
         skills_by_person=skills_by_person,
+        locked_people_windows=locked_people_windows,
+        locked_equipment_windows=locked_equipment_windows,
+        locked_vehicle_windows=locked_vehicle_windows,
     )
 
 
@@ -198,6 +219,7 @@ def _people_candidates(
     required_start: datetime,
     required_end: datetime,
     required_hours: Decimal,
+    locked_windows: Mapping[str, Sequence],
 ) -> list[PlannerCandidate]:
     role_required = _enum_value(getattr(requirement, "role_required", None))
     skill_id = getattr(requirement, "skill_id", None)
@@ -222,6 +244,12 @@ def _people_candidates(
             availability_map.get(person.person_id, ()), required_start, required_end
         )
         if window is None:
+            continue
+        if _has_lock_overlap(
+            locked_windows.get(person.person_id, ()),
+            required_start,
+            required_end,
+        ):
             continue
 
         cost = _decimal_or_zero(getattr(person, "cost_per_hour", None))
@@ -248,6 +276,7 @@ def _equipment_candidates(
     availability_map: Mapping[str, Sequence],
     required_start: datetime,
     required_end: datetime,
+    locked_windows: Mapping[str, Sequence],
 ) -> list[PlannerCandidate]:
     equipment_type_id = getattr(requirement, "equipment_type_id", None)
 
@@ -264,6 +293,12 @@ def _equipment_candidates(
             availability_map.get(item.equipment_id, ()), required_start, required_end
         )
         if window is None:
+            continue
+        if _has_lock_overlap(
+            locked_windows.get(item.equipment_id, ()),
+            required_start,
+            required_end,
+        ):
             continue
 
         cost = _decimal_or_zero(getattr(item, "hourly_cost_estimate", None))
@@ -287,6 +322,7 @@ def _vehicle_candidates(
     availability_map: Mapping[str, Sequence],
     required_start: datetime,
     required_end: datetime,
+    locked_windows: Mapping[str, Sequence],
 ) -> list[PlannerCandidate]:
     vehicle_type_required = _enum_value(
         getattr(requirement, "vehicle_type_required", None)
@@ -311,6 +347,12 @@ def _vehicle_candidates(
             required_end,
         )
         if window is None:
+            continue
+        if _has_lock_overlap(
+            locked_windows.get(vehicle.vehicle_id, ()),
+            required_start,
+            required_end,
+        ):
             continue
 
         cost = _decimal_or_zero(getattr(vehicle, "cost_per_hour", None))
@@ -350,6 +392,20 @@ def _find_covering_window(
         ):
             return window
     return None
+
+
+def _has_lock_overlap(
+    locked_windows: Sequence,
+    required_start: datetime,
+    required_end: datetime,
+) -> bool:
+    for window in locked_windows:
+        if (
+            window.available_from < required_end
+            and window.available_to > required_start
+        ):
+            return True
+    return False
 
 
 def _sorted_candidates(candidates: list[PlannerCandidate]) -> list[PlannerCandidate]:
@@ -404,3 +460,58 @@ def _decimal_or_zero(value) -> Decimal:
     if isinstance(value, Decimal):
         return value
     return Decimal(str(value))
+
+
+def _build_priority_locks(
+    db: Session,
+    *,
+    event,
+) -> tuple[dict[str, list], dict[str, list], dict[str, list]]:
+    from sqlalchemy import select
+
+    from app.models.core import Assignment, Event
+
+    lock_rows = (
+        db.execute(
+            select(Assignment, Event)
+            .join(Event, Event.event_id == Assignment.event_id)
+            .where(
+                Assignment.event_id != event.event_id,
+                Assignment.planned_start < event.planned_end,
+                Assignment.planned_end > event.planned_start,
+            )
+        )
+        .all()
+    )
+
+    people: dict[str, list] = {}
+    equipment: dict[str, list] = {}
+    vehicles: dict[str, list] = {}
+    current_priority = _event_priority_key(event)
+
+    for assignment, other_event in lock_rows:
+        if _enum_value(getattr(other_event, "status", None)) not in _LOCKING_EVENT_STATUSES:
+            continue
+        if _enum_value(getattr(assignment, "status", None)) not in _LOCKING_ASSIGNMENT_STATUSES:
+            continue
+        if _event_priority_key(other_event) > current_priority:
+            continue
+
+        resource_type = _enum_value(getattr(assignment, "resource_type", None))
+        if resource_type == "person" and getattr(assignment, "person_id", None):
+            people.setdefault(assignment.person_id, []).append(assignment)
+        elif resource_type == "equipment" and getattr(assignment, "equipment_id", None):
+            equipment.setdefault(assignment.equipment_id, []).append(assignment)
+        elif resource_type == "vehicle" and getattr(assignment, "vehicle_id", None):
+            vehicles.setdefault(assignment.vehicle_id, []).append(assignment)
+
+    return people, equipment, vehicles
+
+
+def _event_priority_key(event) -> tuple[float, str]:
+    created_at = getattr(event, "created_at", None)
+    created_ts = 0.0
+    if isinstance(created_at, datetime):
+        created_ts = created_at.timestamp()
+    event_id = getattr(event, "event_id", "")
+    return created_ts, event_id

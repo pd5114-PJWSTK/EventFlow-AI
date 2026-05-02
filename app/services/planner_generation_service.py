@@ -41,10 +41,13 @@ from app.models.ops import (
     ResourceCheckpoint,
 )
 from app.schemas.planner import (
+    GapResolutionGuidance,
+    GapResolutionOption,
     GeneratedPlanAssignment,
     GeneratePlanResponse,
     PlanCandidateEvaluation,
     PlanMetricComparison,
+    RequirementGapSummary,
     RecommendBestPlanResponse,
     ReplanResponse,
 )
@@ -202,6 +205,11 @@ def generate_plan(
             assignment_ids=assignment_ids,
             transport_leg_ids=transport_leg_ids,
             estimated_cost=_money(result.estimated_cost),
+            gap_resolution=_build_gap_resolution_guidance(
+                event_id=event.event_id,
+                assignments=result.assignments,
+                requirements=requirement_by_id,
+            ),
         )
     except (PlannerPolicyError, PlannerTimeoutError) as exc:
         planner_run.finished_at = datetime.now(UTC)
@@ -577,6 +585,11 @@ def recommend_best_plan_with_ml(
         assignment_ids=assignment_ids,
         transport_leg_ids=transport_leg_ids,
         estimated_cost=_money(selected_result.estimated_cost),
+        gap_resolution=_build_gap_resolution_guidance(
+            event_id=event.event_id,
+            assignments=selected_result.assignments,
+            requirements=requirement_by_id,
+        ),
     )
 
     return RecommendBestPlanResponse(
@@ -962,6 +975,78 @@ def _merge_consumed_with_planner_result(
         estimated_cost=merged_cost,
         duration_ms=planner_result.duration_ms,
         fallback_reason=planner_result.fallback_reason,
+    )
+
+
+def _build_gap_resolution_guidance(
+    *,
+    event_id: str,
+    assignments: list[PlannerAssignment],
+    requirements: dict[str, PlannerRequirement],
+) -> GapResolutionGuidance | None:
+    requirement_gaps: list[RequirementGapSummary] = []
+    for assignment in assignments:
+        if assignment.unassigned_count <= 0:
+            continue
+        requirement = requirements.get(assignment.requirement_id)
+        resource_type = requirement.resource_type if requirement is not None else "unknown"
+        requirement_gaps.append(
+            RequirementGapSummary(
+                requirement_id=assignment.requirement_id,
+                resource_type=resource_type,
+                missing_count=assignment.unassigned_count,
+                message=(
+                    f"Brakuje {assignment.unassigned_count} zasobu(ow) typu "
+                    f"{resource_type} dla requirement {assignment.requirement_id}."
+                ),
+            )
+        )
+
+    if not requirement_gaps:
+        return None
+
+    augment_option = GapResolutionOption(
+        option_type="augment_resources",
+        title="Uzupelnij luki zasobami",
+        description=(
+            "Dodaj brakujacy personel/sprzet/pojazdy lub ich dostepnosc w bazie, "
+            "a nastepnie uruchom planner ponownie."
+        ),
+        steps=[
+            "Dodaj brakujace zasoby (np. wynajem sprzetu lub tymczasowe zatrudnienie).",
+            "Dodaj okna availability dla nowych zasobow.",
+            "Uruchom ponownie planowanie dla eventu.",
+        ],
+        endpoints=[
+            "/api/resources/people",
+            "/api/resources/equipment",
+            "/api/resources/vehicles",
+            "/api/resources/people/{person_id}/availability",
+            "/api/resources/equipment/{equipment_id}/availability",
+            "/api/resources/vehicles/{vehicle_id}/availability",
+            "/api/planner/generate-plan",
+        ],
+    )
+    reschedule_option = GapResolutionOption(
+        option_type="reschedule_event",
+        title="Przeloz event na inny termin",
+        description=(
+            "Przesun planowany termin eventu i uruchom planner ponownie, "
+            "aby znalezc okno bez luk."
+        ),
+        steps=[
+            "Zmien planned_start/planned_end eventu w API events.",
+            "Uruchom ponownie planner i sprawdz, czy luki zniknely.",
+        ],
+        endpoints=[
+            f"/api/events/{event_id}",
+            "/api/planner/generate-plan",
+        ],
+    )
+    return GapResolutionGuidance(
+        has_gaps=True,
+        requirement_gaps=requirement_gaps,
+        options=[augment_option, reschedule_option],
     )
 
 

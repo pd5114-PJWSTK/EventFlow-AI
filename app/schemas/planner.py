@@ -59,6 +59,27 @@ class GeneratedPlanAssignment(BaseModel):
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
 
 
+class RequirementGapSummary(BaseModel):
+    requirement_id: str
+    resource_type: str
+    missing_count: int
+    message: str
+
+
+class GapResolutionOption(BaseModel):
+    option_type: Literal["augment_resources", "reschedule_event"]
+    title: str
+    description: str
+    steps: list[str] = Field(default_factory=list)
+    endpoints: list[str] = Field(default_factory=list)
+
+
+class GapResolutionGuidance(BaseModel):
+    has_gaps: bool = False
+    requirement_gaps: list[RequirementGapSummary] = Field(default_factory=list)
+    options: list[GapResolutionOption] = Field(default_factory=list)
+
+
 class GeneratePlanResponse(BaseModel):
     event_id: str
     planner_run_id: str
@@ -74,6 +95,7 @@ class GeneratePlanResponse(BaseModel):
     assignment_ids: list[str] = Field(default_factory=list)
     transport_leg_ids: list[str] = Field(default_factory=list)
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    gap_resolution: GapResolutionGuidance | None = None
 
 
 class ReplanRequest(BaseModel):

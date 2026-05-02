@@ -1013,3 +1013,31 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-01 Fazy 8 (runtime hardening: idempotency, concurrency, consumed state, timezone, observability).
   Cel: przygotowac backend pod stabilny frontend i ograniczyc ryzyko niespojnych zapisow przy live operacjach.
+
+13.1) FAZA 8 - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-8-cp-02-priority-locks-and-gap-resolution-workflow` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano polityke konfliktow zasobow: wygrywa wczesniej dodany/przyjety event.
+    - Implementacja w builderze danych planera `app/services/planner_input_builder.py`:
+      - locki priorytetowe na bazie istniej¹cych assignmentow starszych eventow,
+      - blokowanie kandydatow zasobow dla nowszego eventu przy overlapie okien.
+  - Dodano workflow dla planu z lukami (decyzja uzytkownika):
+    - Rozszerzono kontrakt odpowiedzi `GeneratePlanResponse` o `gap_resolution` (`app/schemas/planner.py`).
+    - Dodano w serwisie planera (`app/services/planner_generation_service.py`) generowanie:
+      - listy requirement gaps,
+      - opcji `augment_resources` (uzupelnienie bazy: wynajem/zatrudnienie + availability + rerun),
+      - opcji `reschedule_event` (zmiana terminu eventu + rerun planera).
+  - Dodano testy CP-02:
+    - `tests/test_phase8_cp02.py`:
+      - priorytet starszego eventu vs nowszy konflikt zasobu,
+      - obecnoœæ opcji rozwi¹zywania luk w odpowiedzi planera.
+- Walidacja wykonania:
+  - Kontrola skladni:
+    - `python -m py_compile app/schemas/planner.py app/services/planner_input_builder.py app/services/planner_generation_service.py tests/test_phase8_cp02.py` -> passed.
+  - Testy CP-02:
+    - `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q tests/test_phase8_cp01.py tests/test_phase8_cp02.py` -> 8 passed.
+  - Pelny pakiet regresji:
+    - `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 95 passed.
+
+- [2026-05-02] Zaimplementowano CP-02 Fazy 8 (priorytet starszego eventu + workflow luk dla uzytkownika).
+  Cel: wymusic spójna polityke konfliktow i dac operatorowi jednoznaczne sciezki decyzji przy planie niepelnym.
