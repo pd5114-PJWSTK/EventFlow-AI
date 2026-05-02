@@ -801,3 +801,47 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: zautomatyzowac cykliczny retraining i kontrolowane aktywowanie nowych wersji modeli na podstawie metryk.
 - [2026-05-02] Oznaczono Faze 7 jako zamknieta.
   Cel: potwierdzic domkniecie pelnego ML pipeline (features -> training -> inference -> outcomes -> retraining).
+
+12.5) FAZA 7 - POSTEP IMPLEMENTACJI (CP-05)
+- Status checkpointu: `phase-7-cp-05-realistic-dataset-and-model-selection` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Rozszerzono konfiguracje treningu ML:
+    - `ML_TRAIN_TEST_SPLIT_RATIO`,
+    - `ML_TRAINING_RANDOM_SEED`,
+    - `ML_SYNTHETIC_SAMPLES_PER_REAL` (`app/config.py`, `.env.example`).
+  - Rozszerzono trening w `app/services/ml_training_service.py` o:
+    - budowe rozszerzonego datasetu: probki realne + augmentacja syntetyczna oparta o cechy domenowe eventu,
+    - holdout train/test split (kontrolowany przez konfiguracje),
+    - benchmark kilku algorytmow regresji:
+      - `linear_regression`,
+      - `ridge_regression`,
+      - `random_forest`,
+      - `gradient_boosting`,
+    - ranking kandydatow po metrykach testowych i automatyczny wybor najlepszego modelu,
+    - zapis leaderboardu i parametrow selekcji do metryk modelu (`metrics.model_selection`),
+    - backend produkcyjny: `sklearn_multi_algorithm_selector`.
+  - Rozszerzono inference w `app/services/ml_inference_service.py`:
+    - obsluga artefaktu `kind=sklearn_estimator` (wybrany model z benchmarku CP-05),
+    - zachowanie kompatybilnosci z dotychczasowym `mean_regressor` i `sklearn_linear_regression`.
+  - Rozszerzono testy:
+    - aktualizacja `tests/test_phase7_cp02.py` o asercje dataset metadata,
+    - dodanie `tests/test_phase7_cp05.py`:
+      - walidacja train/test split + multi-algorithm selection,
+      - walidacja inference dla artefaktu wybranego modelu.
+- Wynik selekcji modeli (ostatni artefakt treningowy):
+  - wybrany algorytm: `gradient_boosting`,
+  - zbior danych: `real_samples=8`, `augmented_samples=64`, `total_samples=72`,
+  - metryki testowe wybranego modelu: `MAE=9.3624`, `RMSE=14.6324`, `R2=0.929332`,
+  - leaderboard testowy:
+    - `gradient_boosting` -> `MAE=9.3624`, `RMSE=14.6324`, `R2=0.929332`,
+    - `random_forest` -> `MAE=15.2849`, `RMSE=19.1273`, `R2=0.879246`,
+    - `ridge_regression` -> `MAE=20.4036`, `RMSE=22.7916`, `R2=0.828548`,
+    - `linear_regression` -> `MAE=22.3546`, `RMSE=25.1510`, `R2=0.791213`.
+- Walidacja wykonania:
+  - Kontrola skladni: `docker compose exec -e READY_CHECK_EXTERNALS=false backend python -m py_compile app/config.py app/services/ml_training_service.py app/services/ml_inference_service.py tests/test_phase7_cp02.py tests/test_phase7_cp05.py` -> passed.
+  - Testy CP-05: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp05.py -q` -> 2 passed.
+  - Testy Fazy 7: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase7_cp03.py tests/test_phase7_cp04.py tests/test_phase7_cp05.py -q` -> 14 passed.
+  - Pelny pakiet regresji: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 82 passed.
+
+- [2026-05-02] Zaimplementowano CP-05 Fazy 7 (realistyczny dataset + holdout + multi-algorithm model selection).
+  Cel: wytrenowac mniej sztywny, bardziej praktyczny model predykcji czasu trwania oraz wybierac najlepszy algorytm na podstawie metryk testowych.
