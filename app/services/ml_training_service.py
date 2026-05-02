@@ -44,6 +44,17 @@ class HardenDurationModelResult:
 
 
 @dataclass
+class TrainPlanEvaluatorModelResult:
+    model: ModelRegistryRead
+    trained_samples: int
+    backend: str
+    artifact_path: str | None
+    real_samples_used: int
+    candidate_samples: int
+    selected_algorithm: str
+
+
+@dataclass
 class RetrainDurationModelResult:
     model: ModelRegistryRead
     trained_samples: int
@@ -302,6 +313,98 @@ def harden_duration_model(
         test_samples=len(test_set),
         selected_algorithm=str(hardened_result["model_selection"]["selected_algorithm"]),
         validation_summary=validation_summary,
+    )
+
+
+def train_plan_evaluator_model(
+    db: Session,
+    *,
+    model_name: str = "plan_candidate_evaluator",
+    activate_model: bool = True,
+    required_real_samples: int = 60,
+    random_seed: int | None = None,
+) -> TrainPlanEvaluatorModelResult:
+    settings = get_settings()
+    seed = random_seed if random_seed is not None else settings.ml_training_random_seed
+
+    real_samples, _ = _collect_real_duration_training_samples(db)
+    if len(real_samples) < required_real_samples:
+        raise ModelTrainingError(
+            f"Insufficient real samples for plan evaluator training. Required={required_real_samples}, available={len(real_samples)}."
+        )
+
+    selected = sorted(real_samples, key=lambda sample: sample.observed_at)[-required_real_samples:]
+    candidate_dataset, feature_names = _build_plan_evaluator_dataset(selected)
+    if len(candidate_dataset) < 20:
+        raise ModelTrainingError("Plan evaluator dataset is too small after feature engineering.")
+
+    trained = _train_plan_evaluator_dataset(
+        dataset=candidate_dataset,
+        feature_names=feature_names,
+        random_seed=seed,
+    )
+    y_true = [item["target"] for item in candidate_dataset]
+    metrics = _build_metrics(
+        y_true=y_true,
+        y_pred=trained["predictions"],
+        sample_count=len(candidate_dataset),
+        backend="sklearn_plan_evaluator_selector",
+        feature_names=feature_names,
+    )
+    metrics["dataset"] = {
+        "real_samples": len(selected),
+        "candidate_samples": len(candidate_dataset),
+        "profiles_per_event": 4,
+    }
+    metrics["model_selection"] = trained["model_selection"]
+    metrics["hyperparameter_tuning"] = trained["hyperparameter_tuning"]
+
+    version = datetime.now(UTC).strftime("v%Y%m%d%H%M%S")
+    if activate_model:
+        (
+            db.query(ModelRegistry)
+            .filter(
+                ModelRegistry.model_name == model_name,
+                ModelRegistry.prediction_type == PredictionType.other,
+                ModelRegistry.status == ModelStatus.active,
+            )
+            .update({ModelRegistry.status: ModelStatus.deprecated}, synchronize_session=False)
+        )
+
+    model = ModelRegistry(
+        model_name=model_name,
+        model_version=version,
+        prediction_type=PredictionType.other,
+        status=ModelStatus.active if activate_model else ModelStatus.training,
+        training_data_from=min(sample.observed_at for sample in selected),
+        training_data_to=max(sample.observed_at for sample in selected),
+        metrics=metrics,
+    )
+    db.add(model)
+    db.flush()
+
+    artifact_path = _save_model_artifact(
+        model_name=model_name,
+        model_version=version,
+        model_id=model.model_id,
+        prediction_type=PredictionType.other.value,
+        backend="sklearn_plan_evaluator_selector",
+        feature_names=feature_names,
+        metrics=metrics,
+        artifact_payload=trained["artifact"],
+    )
+    model.metrics = {**model.metrics, "artifact_path": artifact_path}
+    db.commit()
+    db.refresh(model)
+
+    return TrainPlanEvaluatorModelResult(
+        model=_to_model_read(model),
+        trained_samples=len(candidate_dataset),
+        backend="sklearn_plan_evaluator_selector",
+        artifact_path=artifact_path,
+        real_samples_used=len(selected),
+        candidate_samples=len(candidate_dataset),
+        selected_algorithm=str(trained["model_selection"]["selected_algorithm"]),
     )
 
 
@@ -906,6 +1009,240 @@ def _validate_hardening_dataset(
         "invalid_feature_count": invalid_feature_count,
         "train_samples": train_samples,
         "test_samples": test_samples,
+    }
+
+
+def _build_plan_evaluator_dataset(
+    real_samples: list[_TrainingSample],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    feature_names = [
+        "attendee_count",
+        "setup_complexity",
+        "access_difficulty",
+        "parking_difficulty",
+        "required_person_count",
+        "required_equipment_count",
+        "required_vehicle_count",
+        "priority_score",
+        "coverage_ratio",
+        "unassigned_ratio",
+        "cost_index",
+        "duration_index",
+        "risk_index",
+        "score_weight",
+        "cost_weight",
+    ]
+    profiles = [
+        {
+            "name": "balanced",
+            "coverage_ratio": 0.96,
+            "cost_multiplier": 1.00,
+            "duration_multiplier": 1.00,
+            "risk_bias": 0.00,
+            "score_weight": 1.00,
+            "cost_weight": 0.020,
+        },
+        {
+            "name": "low_cost",
+            "coverage_ratio": 0.88,
+            "cost_multiplier": 0.86,
+            "duration_multiplier": 1.06,
+            "risk_bias": 0.08,
+            "score_weight": 0.84,
+            "cost_weight": 0.045,
+        },
+        {
+            "name": "reliability_first",
+            "coverage_ratio": 0.99,
+            "cost_multiplier": 1.10,
+            "duration_multiplier": 0.95,
+            "risk_bias": -0.06,
+            "score_weight": 1.20,
+            "cost_weight": 0.015,
+        },
+        {
+            "name": "coverage_guarded",
+            "coverage_ratio": 0.985,
+            "cost_multiplier": 1.05,
+            "duration_multiplier": 0.98,
+            "risk_bias": -0.03,
+            "score_weight": 1.14,
+            "cost_weight": 0.018,
+        },
+    ]
+
+    dataset: list[dict[str, Any]] = []
+    for sample in real_samples:
+        attendee = sample.x[0]
+        setup_complexity = sample.x[1]
+        access = sample.x[2]
+        parking = sample.x[3]
+        required_people = sample.x[4]
+        required_equipment = sample.x[5]
+        required_vehicle = sample.x[6]
+        priority = sample.x[7]
+        base_resource_load = (
+            required_people * 1.0 + required_equipment * 1.2 + required_vehicle * 1.4
+        )
+        base_cost = (
+            attendee * 0.9
+            + base_resource_load * 18
+            + setup_complexity * 22
+            + access * 10
+            + parking * 7
+        )
+        actual_duration = sample.y
+
+        for profile in profiles:
+            coverage_ratio = float(_clamp(profile["coverage_ratio"] - (priority * 0.005), 0.75, 1.0))
+            unassigned_ratio = 1.0 - coverage_ratio
+            cost_index = float(
+                _clamp(
+                    (base_cost * profile["cost_multiplier"]) / 1000.0,
+                    0.10,
+                    120.0,
+                )
+            )
+            duration_index = float(
+                _clamp(
+                    (actual_duration * profile["duration_multiplier"]) / 60.0,
+                    0.25,
+                    48.0,
+                )
+            )
+            risk_index = float(
+                _clamp(
+                    (unassigned_ratio * 0.7)
+                    + (setup_complexity / 10.0 * 0.15)
+                    + (access / 10.0 * 0.10)
+                    + float(profile["risk_bias"]),
+                    0.01,
+                    1.00,
+                )
+            )
+
+            quality_score = 100.0
+            quality_score -= (cost_index * 0.55)
+            quality_score -= (duration_index * 1.20)
+            quality_score -= (risk_index * 42.0)
+            quality_score -= (unassigned_ratio * 28.0)
+            quality_score += (coverage_ratio * 6.0)
+            quality_score = float(_clamp(quality_score, 0.0, 100.0))
+
+            vector = [
+                attendee,
+                setup_complexity,
+                access,
+                parking,
+                required_people,
+                required_equipment,
+                required_vehicle,
+                priority,
+                coverage_ratio,
+                unassigned_ratio,
+                cost_index,
+                duration_index,
+                risk_index,
+                float(profile["score_weight"]),
+                float(profile["cost_weight"]),
+            ]
+            dataset.append({"x": vector, "target": quality_score, "profile": profile["name"]})
+
+    return dataset, feature_names
+
+
+def _train_plan_evaluator_dataset(
+    *,
+    dataset: list[dict[str, Any]],
+    feature_names: list[str],
+    random_seed: int,
+) -> dict[str, Any]:
+    try:
+        from sklearn.model_selection import train_test_split
+    except Exception as exc:
+        raise ModelTrainingError("scikit-learn is required for plan evaluator training.") from exc
+
+    x_values = [item["x"] for item in dataset]
+    y_values = [float(item["target"]) for item in dataset]
+    test_count = _resolve_test_count(len(dataset), 0.2)
+    if test_count < 2:
+        raise ModelTrainingError("Plan evaluator requires at least 2 test samples.")
+
+    x_train, x_test, y_train, y_test = train_test_split(
+        x_values,
+        y_values,
+        test_size=test_count,
+        random_state=random_seed,
+    )
+    base_candidates = _candidate_model_specs()
+    evaluated = _evaluate_candidates(
+        candidates=base_candidates,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        random_seed=random_seed,
+    )
+    if not evaluated:
+        raise ModelTrainingError("Unable to train candidate algorithms for plan evaluator.")
+
+    winner_algorithm = str(evaluated[0]["name"])
+    tuned = _tune_best_algorithm(
+        algorithm=winner_algorithm,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        random_seed=random_seed,
+    )
+    best = tuned["winner"]
+    estimator = best["estimator"]
+    estimator.fit(x_train, y_train)
+    y_pred_all = _predict_non_negative(estimator, x_values)
+
+    model_selection = {
+        "selected_algorithm": winner_algorithm,
+        "train_samples": len(y_train),
+        "test_samples": len(y_test),
+        "split_strategy": "holdout",
+        "test_split_ratio": round(len(y_test) / len(dataset), 4),
+        "random_seed": random_seed,
+        "leaderboard": [
+            {
+                "algorithm": item["name"],
+                "params": item["params"],
+                "train_metrics": item["train_metrics"],
+                "test_metrics": item["test_metrics"],
+            }
+            for item in evaluated
+        ],
+    }
+    hyperparameter_tuning = {
+        "algorithm": winner_algorithm,
+        "winning_params": best["params"],
+        "trials": [
+            {
+                "params": item["params"],
+                "train_metrics": item["train_metrics"],
+                "test_metrics": item["test_metrics"],
+            }
+            for item in tuned["trials"]
+        ],
+    }
+
+    artifact = {
+        "kind": "plan_evaluator_estimator",
+        "algorithm": winner_algorithm,
+        "feature_names": feature_names,
+        "model": estimator,
+        "model_selection": model_selection,
+        "hyperparameter_tuning": hyperparameter_tuning,
+    }
+    return {
+        "predictions": y_pred_all,
+        "artifact": artifact,
+        "model_selection": model_selection,
+        "hyperparameter_tuning": hyperparameter_tuning,
     }
 
 

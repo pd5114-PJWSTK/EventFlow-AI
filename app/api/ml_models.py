@@ -13,6 +13,8 @@ from app.schemas.ml_models import (
     RetrainDurationModelResponse,
     TrainBaselineModelRequest,
     TrainBaselineModelResponse,
+    TrainPlanEvaluatorRequest,
+    TrainPlanEvaluatorResponse,
 )
 from app.services.ml_training_service import (
     ModelTrainingError,
@@ -20,6 +22,7 @@ from app.services.ml_training_service import (
     list_registered_models,
     retrain_duration_model,
     train_baseline_model,
+    train_plan_evaluator_model,
 )
 
 
@@ -82,6 +85,34 @@ def harden_duration_model_endpoint(
             test_samples=result.test_samples,
             selected_algorithm=result.selected_algorithm,
             validation_summary=result.validation_summary,
+        )
+    except ModelTrainingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+
+@router.post("/train-plan-evaluator", response_model=TrainPlanEvaluatorResponse)
+def train_plan_evaluator_endpoint(
+    payload: TrainPlanEvaluatorRequest,
+    db: Session = Depends(get_db),
+) -> TrainPlanEvaluatorResponse:
+    try:
+        result = train_plan_evaluator_model(
+            db,
+            model_name=payload.model_name,
+            activate_model=payload.activate_model,
+            required_real_samples=payload.required_real_samples,
+            random_seed=payload.random_seed,
+        )
+        return TrainPlanEvaluatorResponse(
+            model=result.model,
+            trained_samples=result.trained_samples,
+            backend=result.backend,
+            artifact_path=result.artifact_path,
+            real_samples_used=result.real_samples_used,
+            candidate_samples=result.candidate_samples,
+            selected_algorithm=result.selected_algorithm,
         )
     except ModelTrainingError as exc:
         raise HTTPException(

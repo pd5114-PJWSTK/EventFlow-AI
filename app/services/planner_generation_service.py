@@ -3,17 +3,23 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+import pickle
 from math import asin, cos, radians, sin, sqrt
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.models.ai import (
+    EventFeature,
+    ModelRegistry,
+    ModelStatus,
     PlannerRecommendation,
     PlannerRecommendationAssignment,
     PlannerRun,
     PlannerRunStatus,
+    PredictionType,
 )
 from app.models.core import (
     Assignment,
@@ -29,14 +35,19 @@ from app.models.core import (
 from app.schemas.planner import (
     GeneratedPlanAssignment,
     GeneratePlanResponse,
+    PlanCandidateEvaluation,
     PlanMetricComparison,
+    RecommendBestPlanResponse,
     ReplanResponse,
 )
 from app.services.ortools_service import (
+    PlannerCandidate,
     PlannerAssignment,
+    PlannerInput,
     PlannerRequirement,
     PlannerPolicy,
     PlannerPolicyError,
+    PlannerResult,
     PlannerService,
     PlannerTimeoutError,
 )
@@ -222,6 +233,214 @@ def replan_event(
         incident_summary=incident_summary,
         comparison=comparison,
         generated_plan=generated,
+    )
+
+
+def recommend_best_plan_with_ml(
+    db: Session,
+    *,
+    event_id: str,
+    initiated_by: str | None = None,
+    commit_to_assignments: bool = False,
+    solver_timeout_seconds: float = 10.0,
+    fallback_enabled: bool = True,
+    duration_model_id: str | None = None,
+    plan_evaluator_model_id: str | None = None,
+) -> RecommendBestPlanResponse:
+    event = db.get(Event, event_id)
+    if event is None:
+        raise PlannerInputError("Event not found")
+
+    event_feature = db.get(EventFeature, event_id)
+    if event_feature is None:
+        raise PlanGenerationError(
+            "Event feature snapshot not found. Generate ML features before CP-07 recommendation."
+        )
+
+    planner_input = load_planner_input(db, event_id)
+    if not planner_input.requirements:
+        raise PlanGenerationError("Planner input has no requirements to optimize.")
+
+    duration_artifact = _resolve_model_artifact(
+        db=db,
+        prediction_type=PredictionType.duration_estimate,
+        preferred_model_id=duration_model_id,
+    )
+    plan_evaluator_artifact = _resolve_plan_evaluator_artifact(
+        db=db,
+        preferred_model_id=plan_evaluator_model_id,
+    )
+
+    planner_run = PlannerRun(
+        objective_version="phase-7-cp-07-ml-plan-proposal-v1",
+        initiated_by=initiated_by,
+        trigger_reason="ml_recommendation",
+        input_snapshot={
+            "event_id": event_id,
+            "policy": {
+                "timeout_seconds": solver_timeout_seconds,
+                "fallback_enabled": fallback_enabled,
+            },
+            "profiles": [profile["name"] for profile in _proposal_profiles()],
+        },
+    )
+    db.add(planner_run)
+    db.flush()
+
+    policy = PlannerPolicy(
+        timeout_seconds=solver_timeout_seconds,
+        fallback_enabled=fallback_enabled,
+    )
+    base_duration_minutes = _predict_duration_minutes(duration_artifact, event_feature)
+    candidate_results: list[dict[str, Any]] = []
+    requirement_by_id = {
+        requirement.requirement_id: requirement for requirement in planner_input.requirements
+    }
+
+    for profile in _proposal_profiles():
+        profiled_input = _apply_profile_to_planner_input(
+            planner_input=planner_input,
+            score_weight=profile["score_weight"],
+            cost_weight=profile["cost_weight"],
+            reliability_bias=profile["reliability_bias"],
+        )
+        solved = PlannerService(policy=policy).solve(profiled_input)
+        total_required = sum(max(requirement.quantity, 0) for requirement in profiled_input.requirements)
+        unassigned_count = sum(item.unassigned_count for item in solved.assignments)
+        coverage_ratio = Decimal("1.0000")
+        if total_required > 0:
+            coverage_ratio = _ratio_decimal(
+                Decimal(total_required - unassigned_count),
+                Decimal(total_required),
+            )
+
+        predicted_duration_minutes = _candidate_duration_minutes(
+            base_duration_minutes=base_duration_minutes,
+            coverage_ratio=coverage_ratio,
+            estimated_cost=solved.estimated_cost,
+        )
+        predicted_risk = _candidate_risk(
+            coverage_ratio=coverage_ratio,
+            unassigned_count=unassigned_count,
+            total_required=total_required,
+            risk_bias=Decimal(str(profile["risk_bias"])),
+        )
+        ml_score = _candidate_quality_score(
+            event_feature=event_feature,
+            coverage_ratio=coverage_ratio,
+            unassigned_count=unassigned_count,
+            total_required=total_required,
+            estimated_cost=solved.estimated_cost,
+            predicted_duration_minutes=predicted_duration_minutes,
+            predicted_risk=predicted_risk,
+            profile=profile,
+            plan_evaluator_artifact=plan_evaluator_artifact,
+        )
+        candidate_results.append(
+            {
+                "profile": profile,
+                "planner_result": solved,
+                "coverage_ratio": coverage_ratio,
+                "unassigned_count": unassigned_count,
+                "predicted_duration_minutes": predicted_duration_minutes,
+                "predicted_risk": predicted_risk,
+                "ml_score": ml_score,
+            }
+        )
+
+    if not candidate_results:
+        raise PlanGenerationError("No candidate plans generated for ML recommendation.")
+
+    candidate_results.sort(key=lambda item: item["ml_score"], reverse=True)
+    selected = candidate_results[0]
+    selected_result: PlannerResult = selected["planner_result"]
+    recommendation = _create_recommendation(
+        db=db,
+        event=event,
+        planner_run=planner_run,
+        requirements=requirement_by_id,
+        assignments=selected_result.assignments,
+        total_cost=selected_result.estimated_cost,
+        selected=commit_to_assignments,
+    )
+
+    assignment_ids: list[str] = []
+    transport_leg_ids: list[str] = []
+    if commit_to_assignments:
+        assignment_ids = _commit_assignments(
+            db=db,
+            event=event,
+            planner_run=planner_run,
+            requirements=requirement_by_id,
+            assignments=selected_result.assignments,
+        )
+        transport_leg_ids = _create_transport_legs(
+            db=db,
+            event=event,
+            planner_run=planner_run,
+            assignments=selected_result.assignments,
+            requirements=requirement_by_id,
+        )
+        if _is_fully_assigned(selected_result.assignments):
+            event.status = EventStatus.planned
+
+    planner_run.finished_at = datetime.utcnow()
+    planner_run.run_status = PlannerRunStatus.completed
+    planner_run.total_cost = _money(selected_result.estimated_cost)
+    planner_run.total_risk_score = selected["predicted_risk"].quantize(Decimal("0.0001"))
+    planner_run.notes = (
+        f"Selected profile={selected['profile']['name']} score={selected['ml_score']:.4f}; "
+        f"candidates={len(candidate_results)}"
+    )
+    db.commit()
+    db.refresh(recommendation)
+
+    selected_plan = GeneratePlanResponse(
+        event_id=event_id,
+        planner_run_id=planner_run.planner_run_id,
+        recommendation_id=recommendation.recommendation_id,
+        plan_id=selected_result.plan_id,
+        solver=selected_result.solver,
+        solver_duration_ms=selected_result.duration_ms,
+        fallback_reason=selected_result.fallback_reason,
+        fallback_enabled=fallback_enabled,
+        solver_timeout_seconds=solver_timeout_seconds,
+        is_fully_assigned=_is_fully_assigned(selected_result.assignments),
+        assignments=[
+            _response_assignment(assignment, requirement_by_id)
+            for assignment in selected_result.assignments
+        ],
+        assignment_ids=assignment_ids,
+        transport_leg_ids=transport_leg_ids,
+        estimated_cost=_money(selected_result.estimated_cost),
+    )
+
+    return RecommendBestPlanResponse(
+        event_id=event_id,
+        planner_run_id=planner_run.planner_run_id,
+        recommendation_id=recommendation.recommendation_id,
+        selected_candidate_name=str(selected["profile"]["name"]),
+        selected_quality_score=Decimal(str(round(selected["ml_score"], 4))).quantize(Decimal("0.0001")),
+        selected_plan=selected_plan,
+        candidates=[
+            PlanCandidateEvaluation(
+                candidate_name=str(item["profile"]["name"]),
+                solver=item["planner_result"].solver,
+                estimated_cost=_money(item["planner_result"].estimated_cost),
+                estimated_duration_minutes=item["predicted_duration_minutes"].quantize(Decimal("0.0001")),
+                predicted_risk=item["predicted_risk"].quantize(Decimal("0.0001")),
+                coverage_ratio=item["coverage_ratio"].quantize(Decimal("0.0001")),
+                unassigned_count=int(item["unassigned_count"]),
+                ml_quality_score=Decimal(str(round(item["ml_score"], 4))).quantize(Decimal("0.0001")),
+                profile_weights={
+                    "score_weight": Decimal(str(item["profile"]["score_weight"])),
+                    "cost_weight": Decimal(str(item["profile"]["cost_weight"])),
+                    "reliability_bias": Decimal(str(item["profile"]["reliability_bias"])),
+                    "risk_bias": Decimal(str(item["profile"]["risk_bias"])),
+                },
+            )
+            for item in candidate_results
+        ],
     )
 
 
@@ -510,6 +729,277 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     return value
+
+
+def _proposal_profiles() -> list[dict[str, float | str]]:
+    return [
+        {
+            "name": "balanced",
+            "score_weight": 1.00,
+            "cost_weight": 0.020,
+            "reliability_bias": 0.00,
+            "risk_bias": 0.00,
+        },
+        {
+            "name": "low_cost",
+            "score_weight": 0.82,
+            "cost_weight": 0.050,
+            "reliability_bias": -0.04,
+            "risk_bias": 0.08,
+        },
+        {
+            "name": "reliability_first",
+            "score_weight": 1.24,
+            "cost_weight": 0.015,
+            "reliability_bias": 0.14,
+            "risk_bias": -0.05,
+        },
+        {
+            "name": "coverage_guarded",
+            "score_weight": 1.12,
+            "cost_weight": 0.022,
+            "reliability_bias": 0.08,
+            "risk_bias": -0.02,
+        },
+    ]
+
+
+def _apply_profile_to_planner_input(
+    *,
+    planner_input: PlannerInput,
+    score_weight: float,
+    cost_weight: float,
+    reliability_bias: float,
+) -> PlannerInput:
+    transformed_requirements: list[PlannerRequirement] = []
+    for requirement in planner_input.requirements:
+        transformed_candidates: list[PlannerCandidate] = []
+        for candidate in requirement.candidates:
+            base_score = float(candidate.score)
+            cost_penalty = float(candidate.cost_per_hour) * cost_weight
+            adjusted_score = max(base_score * score_weight - cost_penalty + reliability_bias, 0.0001)
+            transformed_candidates.append(
+                PlannerCandidate(
+                    resource_id=candidate.resource_id,
+                    cost_per_hour=candidate.cost_per_hour,
+                    score=Decimal(str(round(adjusted_score, 6))),
+                    available_from=candidate.available_from,
+                    available_to=candidate.available_to,
+                )
+            )
+        transformed_requirements.append(
+            PlannerRequirement(
+                requirement_id=requirement.requirement_id,
+                resource_type=requirement.resource_type,
+                quantity=requirement.quantity,
+                mandatory=requirement.mandatory,
+                required_start=requirement.required_start,
+                required_end=requirement.required_end,
+                candidates=transformed_candidates,
+            )
+        )
+    return PlannerInput(requirements=transformed_requirements)
+
+
+def _resolve_model_artifact(
+    *,
+    db: Session,
+    prediction_type: PredictionType,
+    preferred_model_id: str | None,
+) -> dict[str, Any]:
+    model = None
+    if preferred_model_id:
+        model = db.get(ModelRegistry, preferred_model_id)
+        if model is None:
+            raise PlanGenerationError("Requested model_id was not found.")
+    else:
+        model = (
+            db.query(ModelRegistry)
+            .filter(
+                ModelRegistry.prediction_type == prediction_type,
+                ModelRegistry.status == ModelStatus.active,
+            )
+            .order_by(ModelRegistry.created_at.desc())
+            .first()
+        )
+    if model is None:
+        raise PlanGenerationError("Active duration model not found for CP-07 proposal.")
+
+    artifact_path = (model.metrics or {}).get("artifact_path")
+    if not artifact_path:
+        raise PlanGenerationError("Model artifact path missing in active duration model.")
+    return _load_artifact(artifact_path)
+
+
+def _resolve_plan_evaluator_artifact(
+    *,
+    db: Session,
+    preferred_model_id: str | None,
+) -> dict[str, Any] | None:
+    model = None
+    if preferred_model_id:
+        model = db.get(ModelRegistry, preferred_model_id)
+    else:
+        model = (
+            db.query(ModelRegistry)
+            .filter(
+                ModelRegistry.model_name == "plan_candidate_evaluator",
+                ModelRegistry.prediction_type == PredictionType.other,
+                ModelRegistry.status == ModelStatus.active,
+            )
+            .order_by(ModelRegistry.created_at.desc())
+            .first()
+        )
+    if model is None:
+        return None
+    artifact_path = (model.metrics or {}).get("artifact_path")
+    if not artifact_path:
+        return None
+    try:
+        artifact = _load_artifact(artifact_path)
+    except Exception:
+        return None
+    if artifact.get("kind") != "plan_evaluator_estimator":
+        return None
+    return artifact
+
+
+def _load_artifact(path: str) -> dict[str, Any]:
+    artifact_path = Path(path)
+    if not artifact_path.exists():
+        raise PlanGenerationError(f"Model artifact not found: {path}")
+    with artifact_path.open("rb") as handle:
+        loaded = pickle.load(handle)
+    if not isinstance(loaded, dict):
+        raise PlanGenerationError("Model artifact has invalid format.")
+    return loaded
+
+
+def _predict_duration_minutes(
+    artifact: dict[str, Any], event_feature: EventFeature
+) -> Decimal:
+    vector = _duration_feature_vector(event_feature)
+    kind = str(artifact.get("kind", ""))
+    if kind == "mean_regressor":
+        return Decimal(str(artifact.get("mean_value", 0.0))).quantize(Decimal("0.0001"))
+    if kind in {"sklearn_linear_regression", "sklearn_estimator"}:
+        model = artifact.get("model")
+        if model is None:
+            raise PlanGenerationError("Duration model artifact missing sklearn model.")
+        value = float(model.predict([vector])[0])
+        return Decimal(str(max(value, 0.0))).quantize(Decimal("0.0001"))
+    raise PlanGenerationError(f"Unsupported duration model artifact kind: {kind}")
+
+
+def _duration_feature_vector(event_feature: EventFeature) -> list[float]:
+    priority = {"low": 1.0, "medium": 2.0, "high": 3.0, "critical": 4.0}.get(
+        (event_feature.feature_priority or "medium").lower(), 2.0
+    )
+    season = {"winter": 1.0, "spring": 2.0, "summer": 3.0, "autumn": 4.0}.get(
+        (event_feature.feature_season or "").lower(), 0.0
+    )
+    return [
+        float(event_feature.feature_attendee_count or 0),
+        float(event_feature.feature_setup_complexity_score or 0),
+        float(event_feature.feature_access_difficulty or 0),
+        float(event_feature.feature_parking_difficulty or 0),
+        float(event_feature.feature_required_person_count or 0),
+        float(event_feature.feature_required_equipment_count or 0),
+        float(event_feature.feature_required_vehicle_count or 0),
+        priority,
+        float(event_feature.feature_day_of_week or 0),
+        float(event_feature.feature_month or 0),
+        season,
+        1.0 if event_feature.feature_requires_transport else 0.0,
+        1.0 if event_feature.feature_requires_setup else 0.0,
+        1.0 if event_feature.feature_requires_teardown else 0.0,
+    ]
+
+
+def _candidate_duration_minutes(
+    *,
+    base_duration_minutes: Decimal,
+    coverage_ratio: Decimal,
+    estimated_cost: Decimal,
+) -> Decimal:
+    coverage_penalty = (Decimal("1") - coverage_ratio) * Decimal("0.28")
+    cost_pressure = min(estimated_cost / Decimal("50000"), Decimal("0.18"))
+    multiplier = Decimal("1") + coverage_penalty + cost_pressure
+    return (base_duration_minutes * multiplier).quantize(Decimal("0.0001"))
+
+
+def _candidate_risk(
+    *,
+    coverage_ratio: Decimal,
+    unassigned_count: int,
+    total_required: int,
+    risk_bias: Decimal,
+) -> Decimal:
+    if total_required <= 0:
+        total_required = 1
+    unassigned_ratio = Decimal(unassigned_count) / Decimal(total_required)
+    risk = (
+        unassigned_ratio * Decimal("0.70")
+        + (Decimal("1") - coverage_ratio) * Decimal("0.20")
+        + risk_bias
+    )
+    risk = max(Decimal("0.01"), min(risk, Decimal("0.99")))
+    return risk.quantize(Decimal("0.0001"))
+
+
+def _candidate_quality_score(
+    *,
+    event_feature: EventFeature,
+    coverage_ratio: Decimal,
+    unassigned_count: int,
+    total_required: int,
+    estimated_cost: Decimal,
+    predicted_duration_minutes: Decimal,
+    predicted_risk: Decimal,
+    profile: dict[str, float | str],
+    plan_evaluator_artifact: dict[str, Any] | None,
+) -> float:
+    if plan_evaluator_artifact is not None:
+        model = plan_evaluator_artifact.get("model")
+        if model is not None:
+            vector = [
+                float(event_feature.feature_attendee_count or 0),
+                float(event_feature.feature_setup_complexity_score or 0),
+                float(event_feature.feature_access_difficulty or 0),
+                float(event_feature.feature_parking_difficulty or 0),
+                float(event_feature.feature_required_person_count or 0),
+                float(event_feature.feature_required_equipment_count or 0),
+                float(event_feature.feature_required_vehicle_count or 0),
+                float({"low": 1, "medium": 2, "high": 3, "critical": 4}.get((event_feature.feature_priority or "medium").lower(), 2)),
+                float(coverage_ratio),
+                float(Decimal(unassigned_count) / max(Decimal("1"), Decimal(total_required))),
+                float(estimated_cost / Decimal("1000")),
+                float(predicted_duration_minutes / Decimal("60")),
+                float(predicted_risk),
+                float(profile["score_weight"]),
+                float(profile["cost_weight"]),
+            ]
+            score = float(model.predict([vector])[0])
+            return max(min(score, 100.0), 0.0)
+
+    # Fallback if plan evaluator model is unavailable.
+    cost_component = float(min(estimated_cost / Decimal("70000"), Decimal("1")))
+    duration_component = float(min(predicted_duration_minutes / Decimal("900"), Decimal("1")))
+    risk_component = float(predicted_risk)
+    unassigned_component = float(min(Decimal(unassigned_count) / Decimal("10"), Decimal("1")))
+    score = 100.0
+    score -= cost_component * 22.0
+    score -= duration_component * 25.0
+    score -= risk_component * 35.0
+    score -= unassigned_component * 20.0
+    score += float(coverage_ratio) * 6.0
+    return max(min(score, 100.0), 0.0)
+
+
+def _ratio_decimal(numerator: Decimal, denominator: Decimal) -> Decimal:
+    if denominator <= 0:
+        return Decimal("0")
+    return (numerator / denominator).quantize(Decimal("0.0001"))
 
 
 def _latest_recommendation_for_event(

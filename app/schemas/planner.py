@@ -109,3 +109,35 @@ class ReplanResponse(BaseModel):
     incident_summary: str | None = None
     comparison: PlanMetricComparison
     generated_plan: GeneratePlanResponse
+
+
+class PlanCandidateEvaluation(BaseModel):
+    candidate_name: str
+    solver: str
+    estimated_cost: Decimal
+    estimated_duration_minutes: Decimal
+    predicted_risk: Decimal
+    coverage_ratio: Decimal
+    unassigned_count: int
+    ml_quality_score: Decimal
+    profile_weights: dict[str, Decimal] = Field(default_factory=dict)
+
+
+class RecommendBestPlanRequest(BaseModel):
+    event_id: str
+    initiated_by: str | None = None
+    commit_to_assignments: bool = False
+    solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    fallback_enabled: bool = True
+    duration_model_id: str | None = None
+    plan_evaluator_model_id: str | None = None
+
+
+class RecommendBestPlanResponse(BaseModel):
+    event_id: str
+    planner_run_id: str
+    recommendation_id: str
+    selected_candidate_name: str
+    selected_quality_score: Decimal
+    selected_plan: GeneratePlanResponse
+    candidates: list[PlanCandidateEvaluation] = Field(default_factory=list)

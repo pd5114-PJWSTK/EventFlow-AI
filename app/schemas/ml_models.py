@@ -54,6 +54,23 @@ class HardenDurationModelResponse(BaseModel):
     validation_summary: dict[str, Any] = Field(default_factory=dict)
 
 
+class TrainPlanEvaluatorRequest(BaseModel):
+    model_name: str = Field(default="plan_candidate_evaluator", min_length=1, max_length=120)
+    activate_model: bool = True
+    required_real_samples: int = Field(default=60, ge=20, le=1000)
+    random_seed: int | None = None
+
+
+class TrainPlanEvaluatorResponse(BaseModel):
+    model: ModelRegistryRead
+    trained_samples: int
+    backend: str
+    artifact_path: str | None = None
+    real_samples_used: int
+    candidate_samples: int
+    selected_algorithm: str
+
+
 class RetrainDurationModelRequest(BaseModel):
     model_name: str = Field(default="event_duration_baseline", min_length=1, max_length=120)
     min_samples_required: int | None = Field(default=None, ge=1)
