@@ -25,6 +25,22 @@ class Settings(BaseSettings):
     ready_check_externals: bool = False
     celery_always_eager: bool = True
 
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_key: str | None = None
+    openai_api_version: str = "2024-08-01-preview"
+    azure_deployment_llm: str | None = None
+
+    ai_azure_llm_enabled: bool = False
+    ai_azure_llm_timeout_seconds: float = 20.0
+    ai_azure_llm_max_retries: int = 2
+    ai_azure_llm_retry_backoff_seconds: float = 0.5
+    ai_azure_llm_rate_limit_per_minute: int = 5
+    ai_azure_llm_max_input_tokens: int = 1200
+    ai_azure_llm_max_output_tokens: int = 500
+    ai_azure_llm_max_daily_spend_usd: float = 3.0
+    ai_azure_llm_input_cost_per_1k_usd: float = 0.0004
+    ai_azure_llm_output_cost_per_1k_usd: float = 0.0016
+
 
 @lru_cache
 def get_settings() -> Settings:

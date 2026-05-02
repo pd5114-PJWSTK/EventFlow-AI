@@ -420,3 +420,30 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Oznaczono FazÄ™ 4 jako zamknieta.
   Cel: potwierdzic komplet OR-Tools planner + planner runs i gotowosc wejscia do Fazy 5.
+
+10) FAZA 5 - POSTEP IMPLEMENTACJI (CP-01)
+- Status fazy: W TOKU (rozpoczeta).
+- Status checkpointu: `phase-5-cp-01-azure-openai-integration` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano konfiguracje Azure OpenAI i limity bezpieczenstwa kosztowego:
+    - `app/config.py`,
+    - `.env.example`.
+  - Dodano prompt templates dla trzech sciezek:
+    - parsing,
+    - optimization proposal,
+    - risk explanation.
+  - Dodano modul: `app/services/ai_prompt_templates.py`.
+  - Dodano klienta Azure OpenAI z guardrails:
+    - walidacja konfiguracji (`AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_DEPLOYMENT_LLM`, `OPENAI_API_VERSION`),
+    - retry policy dla bledow transient (408/429/5xx),
+    - rate limit per-minute,
+    - cap tokenow input/output na request,
+    - dzienny cap kosztu USD blokujacy wywolanie przed requestem.
+  - Dodano modul: `app/services/azure_openai_service.py`.
+  - Dodano testy CP-01: `tests/test_phase5_cp01.py`.
+- Walidacja wykonania:
+  - Testy CP-01: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp01.py -q` -> 6 passed.
+  - Szybka regresja: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase4_cp04.py tests/test_phase5_cp01.py -q` -> 8 passed.
+
+- [2026-05-02] Uruchomiono Faze 5 i zaimplementowano CP-01 (Azure OpenAI integration + limity kosztowe + prompt templates).
+  Cel: dostarczyc bezpieczna kosztowo warstwe LLM pod kolejne checkpointy LangGraph i endpointy AI Agents.
