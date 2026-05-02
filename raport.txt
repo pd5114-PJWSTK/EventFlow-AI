@@ -1155,3 +1155,48 @@ Wniosek: wymagania Fazy 1 sa wykonane.
     - czytelny quick start, endpointy i nawigacja dla osob trzecich.
 - Uwaga organizacyjna:
   - Dokumentacja referencyjna utrzymywana jest centralnie w `docs/`.
+
+13.3) FAZA 8 - POSTEP IMPLEMENTACJI (CP-04)
+- Status checkpointu: `phase-8-cp-04-production-iam-vps-security-hardening` -> ZREALIZOWANY (implementacja + SQL patch + testy + regresja).
+- Zakres wykonany:
+  - Wdrozono produkcyjny IAM oparty o DB:
+    - nowe tabele `auth.users`, `auth.roles`, `auth.user_roles`, `auth.sessions`,
+    - nowe modele ORM `app/models/auth.py`,
+    - serwis auth `app/services/auth_service.py` z hashowaniem `argon2id`, sesjami refresh (hash + rotacja + revokacja).
+  - Rozszerzono API auth:
+    - utrzymano `POST /auth/login`, `POST /auth/refresh`,
+    - dodano `GET /auth/me`, `POST /auth/logout`, `POST /auth/logout-all`,
+    - dodano provisioning admin: `POST /admin/users`, `PATCH /admin/users/{id}`, `POST /admin/users/{id}/reset-password`.
+  - Wymuszono auth dla tras biznesowych:
+    - wszystkie routery `/api/*` chronione przez role biznesowe,
+    - websocket `/api/runtime/ws/events/{event_id}/notifications` wymaga Bearer tokenu podczas handshake,
+    - publiczne pozostaly `/health`, `/ready`, `/auth/*`,
+    - `api/test/*` warunkowe przez `API_TEST_JOBS_ENABLED`.
+  - Zamknieto podatnosc path traversal (ML artefakty):
+    - whitelist regex dla `model_name`,
+    - twarda walidacja sciezki po `resolve()` z wymuszeniem potomka `ML_MODELS_DIR`,
+    - blokada `../`, `..\\`, sciezek absolutnych i UNC.
+  - Dodano fail-fast security policy:
+    - poza `development` aplikacja nie startuje z slabym/domyslnym `JWT_SECRET_KEY`,
+    - poza `development` `DEMO_ADMIN_ENABLED=true` blokuje start.
+  - Dodano dual-write audit trail (FK + tekst):
+    - `events.created_by_user_id`,
+    - `planner_runs.initiated_by_user_id`,
+    - `incidents.reported_by_user_id`,
+    - `event_execution_logs.author_user_id`.
+  - Dodano SQL dla nowych i istniejacych srodowisk:
+    - update init schema: `docker/postgres/init/01_schema.sql`, `docker/postgres/init/02_seed.sql`,
+    - idempotentny patch VPS: `scripts/sql/cp04_auth_and_security.sql`.
+  - Dodano testy CP-04:
+    - `tests/test_phase8_cp04.py`,
+    - aktualizacja fixture auth w `tests/conftest.py` + adaptacja testow auth/health/jobs/ws.
+- Walidacja wykonania:
+  - Pelna regresja przez Docker:
+    - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q` -> 108 passed.
+  - Smoke security (docker):
+    - migracja CP-04 SQL na dzialajacej bazie,
+    - utworzenie admina w `auth.users`,
+    - potwierdzone logowanie admina (wynik `ok`).
+
+- [2026-05-03] Zaimplementowano CP-04 Fazy 8 (produkcyjny IAM + security hardening P0/P1/P2 + SQL patch + testy).
+  Cel: domknac krytyczne wymagania bezpieczenstwa pod deploy VPS i utrzymac pelna zgodnosc regresyjna backendu.

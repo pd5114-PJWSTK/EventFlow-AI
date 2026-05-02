@@ -38,7 +38,13 @@ from app.models.ai import (
 	Prediction,
 	PredictionOutcome,
 	PredictionType,
-	ResourceFeature,
+    ResourceFeature,
+)
+from app.models.auth import (
+    AuthSession,
+    Role,
+    User,
+    UserRole,
 )
 from app.models.ops import (
     ActualTiming,
@@ -59,6 +65,7 @@ __all__ = [
 	"Assignment",
 	"AssignmentResourceType",
 	"AssignmentStatus",
+    "AuthSession",
 	"Client",
 	"EquipmentAvailability",
 	"EmploymentType",
@@ -97,6 +104,7 @@ __all__ = [
 	"OpsPhaseName",
 	"ResourceCheckpoint",
 	"RequirementType",
+    "Role",
 	"ResourcePerson",
 	"ResourceStatus",
 	"Skill",
@@ -104,4 +112,6 @@ __all__ = [
 	"Vehicle",
 	"VehicleAvailability",
 	"VehicleType",
+    "User",
+    "UserRole",
 ]

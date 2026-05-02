@@ -30,6 +30,7 @@ from app.database import Base
 settings = get_settings()
 CORE_SCHEMA = None if settings.database_url.startswith("sqlite") else "core"
 AI_SCHEMA = None if settings.database_url.startswith("sqlite") else "ai"
+AUTH_SCHEMA = None if settings.database_url.startswith("sqlite") else "auth"
 
 
 def _core_table(name: str) -> str:
@@ -41,6 +42,12 @@ def _core_table(name: str) -> str:
 def _ai_table(name: str) -> str:
     if AI_SCHEMA:
         return f"{AI_SCHEMA}.{name}"
+    return name
+
+
+def _auth_table(name: str) -> str:
+    if AUTH_SCHEMA:
+        return f"{AUTH_SCHEMA}.{name}"
     return name
 
 
@@ -218,6 +225,10 @@ class Event(Base):
     requires_teardown: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_auth_table("users.user_id"), ondelete="SET NULL"),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False

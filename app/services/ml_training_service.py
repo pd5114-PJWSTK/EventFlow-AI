@@ -1444,7 +1444,11 @@ def _save_model_artifact(
 ) -> str:
     settings = get_settings()
     artifact_dir = Path(settings.ml_models_dir).resolve()
-    model_dir = artifact_dir / model_name / model_version
+    model_dir = _resolve_model_artifact_dir(
+        artifact_dir=artifact_dir,
+        model_name=model_name,
+        model_version=model_version,
+    )
     model_dir.mkdir(parents=True, exist_ok=True)
 
     metadata_path = model_dir / "metadata.json"
@@ -1469,6 +1473,22 @@ def _save_model_artifact(
         pickle.dump(artifact_payload, file_obj)
 
     return str(model_path)
+
+
+def _resolve_model_artifact_dir(
+    *,
+    artifact_dir: Path,
+    model_name: str,
+    model_version: str,
+) -> Path:
+    if ".." in model_name or "/" in model_name or "\\" in model_name:
+        raise ModelTrainingError("Invalid model_name. Path separators are not allowed.")
+    candidate = (artifact_dir / model_name / model_version).resolve()
+    try:
+        candidate.relative_to(artifact_dir)
+    except ValueError as exc:
+        raise ModelTrainingError("Resolved artifact path is outside ML_MODELS_DIR.") from exc
+    return candidate
 
 
 def _evaluate_activation(

@@ -64,6 +64,8 @@ def parse_and_report_incident(
     *,
     event_id: str,
     payload: RuntimeIncidentParseRequest,
+    actor_user_id: str | None = None,
+    actor_username: str | None = None,
     llm_client: AIClientProtocol | None = None,
 ) -> RuntimeIncidentParseResponse:
     parse_result = _parse_operator_log(payload, llm_client=llm_client)
@@ -80,7 +82,13 @@ def parse_and_report_incident(
         author_type=payload.author_type,
         author_reference=payload.author_reference,
     )
-    incident_response = report_incident(db, event_id=event_id, payload=incident_payload)
+    incident_response = report_incident(
+        db,
+        event_id=event_id,
+        payload=incident_payload,
+        actor_user_id=actor_user_id,
+        actor_username=actor_username,
+    )
     return RuntimeIncidentParseResponse(
         event_id=incident_response.event_id,
         incident_id=incident_response.incident_id,

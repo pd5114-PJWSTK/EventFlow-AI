@@ -1,15 +1,10 @@
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-
-client = TestClient(app)
-
-
-def test_login_success_and_refresh() -> None:
-    login_response = client.post(
+def test_login_success_and_refresh(api_client: TestClient) -> None:
+    login_response = api_client.post(
         "/auth/login",
-        json={"username": "admin", "password": "admin123"},
+        json={"username": "test-admin", "password": "StrongPass!234"},
     )
     assert login_response.status_code == 200
 
@@ -17,7 +12,7 @@ def test_login_success_and_refresh() -> None:
     assert "access_token" in tokens
     assert "refresh_token" in tokens
 
-    refresh_response = client.post(
+    refresh_response = api_client.post(
         "/auth/refresh",
         headers={"Authorization": f"Bearer {tokens['refresh_token']}"},
     )
@@ -26,9 +21,10 @@ def test_login_success_and_refresh() -> None:
     assert "access_token" in refreshed_tokens
 
 
-def test_login_invalid_credentials() -> None:
-    response = client.post(
+def test_login_invalid_credentials(api_client: TestClient) -> None:
+    response = api_client.post(
         "/auth/login",
-        json={"username": "admin", "password": "wrong"},
+        json={"username": "test-admin", "password": "wrong-password"},
     )
     assert response.status_code == 401
+

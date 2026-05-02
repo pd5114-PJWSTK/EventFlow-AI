@@ -28,6 +28,7 @@ class EventCreate(BaseModel):
     requires_teardown: bool = True
     notes: str | None = None
     created_by: str | None = None
+    created_by_user_id: str | None = None
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "EventCreate":
@@ -56,6 +57,7 @@ class EventUpdate(BaseModel):
     requires_teardown: bool | None = None
     notes: str | None = None
     created_by: str | None = None
+    created_by_user_id: str | None = None
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "EventUpdate":
@@ -87,6 +89,7 @@ class EventRead(BaseModel):
     requires_teardown: bool
     notes: str | None
     created_by: str | None
+    created_by_user_id: str | None
     created_at: datetime
     updated_at: datetime
 

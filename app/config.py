@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +22,10 @@ class Settings(BaseSettings):
 
     demo_admin_username: str = "admin"
     demo_admin_password: str = "admin123"
+    demo_admin_enabled: bool = True
+    auth_bootstrap_admin_username: str | None = None
+    auth_bootstrap_admin_password: str | None = None
+    api_test_jobs_enabled: bool = True
 
     ready_check_externals: bool = False
     celery_always_eager: bool = True
@@ -57,6 +62,26 @@ class Settings(BaseSettings):
     ml_retrain_activation_min_samples: int = 3
     ml_retrain_activation_min_r2_improvement: float = 0.0
     ml_retrain_activation_max_mae_ratio: float = 1.0
+
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> "Settings":
+        env = self.app_env.lower().strip()
+        non_dev = env != "development"
+        weak_secrets = {
+            "dev-only-secret",
+            "change-me-in-production",
+            "changeme",
+            "secret",
+            "password",
+            "admin123",
+        }
+        secret = self.jwt_secret_key.strip()
+        if non_dev:
+            if len(secret) < 32 or secret.lower() in weak_secrets:
+                raise ValueError("JWT_SECRET_KEY is too weak for non-development environments.")
+            if self.demo_admin_enabled:
+                raise ValueError("DEMO_ADMIN_ENABLED must be false outside development.")
+        return self
 
 
 @lru_cache

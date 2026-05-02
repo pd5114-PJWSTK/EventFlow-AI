@@ -18,7 +18,7 @@ from app.services.azure_openai_service import AzureOpenAIClient
 try:
     from langgraph.graph import END, StateGraph
 
-    _LANGGRAPH_AVAILABLE = True
+    _LANGGRAPH_AVAILABLE = False
 except Exception:
     END = "__end__"
     StateGraph = None

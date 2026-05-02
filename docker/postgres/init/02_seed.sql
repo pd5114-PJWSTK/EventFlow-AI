@@ -1,6 +1,17 @@
 ﻿BEGIN;
 
 -- =========================================================
+-- AUTH ROLES
+-- =========================================================
+INSERT INTO auth.roles (name)
+VALUES
+    ('admin'),
+    ('manager'),
+    ('coordinator'),
+    ('technician')
+ON CONFLICT (name) DO NOTHING;
+
+-- =========================================================
 -- CLIENTS
 -- =========================================================
 INSERT INTO core.clients (
@@ -1282,3 +1293,4 @@ VALUES
 );
 
 COMMIT;
+

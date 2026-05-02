@@ -29,6 +29,7 @@ from app.models.core import AssignmentResourceType
 settings = get_settings()
 CORE_SCHEMA = None if settings.database_url.startswith("sqlite") else "core"
 OPS_SCHEMA = None if settings.database_url.startswith("sqlite") else "ops"
+AUTH_SCHEMA = None if settings.database_url.startswith("sqlite") else "auth"
 
 
 def _core_table(name: str) -> str:
@@ -40,6 +41,12 @@ def _core_table(name: str) -> str:
 def _ops_table(name: str) -> str:
     if OPS_SCHEMA:
         return f"{OPS_SCHEMA}.{name}"
+    return name
+
+
+def _auth_table(name: str) -> str:
+    if AUTH_SCHEMA:
+        return f"{AUTH_SCHEMA}.{name}"
     return name
 
 
@@ -142,6 +149,10 @@ class EventExecutionLog(Base):
         nullable=False,
     )
     author_reference: Mapped[str | None] = mapped_column(Text)
+    author_user_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_auth_table("users.user_id"), ondelete="SET NULL"),
+    )
     message: Mapped[str | None] = mapped_column(Text)
     meta: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
@@ -217,6 +228,10 @@ class Incident(Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reported_by: Mapped[str | None] = mapped_column(Text)
+    reported_by_user_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_auth_table("users.user_id"), ondelete="SET NULL"),
+    )
     root_cause: Mapped[str | None] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     cost_impact: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))

@@ -11,6 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS ops;
 CREATE SCHEMA IF NOT EXISTS ai;
+CREATE SCHEMA IF NOT EXISTS auth;
 
 -- =========================================================
 -- ENUM TYPES
@@ -813,6 +814,61 @@ CREATE TABLE ai.prediction_outcomes (
 );
 
 -- =========================================================
+-- AUTH SCHEMA
+-- =========================================================
+
+CREATE TABLE auth.users (
+    user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_superadmin BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_login_at TIMESTAMPTZ
+);
+
+CREATE TABLE auth.roles (
+    role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE auth.user_roles (
+    user_id UUID NOT NULL REFERENCES auth.users(user_id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES auth.roles(role_id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, role_id)
+);
+
+CREATE TABLE auth.sessions (
+    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(user_id) ON DELETE CASCADE,
+    refresh_token_hash TEXT NOT NULL UNIQUE,
+    refresh_jti TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    rotated_from_session_id UUID REFERENCES auth.sessions(session_id) ON DELETE SET NULL,
+    revoked_at TIMESTAMPTZ,
+    revoked_reason TEXT,
+    last_used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_agent TEXT,
+    ip_address TEXT
+);
+
+ALTER TABLE core.events
+    ADD COLUMN created_by_user_id UUID REFERENCES auth.users(user_id) ON DELETE SET NULL;
+
+ALTER TABLE ai.planner_runs
+    ADD COLUMN initiated_by_user_id UUID REFERENCES auth.users(user_id) ON DELETE SET NULL;
+
+ALTER TABLE ops.incidents
+    ADD COLUMN reported_by_user_id UUID REFERENCES auth.users(user_id) ON DELETE SET NULL;
+
+ALTER TABLE ops.event_execution_logs
+    ADD COLUMN author_user_id UUID REFERENCES auth.users(user_id) ON DELETE SET NULL;
+
+-- =========================================================
 -- Cross-schema FK added after ai.planner_runs exists
 -- =========================================================
 ALTER TABLE core.assignments
@@ -900,6 +956,14 @@ CREATE INDEX idx_execution_logs_meta_gin ON ops.event_execution_logs USING GIN (
 CREATE INDEX idx_models_metrics_gin ON ai.models USING GIN (metrics);
 CREATE INDEX idx_predictions_feature_snapshot_gin ON ai.predictions USING GIN (feature_snapshot);
 CREATE INDEX idx_planner_runs_input_snapshot_gin ON ai.planner_runs USING GIN (input_snapshot);
+
+-- auth
+CREATE INDEX idx_auth_sessions_user_active ON auth.sessions(user_id, revoked_at, expires_at);
+CREATE INDEX idx_auth_sessions_last_used ON auth.sessions(last_used_at);
+CREATE INDEX idx_events_created_by_user_id ON core.events(created_by_user_id);
+CREATE INDEX idx_planner_runs_initiated_by_user_id ON ai.planner_runs(initiated_by_user_id);
+CREATE INDEX idx_incidents_reported_by_user_id ON ops.incidents(reported_by_user_id);
+CREATE INDEX idx_execution_logs_author_user_id ON ops.event_execution_logs(author_user_id);
 
 -- =========================================================
 -- CP-03 hardening constraints and indexes
@@ -1046,6 +1110,11 @@ EXECUTE FUNCTION core.set_updated_at();
 
 CREATE TRIGGER trg_assignments_updated_at
 BEFORE UPDATE ON core.assignments
+FOR EACH ROW
+EXECUTE FUNCTION core.set_updated_at();
+
+CREATE TRIGGER trg_auth_users_updated_at
+BEFORE UPDATE ON auth.users
 FOR EACH ROW
 EXECUTE FUNCTION core.set_updated_at();
 
