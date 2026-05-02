@@ -33,6 +33,18 @@ from app.models.ai import (
 	PlannerRun,
 	PlannerRunStatus,
 )
+from app.models.ops import (
+    ActualTiming,
+    EventExecutionLog,
+    EventOutcome,
+    Incident,
+    OpsAuthorType,
+    OpsIncidentSeverity,
+    OpsIncidentType,
+    OpsLogType,
+    OpsPhaseName,
+    ResourceCheckpoint,
+)
 
 __all__ = [
 	"Assignment",
@@ -56,6 +68,16 @@ __all__ = [
 	"PlannerRun",
 	"PlannerRunStatus",
 	"PriorityLevel",
+	"ActualTiming",
+	"EventExecutionLog",
+	"EventOutcome",
+	"Incident",
+	"OpsAuthorType",
+	"OpsIncidentSeverity",
+	"OpsIncidentType",
+	"OpsLogType",
+	"OpsPhaseName",
+	"ResourceCheckpoint",
 	"RequirementType",
 	"ResourcePerson",
 	"ResourceStatus",

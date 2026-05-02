@@ -515,3 +515,34 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Oznaczono Faze 5 jako zamknieta.
   Cel: potwierdzic gotowosc warstwy AI Orchestration (LangGraph + Azure guardrails + API agentow) do wejscia w runtime operations.
+
+11) FAZA 6 - POSTEP IMPLEMENTACJI (CP-01)
+- Status fazy: W TOKU (rozpoczeta).
+- Status checkpointu: `phase-6-cp-01-runtime-logging-endpoints` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano modele ORM dla schematu `ops`:
+    - `ops.event_execution_logs`,
+    - `ops.actual_timings`,
+    - `ops.incidents`,
+    - `ops.event_outcomes`,
+    - `ops.resource_checkpoints`.
+  - Dodano plik: `app/models/ops.py`.
+  - Zaktualizowano eksport modeli: `app/models/__init__.py`.
+  - Dodano schematy runtime API: `app/schemas/runtime_ops.py`.
+  - Dodano serwis runtime operations: `app/services/runtime_ops_service.py`.
+  - Dodano endpointy CP-01:
+    - `POST /api/runtime/events/{event_id}/start`,
+    - `POST /api/runtime/events/{event_id}/checkpoint`,
+    - `POST /api/runtime/events/{event_id}/incident`,
+    - `POST /api/runtime/events/{event_id}/complete`.
+  - Dodano router: `app/api/runtime_ops.py` i podpiecie w `app/main.py`.
+  - Rozszerzono testowe mapowanie schematow SQLite o `ops`:
+    - `tests/conftest.py`.
+  - Dodano testy CP-01:
+    - `tests/test_phase6_cp01.py`.
+- Walidacja wykonania:
+  - Testy CP-01: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py -q` -> 4 passed.
+  - Szybka regresja Faza 5 + Faza 6 CP-01: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase5_cp03.py tests/test_phase6_cp01.py -q` -> 19 passed.
+
+- [2026-05-02] Uruchomiono Faze 6 i zaimplementowano CP-01 (runtime logging endpoints + zapis do ops.* + testy).
+  Cel: dostarczyc operacyjny audit trail start/checkpoint/incident/complete jako baze pod live reactions i replanning.

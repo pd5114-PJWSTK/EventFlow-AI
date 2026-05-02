@@ -8,6 +8,7 @@ from app.api.health import router as health_router
 from app.api.locations import router as locations_router
 from app.api.planner import router as planner_router
 from app.api.resources import router as resources_router
+from app.api.runtime_ops import router as runtime_ops_router
 from app.api.test_jobs import router as test_jobs_router
 from app.config import get_settings
 
@@ -25,3 +26,4 @@ app.include_router(events_router)
 app.include_router(resources_router)
 app.include_router(planner_router)
 app.include_router(ai_agents_router)
+app.include_router(runtime_ops_router)
