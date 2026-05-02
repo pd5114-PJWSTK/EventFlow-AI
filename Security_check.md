@@ -1,140 +1,168 @@
-﻿# Security Check - EventFlow AI
+﻿# Security Check - EventFlow AI (VPS Scenario)
 
-Data: 2026-05-02  
-Zakres: repozytorium `C:\repos\Projekt`  
-Metoda: przeglad statyczny + dynamiczne PoC lokalnie
+Date: 2026-05-03
+Scope: full repository audit for planned deployment on public VPS
+Method: static code/config review + dynamic local PoC
 
-## Podsumowanie
+## Executive summary
 
-Zidentyfikowano i potwierdzono 3 glowne podatnosci:
+Findings confirmed: 6
 
-1. `P0` Brak wymuszenia auth/authz na endpointach biznesowych.
-2. `P1` Path traversal przy zapisie artefaktow modeli ML.
-3. `P2` Niebezpieczne domyslne sekrety i konto administracyjne.
+- P0: 1
+- P1: 3
+- P2: 2
 
-Wszystkie trzy zostaly dodatkowo sprawdzone dynamicznie.
-
----
-
-## 1) [P0] Brak uwierzytelniania/autoryzacji na endpointach biznesowych
-
-### Opis
-Middleware RBAC istnieje, ale nie jest podpite do routerow API. W efekcie endpointy biznesowe sa dostepne bez tokena.
-
-### Dowody statyczne
-- `app/main.py:23-35` - routery podpinane bez `Depends(require_role(...))`.
-- `app/middleware/rbac.py:9-25` - istnieje mechanizm `require_role`, ale nieuzywany.
-- Przykladowe endpointy bez guardow:
-  - `app/api/ai_agents.py:24`, `:47`, `:72`
-  - `app/api/planner.py:42`, `:63`, `:101`
-  - `app/api/resources.py:90` i kolejne CRUD.
-
-### Dowody dynamiczne (PoC)
-- PoC request bez `Authorization`:
-  - `POST /api/ai-agents/optimize`
-  - wynik: `HTTP 200`, brak bledu `401/403`.
-
-### Ryzyko
-Nieautoryzowany uzytkownik moze wykonywac operacje biznesowe i operacyjne bez logowania.
-
-### Plan latania
-1. Wymusic uwierzytelnianie i role na wszystkich routerach biznesowych.
-2. Zdefiniowac macierz uprawnien per endpoint (manager/coordinator/technician).
-3. Dodac testy negatywne `401/403` dla kazdego endpointu modyfikujacego stan.
-4. Zabezpieczyc rowniez kanaly powiadomien/WS tym samym modelem auth.
+Main risk theme: application is not ready for direct internet exposure in current form.
 
 ---
 
-## 2) [P1] Path traversal przy zapisie artefaktow modelu
+## [P0] Missing authentication/authorization on business API
 
-### Opis
-`model_name` trafia bez sanityzacji do budowy sciezki zapisu (`artifact_dir / model_name / model_version`), co pozwala wyjsc poza katalog `models`.
+### Evidence
+- `app/main.py:23-35` includes business routers without auth dependencies.
+- RBAC exists but is not connected to routers: `app/middleware/rbac.py:9-25`.
+- Example exposed endpoints:
+  - `app/api/ai_agents.py:24`, `app/api/ai_agents.py:47`, `app/api/ai_agents.py:72`
+  - `app/api/planner.py:42`, `app/api/planner.py:63`, `app/api/planner.py:101`
+  - `app/api/resources.py:90` and other CRUD routes.
 
-### Dowody statyczne
-- `app/schemas/ml_models.py:13`, `:37`, `:58`, `:75` - `model_name` przyjmowane z API.
-- `app/services/ml_training_service.py:1447-1448` - tworzenie katalogu na podstawie `model_name` bez walidacji.
+### Dynamic PoC
+- `POST /api/ai-agents/optimize` without `Authorization` returned `HTTP 200`.
 
-### Dowody dynamiczne (PoC)
-- Wywolanie `_save_model_artifact(...)` z `model_name="..\\poc_escape_dynamic"`.
-- Wynik:
-  - `artifact_path`: `C:\repos\Projekt\poc_escape_dynamic\v_dynamic\model.pkl`
-  - `models_dir`: `C:\repos\Projekt\models`
-  - `outside_models_dir`: `true`
-  - `metadata_exists`: `true`
+### Impact on VPS
+Remote unauthenticated actor can execute business operations immediately after exposure.
 
-To potwierdza zapis poza `models/`.
-
-### Ryzyko
-Atakujacy moze zapisywac pliki poza dedykowany katalog modeli (w granicach uprawnien procesu), co jest baza do dalszych naduzyc.
-
-### Plan latania
-1. Ograniczyc `model_name` do whitelisty znakow (np. `^[a-zA-Z0-9_-]{1,120}$`).
-2. Po `resolve()` wymusic, ze sciezka koncowa zaczyna sie od `ML_MODELS_DIR`.
-3. Odrzucac payloady z separatorami sciezek i `..`.
-4. Dodac testy traversal (`../`, `..\\`, sciezki absolutne, UNC).
+### Patch plan
+1. Add mandatory auth dependency for all `/api/*` routers except health endpoints.
+2. Enforce role matrix per endpoint (`manager`, `coordinator`, `technician`).
+3. Add automated tests: every mutating endpoint must return `401/403` without valid token/role.
+4. Protect websocket/runtime notification surfaces with same token model.
 
 ---
 
-## 3) [P2] Niebezpieczne domyslne sekrety i konto administracyjne
+## [P1] Path traversal in ML artifact write path
 
-### Opis
-Konfiguracja dopuszcza domyslne, przewidywalne wartosci dla JWT i konta admin.
+### Evidence
+- User input `model_name` accepted from API schemas:
+  - `app/schemas/ml_models.py:13`, `:37`, `:58`, `:75`
+- Path composed directly from `model_name`:
+  - `app/services/ml_training_service.py:1447` (`model_dir = artifact_dir / model_name / model_version`)
 
-### Dowody statyczne
-- `app/config.py:17-23` - defaulty dla `jwt_secret_key`, `demo_admin_username`, `demo_admin_password`.
-- `.env.example:15`, `:19`, `:20` - slabe/domyslne wartosci (`change-me-in-production`, `admin`, `admin123`).
+### Dynamic PoC
+- `_save_model_artifact(..., model_name="..\\poc_escape_dynamic_vps", ...)`
+- Resulting file path: `C:\repos\Projekt\poc_escape_dynamic_vps\v_dynamic\model.pkl`
+- `outside_models_dir = true`
 
-### Dowody dynamiczne (PoC)
-- Runtime `Settings` zwraca:
-  - `jwt_secret_key = change-me-in-production`
-  - `demo_admin_username = admin`
-  - `demo_admin_password = admin123`
-- `POST /auth/login` z `admin/admin123`:
-  - wynik: `HTTP 200`
-  - zwracany `access_token` i `refresh_token`.
+### Impact on VPS
+Attacker can write files outside intended model directory within process permissions.
 
-### Ryzyko
-Latwe przejecie konta i tokenow, jesli srodowisko dziala na domyslnych wartosciach.
-
-### Plan latania
-1. Usunac insecure defaulty i fail-fast przy ich uzyciu poza `development`.
-2. Wymusic minimalna sile sekretu JWT (dlugosc/entropia).
-3. Wylaczyc konto demo domyslnie; aktywowac tylko jawnie i lokalnie.
-4. Docelowo przeniesc auth do uzytkownikow z hashem (`argon2`/`bcrypt`) w DB.
+### Patch plan
+1. Validate `model_name` with strict whitelist, e.g. `^[a-zA-Z0-9_-]{1,120}$`.
+2. Resolve final path and enforce prefix constraint to `ML_MODELS_DIR`.
+3. Reject any path separators, `..`, absolute/UNC paths.
+4. Add traversal regression tests (`../`, `..\\`, absolute path, UNC).
 
 ---
 
-## Wyniki dynamicznego PoC - log skrocony
+## [P1] Default credentials and weak default JWT secret
+
+### Evidence
+- Defaults in config:
+  - `app/config.py:17` (`jwt_secret_key = "dev-only-secret"`)
+  - `app/config.py:22-23` (`admin/admin123`)
+- Example env template also carries weak defaults:
+  - `.env.example:15`, `.env.example:19`, `.env.example:20`
+
+### Dynamic PoC
+- `POST /auth/login` with `admin/admin123` returned `HTTP 200` and access token.
+
+### Impact on VPS
+If defaults survive deployment, account takeover and token forgery risk is immediate.
+
+### Patch plan
+1. Remove insecure defaults from runtime config (fail-fast when missing in non-dev).
+2. Enforce minimum JWT secret entropy/length at startup.
+3. Disable demo account by default; enable only in explicit local dev mode.
+4. Move to real user store with hashed passwords (`argon2`/`bcrypt`) and rotation policy.
+
+---
+
+## [P1] Publicly exposed Postgres/Redis with weak defaults in compose
+
+### Evidence
+- Open host mappings:
+  - `docker-compose.yml:10` (`5432:5432`)
+  - `docker-compose.yml:25` (`6379:6379`)
+- Weak default DB password path:
+  - `docker-compose.yml:7` (`POSTGRES_PASSWORD` fallback to `eventflow`)
+
+### Impact on VPS
+Database and queue become internet-reachable if host firewall/network rules are not strict.
+
+### Patch plan
+1. Remove host `ports` for DB/Redis in default deployment profile.
+2. Use private Docker network + reverse proxy only for API ingress.
+3. Enforce strong secrets in environment/secret manager.
+4. Add host firewall rules (deny public access to 5432/6379).
+
+---
+
+## [P2] Test job API exposed in production routing
+
+### Evidence
+- Test router included in app startup: `app/main.py:25`.
+- Test endpoints:
+  - `app/api/test_jobs.py:16` (`POST /api/test/async-job`)
+  - `app/api/test_jobs.py:25` (`GET /api/test/async-job/{task_id}`)
+- No auth guard in test router.
+
+### Impact on VPS
+Public actor can abuse worker queue/test surfaces for noise, cost, or DoS-like pressure.
+
+### Patch plan
+1. Disable test router in production (`if app_env != "production"`).
+2. If endpoint must exist, require admin role and strict rate limits.
+3. Add CI check blocking test/debug routes in production config.
+
+---
+
+## [P2] Deployment hardening gaps for internet-facing VPS
+
+### Evidence
+- Backend starts with auto-reload in compose: `docker-compose.yml:51` (`--reload`).
+- No app-level host/proxy hardening middleware observed in startup (`app/main.py`).
+- API docs exposed by default (`/docs` returned `HTTP 200` in PoC).
+
+### Impact on VPS
+Increases attack surface and operational risk in public environment.
+
+### Patch plan
+1. Remove `--reload` in production runtime.
+2. Put app behind reverse proxy (Nginx/Caddy/Traefik) with TLS and strict upstream policy.
+3. Disable `/docs` and `/openapi.json` in production unless explicitly required and protected.
+4. Add request rate limiting on `/auth/login`, runtime operations, and heavy AI/ML endpoints.
+
+---
+
+## Dynamic PoC output (2026-05-03)
 
 ```json
 {
-  "unauth_ai_optimize": {
-    "status_code": 200,
-    "has_auth_error": false
-  },
-  "default_admin_login": {
-    "status_code": 200,
-    "has_access_token": true,
-    "token_type": "bearer"
-  },
-  "path_traversal_artifact_write": {
-    "artifact_path": "C:\\repos\\Projekt\\poc_escape_dynamic\\v_dynamic\\model.pkl",
-    "models_dir": "C:\\repos\\Projekt\\models",
-    "outside_models_dir": true,
-    "metadata_exists": true
-  },
-  "default_settings_values": {
-    "jwt_secret_key": "change-me-in-production",
-    "demo_admin_username": "admin",
-    "demo_admin_password": "admin123"
-  }
+  "unauth_ai_optimize_status": 200,
+  "docs_status": 200,
+  "default_admin_login_status": 200,
+  "default_admin_login_has_token": true,
+  "path_traversal_artifact_path": "C:\\repos\\Projekt\\poc_escape_dynamic_vps\\v_dynamic\\model.pkl",
+  "path_traversal_outside_models": true
 }
 ```
 
 ---
 
-## Nowe rzeczy dopisane po PoC
+## Recommended remediation order
 
-1. Potwierdzone dynamicznie, ze endpoint biznesowy dziala bez auth (`/api/ai-agents/optimize` -> `200` bez tokena).
-2. Potwierdzone dynamicznie, ze zapis artefaktu modelu wychodzi poza `models/`.
-3. Potwierdzone dynamicznie, ze runtime uzywa domyslnych credow i pozwala na login `admin/admin123`.
+1. P0 auth/authz enforcement across business API.
+2. P1 path traversal fix + tests.
+3. P1 secret/credential hardening.
+4. P1 private network for Postgres/Redis.
+5. P2 remove test routes from production and deploy hardening tasks.
