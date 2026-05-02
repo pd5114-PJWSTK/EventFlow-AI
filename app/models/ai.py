@@ -27,6 +27,7 @@ from app.models.core import AssignmentResourceType
 settings = get_settings()
 AI_SCHEMA = None if settings.database_url.startswith("sqlite") else "ai"
 CORE_SCHEMA = None if settings.database_url.startswith("sqlite") else "core"
+AUTH_SCHEMA = None if settings.database_url.startswith("sqlite") else "auth"
 
 
 def _ai_table(name: str) -> str:
@@ -38,6 +39,12 @@ def _ai_table(name: str) -> str:
 def _core_table(name: str) -> str:
     if CORE_SCHEMA:
         return f"{CORE_SCHEMA}.{name}"
+    return name
+
+
+def _auth_table(name: str) -> str:
+    if AUTH_SCHEMA:
+        return f"{AUTH_SCHEMA}.{name}"
     return name
 
 
@@ -244,6 +251,10 @@ class PlannerRun(Base):
     )
     objective_version: Mapped[str | None] = mapped_column(Text)
     initiated_by: Mapped[str | None] = mapped_column(Text)
+    initiated_by_user_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_auth_table("users.user_id"), ondelete="SET NULL"),
+    )
     trigger_reason: Mapped[str | None] = mapped_column(Text)
     input_snapshot: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     total_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.error_utils import http_error
 from app.database import get_db
+from app.middleware.rbac import authorize_websocket, get_current_auth_payload
 from app.schemas.runtime_ops import (
     RuntimeCheckpointRequest,
     RuntimeCheckpointResponse,
@@ -37,6 +38,7 @@ from app.services.runtime_ops_service import (
     report_incident,
     start_event_execution,
 )
+from app.config import get_settings
 
 
 router = APIRouter(prefix="/api/runtime", tags=["runtime"])
@@ -48,6 +50,7 @@ def start_event_endpoint(
     payload: RuntimeStartRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> RuntimeStartResponse:
     reservation = None
     try:
@@ -62,7 +65,13 @@ def start_event_endpoint(
             response.headers["X-Idempotency-Replayed"] = "true"
             response.headers["X-Operation-Status"] = "success"
             return RuntimeStartResponse.model_validate(reservation.replay_payload)
-        result = start_event_execution(db, event_id=event_id, payload=payload)
+        result = start_event_execution(
+            db,
+            event_id=event_id,
+            payload=payload,
+            actor_user_id=str(auth_payload.get("sub", "")),
+            actor_username=str(auth_payload.get("username", "")),
+        )
         complete_idempotency(
             db,
             record=reservation.record if reservation else None,
@@ -108,6 +117,7 @@ def checkpoint_event_endpoint(
     payload: RuntimeCheckpointRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> RuntimeCheckpointResponse:
     reservation = None
     try:
@@ -122,7 +132,13 @@ def checkpoint_event_endpoint(
             response.headers["X-Idempotency-Replayed"] = "true"
             response.headers["X-Operation-Status"] = "success"
             return RuntimeCheckpointResponse.model_validate(reservation.replay_payload)
-        result = create_resource_checkpoint(db, event_id=event_id, payload=payload)
+        result = create_resource_checkpoint(
+            db,
+            event_id=event_id,
+            payload=payload,
+            actor_user_id=str(auth_payload.get("sub", "")),
+            actor_username=str(auth_payload.get("username", "")),
+        )
         complete_idempotency(
             db,
             record=reservation.record if reservation else None,
@@ -168,6 +184,7 @@ def incident_event_endpoint(
     payload: RuntimeIncidentRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> RuntimeIncidentResponse:
     reservation = None
     try:
@@ -182,7 +199,13 @@ def incident_event_endpoint(
             response.headers["X-Idempotency-Replayed"] = "true"
             response.headers["X-Operation-Status"] = "success"
             return RuntimeIncidentResponse.model_validate(reservation.replay_payload)
-        result = report_incident(db, event_id=event_id, payload=payload)
+        result = report_incident(
+            db,
+            event_id=event_id,
+            payload=payload,
+            actor_user_id=str(auth_payload.get("sub", "")),
+            actor_username=str(auth_payload.get("username", "")),
+        )
         complete_idempotency(
             db,
             record=reservation.record if reservation else None,
@@ -228,6 +251,7 @@ def parse_incident_event_endpoint(
     payload: RuntimeIncidentParseRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> RuntimeIncidentParseResponse:
     reservation = None
     try:
@@ -242,7 +266,13 @@ def parse_incident_event_endpoint(
             response.headers["X-Idempotency-Replayed"] = "true"
             response.headers["X-Operation-Status"] = "success"
             return RuntimeIncidentParseResponse.model_validate(reservation.replay_payload)
-        result = parse_and_report_incident(db, event_id=event_id, payload=payload)
+        result = parse_and_report_incident(
+            db,
+            event_id=event_id,
+            payload=payload,
+            actor_user_id=str(auth_payload.get("sub", "")),
+            actor_username=str(auth_payload.get("username", "")),
+        )
         complete_idempotency(
             db,
             record=reservation.record if reservation else None,
@@ -300,6 +330,7 @@ def complete_event_endpoint(
     payload: RuntimeCompleteRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> RuntimeCompleteResponse:
     reservation = None
     try:
@@ -314,7 +345,13 @@ def complete_event_endpoint(
             response.headers["X-Idempotency-Replayed"] = "true"
             response.headers["X-Operation-Status"] = "success"
             return RuntimeCompleteResponse.model_validate(reservation.replay_payload)
-        result = complete_event_execution(db, event_id=event_id, payload=payload)
+        result = complete_event_execution(
+            db,
+            event_id=event_id,
+            payload=payload,
+            actor_user_id=str(auth_payload.get("sub", "")),
+            actor_username=str(auth_payload.get("username", "")),
+        )
         complete_idempotency(
             db,
             record=reservation.record if reservation else None,
@@ -369,6 +406,14 @@ def runtime_notifications_endpoint(
 
 @router.websocket("/ws/events/{event_id}/notifications")
 async def runtime_notifications_websocket(websocket: WebSocket, event_id: str) -> None:
+    settings = get_settings()
+    payload = await authorize_websocket(
+        websocket,
+        allowed_roles=["manager", "coordinator", "technician"],
+        settings=settings,
+    )
+    if payload is None:
+        return
     await websocket.accept()
     last_fingerprint = ""
     try:

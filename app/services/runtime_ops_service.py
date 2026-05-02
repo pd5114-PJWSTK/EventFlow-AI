@@ -34,7 +34,12 @@ class RuntimeOpsError(ValueError):
 
 
 def start_event_execution(
-    db: Session, *, event_id: str, payload: RuntimeStartRequest
+    db: Session,
+    *,
+    event_id: str,
+    payload: RuntimeStartRequest,
+    actor_user_id: str | None = None,
+    actor_username: str | None = None,
 ) -> RuntimeStartResponse:
     event = _get_event_or_error(db, event_id, for_update=True)
     started_at = to_utc(payload.started_at) or datetime.now(UTC)
@@ -45,7 +50,8 @@ def start_event_execution(
         event_id=event.event_id,
         log_type=OpsLogType.event_started,
         author_type=payload.author_type,
-        author_reference=payload.author_reference,
+        author_reference=payload.author_reference or actor_username,
+        author_user_id=actor_user_id,
         timestamp_at=started_at,
         message=payload.message or "Event execution started.",
         meta={"phase_name": payload.phase_name.value},
@@ -92,7 +98,12 @@ def start_event_execution(
 
 
 def create_resource_checkpoint(
-    db: Session, *, event_id: str, payload: RuntimeCheckpointRequest
+    db: Session,
+    *,
+    event_id: str,
+    payload: RuntimeCheckpointRequest,
+    actor_user_id: str | None = None,
+    actor_username: str | None = None,
 ) -> RuntimeCheckpointResponse:
     event = _get_event_or_error(db, event_id, for_update=True)
     checkpoint_time = to_utc(payload.checkpoint_time) or datetime.now(UTC)
@@ -125,7 +136,8 @@ def create_resource_checkpoint(
         assignment_id=effective_assignment_id,
         log_type=OpsLogType.note,
         author_type=payload.author_type,
-        author_reference=payload.author_reference,
+        author_reference=payload.author_reference or actor_username,
+        author_user_id=actor_user_id,
         timestamp_at=checkpoint_time,
         message=payload.message
         or f"Resource checkpoint recorded: {payload.checkpoint_type}.",
@@ -169,7 +181,12 @@ def create_resource_checkpoint(
 
 
 def report_incident(
-    db: Session, *, event_id: str, payload: RuntimeIncidentRequest
+    db: Session,
+    *,
+    event_id: str,
+    payload: RuntimeIncidentRequest,
+    actor_user_id: str | None = None,
+    actor_username: str | None = None,
 ) -> RuntimeIncidentResponse:
     event = _get_event_or_error(db, event_id, for_update=True)
     reported_at = to_utc(payload.reported_at) or datetime.now(UTC)
@@ -180,7 +197,8 @@ def report_incident(
         incident_type=payload.incident_type,
         severity=payload.severity,
         reported_at=reported_at,
-        reported_by=payload.reported_by,
+        reported_by=payload.reported_by or actor_username,
+        reported_by_user_id=actor_user_id,
         root_cause=payload.root_cause,
         description=payload.description,
         cost_impact=payload.cost_impact,
@@ -193,7 +211,8 @@ def report_incident(
         assignment_id=payload.assignment_id,
         log_type=OpsLogType.incident_reported,
         author_type=payload.author_type,
-        author_reference=payload.author_reference,
+        author_reference=payload.author_reference or actor_username,
+        author_user_id=actor_user_id,
         timestamp_at=reported_at,
         message=payload.description,
         meta={
@@ -235,7 +254,12 @@ def report_incident(
 
 
 def complete_event_execution(
-    db: Session, *, event_id: str, payload: RuntimeCompleteRequest
+    db: Session,
+    *,
+    event_id: str,
+    payload: RuntimeCompleteRequest,
+    actor_user_id: str | None = None,
+    actor_username: str | None = None,
 ) -> RuntimeCompleteResponse:
     event = _get_event_or_error(db, event_id, for_update=True)
     completed_at = to_utc(payload.completed_at) or datetime.now(UTC)
@@ -272,7 +296,8 @@ def complete_event_execution(
         event_id=event.event_id,
         log_type=OpsLogType.event_completed,
         author_type=payload.author_type,
-        author_reference=payload.author_reference,
+        author_reference=payload.author_reference or actor_username,
+        author_user_id=actor_user_id,
         timestamp_at=completed_at,
         message=payload.message or "Event execution completed.",
         meta={"phase_name": payload.phase_name.value},

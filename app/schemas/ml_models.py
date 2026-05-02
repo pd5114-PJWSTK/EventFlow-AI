@@ -7,10 +7,17 @@ from pydantic import BaseModel, Field
 
 from app.models.ai import PredictionType
 
+MODEL_NAME_PATTERN = r"^[A-Za-z0-9_-]{1,120}$"
+
 
 class TrainBaselineModelRequest(BaseModel):
     prediction_type: PredictionType = PredictionType.duration_estimate
-    model_name: str = Field(default="event_duration_baseline", min_length=1, max_length=120)
+    model_name: str = Field(
+        default="event_duration_baseline",
+        min_length=1,
+        max_length=120,
+        pattern=MODEL_NAME_PATTERN,
+    )
     activate_model: bool = True
 
 
@@ -34,7 +41,12 @@ class TrainBaselineModelResponse(BaseModel):
 
 
 class HardenDurationModelRequest(BaseModel):
-    model_name: str = Field(default="event_duration_hardened", min_length=1, max_length=120)
+    model_name: str = Field(
+        default="event_duration_hardened",
+        min_length=1,
+        max_length=120,
+        pattern=MODEL_NAME_PATTERN,
+    )
     activate_model: bool = True
     required_real_samples: int | None = Field(default=None, ge=10)
     train_samples: int | None = Field(default=None, ge=1)
@@ -55,7 +67,12 @@ class HardenDurationModelResponse(BaseModel):
 
 
 class TrainPlanEvaluatorRequest(BaseModel):
-    model_name: str = Field(default="plan_candidate_evaluator", min_length=1, max_length=120)
+    model_name: str = Field(
+        default="plan_candidate_evaluator",
+        min_length=1,
+        max_length=120,
+        pattern=MODEL_NAME_PATTERN,
+    )
     activate_model: bool = True
     required_real_samples: int = Field(default=60, ge=20, le=1000)
     random_seed: int | None = None
@@ -72,7 +89,12 @@ class TrainPlanEvaluatorResponse(BaseModel):
 
 
 class RetrainDurationModelRequest(BaseModel):
-    model_name: str = Field(default="event_duration_baseline", min_length=1, max_length=120)
+    model_name: str = Field(
+        default="event_duration_baseline",
+        min_length=1,
+        max_length=120,
+        pattern=MODEL_NAME_PATTERN,
+    )
     min_samples_required: int | None = Field(default=None, ge=1)
     min_r2_improvement: float | None = None
     max_mae_ratio: float | None = Field(default=None, gt=0)

@@ -121,7 +121,10 @@ def test_phase6_cp04_runtime_websocket_emits_notifications(
     )
     assert start_response.status_code == 200
 
-    with api_client.websocket_connect(f"/api/runtime/ws/events/{event_id}/notifications") as ws:
+    with api_client.websocket_connect(
+        f"/api/runtime/ws/events/{event_id}/notifications",
+        headers={"Authorization": api_client.headers.get("Authorization", "")},
+    ) as ws:
         message = ws.receive_json()
         assert message["event_id"] == event_id
         assert message["total"] >= 1

@@ -32,6 +32,7 @@ def ingest_event_from_text(
     *,
     raw_input: str,
     initiated_by: str | None,
+    initiated_by_user_id: str | None,
     prefer_langgraph: bool,
 ) -> AIAgentsIngestEventResponse:
     try:
@@ -96,6 +97,7 @@ def ingest_event_from_text(
             requires_teardown=bool(parsed["requires_teardown"]),
             source_channel="ai_ingest",
             created_by=initiated_by or "ai_ingest",
+            created_by_user_id=initiated_by_user_id,
             notes="Created by AI ingest pipeline.",
         )
         event = create_event(db, event_payload)

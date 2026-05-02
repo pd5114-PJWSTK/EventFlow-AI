@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.middleware.rbac import get_current_auth_payload
 from app.schemas.ai_agents import (
     AIAgentsEvaluateRequest,
     AIAgentsEvaluateResponse,
@@ -73,12 +74,14 @@ def evaluate_endpoint(payload: AIAgentsEvaluateRequest) -> AIAgentsEvaluateRespo
 def ingest_event_endpoint(
     payload: AIAgentsIngestEventRequest,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> AIAgentsIngestEventResponse:
     try:
         return ingest_event_from_text(
             db,
             raw_input=payload.raw_input,
-            initiated_by=payload.initiated_by,
+            initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
+            initiated_by_user_id=str(auth_payload.get("sub", "")),
             prefer_langgraph=payload.prefer_langgraph,
         )
     except AIEventIngestError as exc:

@@ -99,6 +99,7 @@ def generate_plan(
     *,
     event_id: str,
     initiated_by: str | None = None,
+    initiated_by_user_id: str | None = None,
     trigger_reason: str = "manual",
     commit_to_assignments: bool = True,
     solver_timeout_seconds: float = 10.0,
@@ -123,6 +124,7 @@ def generate_plan(
     planner_run = PlannerRun(
         objective_version="phase-4-cp-04-v1",
         initiated_by=initiated_by,
+        initiated_by_user_id=initiated_by_user_id,
         trigger_reason=trigger_reason,
         input_snapshot={
             "planner_input": _jsonable(model),
@@ -254,6 +256,7 @@ def replan_event(
     incident_id: str | None = None,
     incident_summary: str | None = None,
     initiated_by: str | None = None,
+    initiated_by_user_id: str | None = None,
     commit_to_assignments: bool = True,
     solver_timeout_seconds: float = 10.0,
     fallback_enabled: bool = True,
@@ -266,6 +269,7 @@ def replan_event(
         db,
         event_id=event_id,
         initiated_by=initiated_by,
+        initiated_by_user_id=initiated_by_user_id,
         trigger_reason="incident",
         commit_to_assignments=commit_to_assignments,
         solver_timeout_seconds=solver_timeout_seconds,
@@ -332,6 +336,8 @@ def resolve_plan_gaps(
     *,
     event_id: str,
     payload: ResolvePlanGapsRequest,
+    initiated_by_user_id: str | None = None,
+    initiated_by_username: str | None = None,
 ) -> ResolvePlanGapsResponse:
     event = _get_event_for_update(db, event_id)
     if event is None:
@@ -436,7 +442,8 @@ def resolve_plan_gaps(
     generated = generate_plan(
         db,
         event_id=event_id,
-        initiated_by=payload.initiated_by,
+        initiated_by=payload.initiated_by or initiated_by_username,
+        initiated_by_user_id=initiated_by_user_id,
         trigger_reason="gap_resolution",
         commit_to_assignments=payload.commit_to_assignments,
         solver_timeout_seconds=payload.solver_timeout_seconds,
@@ -480,6 +487,7 @@ def build_gap_resolution_preview(
     *,
     event_id: str,
     initiated_by: str | None = None,
+    initiated_by_user_id: str | None = None,
     solver_timeout_seconds: float = 10.0,
     fallback_enabled: bool = True,
 ) -> GapResolutionPreviewResponse:
@@ -487,6 +495,7 @@ def build_gap_resolution_preview(
         db,
         event_id=event_id,
         initiated_by=initiated_by,
+        initiated_by_user_id=initiated_by_user_id,
         trigger_reason="gap_preview",
         commit_to_assignments=False,
         solver_timeout_seconds=solver_timeout_seconds,
@@ -505,6 +514,7 @@ def recommend_best_plan_with_ml(
     *,
     event_id: str,
     initiated_by: str | None = None,
+    initiated_by_user_id: str | None = None,
     commit_to_assignments: bool = False,
     solver_timeout_seconds: float = 10.0,
     fallback_enabled: bool = True,
@@ -539,6 +549,7 @@ def recommend_best_plan_with_ml(
     planner_run = PlannerRun(
         objective_version="phase-7-cp-07-ml-plan-proposal-v1",
         initiated_by=initiated_by,
+        initiated_by_user_id=initiated_by_user_id,
         trigger_reason="ml_recommendation",
         input_snapshot={
             "event_id": event_id,

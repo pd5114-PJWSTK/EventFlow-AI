@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.middleware.rbac import get_current_auth_payload
 from app.models.core import EventStatus
 from app.schemas.events import EventCreate, EventListResponse, EventRead, EventUpdate
 from app.schemas.requirements import EventRequirementCreate, EventRequirementListResponse, EventRequirementRead, EventRequirementUpdate
@@ -24,8 +25,18 @@ def _bad_request(exc: Exception) -> HTTPException:
 
 
 @router.post("", response_model=EventRead, status_code=status.HTTP_201_CREATED)
-def create_event_endpoint(payload: EventCreate, db: Session = Depends(get_db)) -> EventRead:
+def create_event_endpoint(
+    payload: EventCreate,
+    db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
+) -> EventRead:
     try:
+        payload = payload.model_copy(
+            update={
+                "created_by": payload.created_by or str(auth_payload.get("username", "")),
+                "created_by_user_id": payload.created_by_user_id or str(auth_payload.get("sub", "")),
+            }
+        )
         return create_event(db, payload)
     except EventValidationError as exc:
         raise _bad_request(exc) from exc

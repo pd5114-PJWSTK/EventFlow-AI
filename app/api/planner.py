@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.error_utils import http_error
 from app.database import get_db
+from app.middleware.rbac import get_current_auth_payload
 from app.schemas.planner import (
     ConstraintCheckRequest,
     ConstraintCheckResponse,
@@ -43,6 +44,7 @@ router = APIRouter(prefix="/api/planner", tags=["planner"])
 def validate_constraints_endpoint(
     payload: ConstraintCheckRequest,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> ConstraintCheckResponse:
     try:
         return validate_event_constraints(db, payload.event_id)
@@ -65,12 +67,14 @@ def generate_plan_endpoint(
     payload: GeneratePlanRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> GeneratePlanResponse:
     try:
         result = generate_plan(
             db,
             event_id=payload.event_id,
-            initiated_by=payload.initiated_by,
+            initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
+            initiated_by_user_id=str(auth_payload.get("sub", "")),
             trigger_reason=payload.trigger_reason,
             commit_to_assignments=payload.commit_to_assignments,
             solver_timeout_seconds=payload.solver_timeout_seconds,
@@ -104,6 +108,7 @@ def replan_event_endpoint(
     payload: ReplanRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> ReplanResponse:
     reservation = None
     try:
@@ -137,7 +142,8 @@ def replan_event_endpoint(
             event_id=event_id,
             incident_id=payload.incident_id,
             incident_summary=payload.incident_summary,
-            initiated_by=payload.initiated_by,
+            initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
+            initiated_by_user_id=str(auth_payload.get("sub", "")),
             commit_to_assignments=payload.commit_to_assignments,
             solver_timeout_seconds=payload.solver_timeout_seconds,
             fallback_enabled=payload.fallback_enabled,
@@ -188,12 +194,14 @@ def recommend_best_plan_endpoint(
     payload: RecommendBestPlanRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> RecommendBestPlanResponse:
     try:
         result = recommend_best_plan_with_ml(
             db,
             event_id=payload.event_id,
-            initiated_by=payload.initiated_by,
+            initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
+            initiated_by_user_id=str(auth_payload.get("sub", "")),
             commit_to_assignments=payload.commit_to_assignments,
             solver_timeout_seconds=payload.solver_timeout_seconds,
             fallback_enabled=payload.fallback_enabled,
@@ -228,6 +236,7 @@ def resolve_plan_gaps_endpoint(
     payload: ResolvePlanGapsRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> ResolvePlanGapsResponse:
     reservation = None
     try:
@@ -260,6 +269,8 @@ def resolve_plan_gaps_endpoint(
             db,
             event_id=event_id,
             payload=payload,
+            initiated_by_user_id=str(auth_payload.get("sub", "")),
+            initiated_by_username=str(auth_payload.get("username", "")),
         )
         complete_idempotency(
             db,
@@ -306,12 +317,14 @@ def preview_plan_gaps_endpoint(
     payload: GapResolutionPreviewRequest,
     response: Response,
     db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
 ) -> GapResolutionPreviewResponse:
     try:
         result = build_gap_resolution_preview(
             db,
             event_id=event_id,
-            initiated_by=payload.initiated_by,
+            initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
+            initiated_by_user_id=str(auth_payload.get("sub", "")),
             solver_timeout_seconds=payload.solver_timeout_seconds,
             fallback_enabled=payload.fallback_enabled,
         )
