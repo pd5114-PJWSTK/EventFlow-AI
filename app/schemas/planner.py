@@ -74,3 +74,38 @@ class GeneratePlanResponse(BaseModel):
     assignment_ids: list[str] = Field(default_factory=list)
     transport_leg_ids: list[str] = Field(default_factory=list)
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
+
+
+class ReplanRequest(BaseModel):
+    incident_id: str | None = None
+    incident_summary: str | None = None
+    initiated_by: str | None = None
+    commit_to_assignments: bool = True
+    solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    fallback_enabled: bool = True
+
+
+class PlanMetricComparison(BaseModel):
+    previous_cost: Decimal | None = None
+    new_cost: Decimal
+    cost_delta: Decimal | None = None
+    previous_duration_minutes: int | None = None
+    new_duration_minutes: int | None = None
+    duration_delta_minutes: int | None = None
+    previous_risk: Decimal | None = None
+    new_risk: Decimal | None = None
+    risk_delta: Decimal | None = None
+    is_improved: bool | None = None
+    decision_note: str
+
+
+class ReplanResponse(BaseModel):
+    event_id: str
+    planner_run_id: str
+    planner_run_trigger_reason: str
+    recommendation_id: str
+    baseline_recommendation_id: str | None = None
+    incident_id: str | None = None
+    incident_summary: str | None = None
+    comparison: PlanMetricComparison
+    generated_plan: GeneratePlanResponse

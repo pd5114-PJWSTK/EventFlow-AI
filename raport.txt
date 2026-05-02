@@ -569,3 +569,29 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-02 Fazy 6 (manual log parsing + normalizacja do ops.incidents + endpoint parse).
   Cel: przetworzyc wpisy operatora do ustrukturyzowanych incydentow runtime jako wejscie pod live replanning.
+
+11.2) FAZA 6 - POSTEP IMPLEMENTACJI (CP-03)
+- Status checkpointu: `phase-6-cp-03-live-replanning-evaluator` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano live replanning endpoint:
+    - `POST /api/planner/replan/{event_id}`.
+  - Dodano nowe kontrakty planner API:
+    - `ReplanRequest`,
+    - `PlanMetricComparison`,
+    - `ReplanResponse`.
+  - Rozszerzono serwis planowania o:
+    - `replan_event(...)` z `trigger_reason='incident'`.
+  - Replan wykonuje:
+    - odczyt baseline recommendation (ostatnia rekomendacja dla eventu),
+    - uruchomienie nowego planowania incident-triggered,
+    - porownanie poprzedni vs nowy plan dla metryk: koszt/czas/ryzyko,
+    - decyzje evaluatora (`is_improved`) i opis decyzji (`decision_note`).
+  - Odpowiedz endpointu zawiera jawnie `planner_run_trigger_reason`, co potwierdza zapis do `ai.planner_runs.trigger_reason='incident'`.
+  - Dodano testy CP-03:
+    - `tests/test_phase6_cp03.py`.
+- Walidacja wykonania:
+  - Testy CP-03: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp03.py -q` -> 2 passed.
+  - Szybka regresja: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase5_cp03.py -q` -> 11 passed.
+
+- [2026-05-02] Zaimplementowano CP-03 Fazy 6 (live replanning + evaluator porownania planow + trigger_reason incident).
+  Cel: umo¿liwic operacyjne przeplanowanie po incydencie i uzasadniona decyzje plan-vs-plan.

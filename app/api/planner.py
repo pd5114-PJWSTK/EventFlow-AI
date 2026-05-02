@@ -7,10 +7,13 @@ from app.schemas.planner import (
     ConstraintCheckResponse,
     GeneratePlanRequest,
     GeneratePlanResponse,
+    ReplanRequest,
+    ReplanResponse,
 )
 from app.services.planner_generation_service import (
     PlanGenerationError,
     generate_plan,
+    replan_event,
 )
 from app.services.planner_input_builder import PlannerInputError
 from app.services.validation_service import ValidationError, validate_event_constraints
@@ -47,6 +50,37 @@ def generate_plan_endpoint(
             event_id=payload.event_id,
             initiated_by=payload.initiated_by,
             trigger_reason=payload.trigger_reason,
+            commit_to_assignments=payload.commit_to_assignments,
+            solver_timeout_seconds=payload.solver_timeout_seconds,
+            fallback_enabled=payload.fallback_enabled,
+        )
+    except PlannerInputError as exc:
+        if str(exc) == "Event not found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except PlanGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+
+@router.post("/replan/{event_id}", response_model=ReplanResponse)
+def replan_event_endpoint(
+    event_id: str,
+    payload: ReplanRequest,
+    db: Session = Depends(get_db),
+) -> ReplanResponse:
+    try:
+        return replan_event(
+            db,
+            event_id=event_id,
+            incident_id=payload.incident_id,
+            incident_summary=payload.incident_summary,
+            initiated_by=payload.initiated_by,
             commit_to_assignments=payload.commit_to_assignments,
             solver_timeout_seconds=payload.solver_timeout_seconds,
             fallback_enabled=payload.fallback_enabled,

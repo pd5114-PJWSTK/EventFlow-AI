@@ -29,6 +29,8 @@ from app.models.core import (
 from app.schemas.planner import (
     GeneratedPlanAssignment,
     GeneratePlanResponse,
+    PlanMetricComparison,
+    ReplanResponse,
 )
 from app.services.ortools_service import (
     PlannerAssignment,
@@ -152,6 +154,57 @@ def generate_plan(
         planner_run.notes = str(exc)
         db.commit()
         raise PlanGenerationError(str(exc)) from exc
+
+
+def replan_event(
+    db: Session,
+    *,
+    event_id: str,
+    incident_id: str | None = None,
+    incident_summary: str | None = None,
+    initiated_by: str | None = None,
+    commit_to_assignments: bool = True,
+    solver_timeout_seconds: float = 10.0,
+    fallback_enabled: bool = True,
+) -> ReplanResponse:
+    baseline = _latest_recommendation_for_event(db, event_id)
+
+    generated = generate_plan(
+        db,
+        event_id=event_id,
+        initiated_by=initiated_by,
+        trigger_reason="incident",
+        commit_to_assignments=commit_to_assignments,
+        solver_timeout_seconds=solver_timeout_seconds,
+        fallback_enabled=fallback_enabled,
+    )
+
+    planner_run = db.get(PlannerRun, generated.planner_run_id)
+    if planner_run is None:
+        raise PlanGenerationError("Planner run not found after replanning.")
+
+    new_recommendation = db.get(PlannerRecommendation, generated.recommendation_id)
+    if new_recommendation is None:
+        raise PlanGenerationError("Recommendation not found after replanning.")
+
+    comparison = _compare_recommendations(
+        previous=baseline,
+        current=new_recommendation,
+    )
+
+    return ReplanResponse(
+        event_id=event_id,
+        planner_run_id=generated.planner_run_id,
+        planner_run_trigger_reason=planner_run.trigger_reason or "incident",
+        recommendation_id=generated.recommendation_id,
+        baseline_recommendation_id=(
+            baseline.recommendation_id if baseline is not None else None
+        ),
+        incident_id=incident_id,
+        incident_summary=incident_summary,
+        comparison=comparison,
+        generated_plan=generated,
+    )
 
 
 def _create_recommendation(
@@ -439,3 +492,109 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     return value
+
+
+def _latest_recommendation_for_event(
+    db: Session, event_id: str
+) -> PlannerRecommendation | None:
+    return (
+        db.query(PlannerRecommendation)
+        .filter(PlannerRecommendation.event_id == event_id)
+        .order_by(PlannerRecommendation.created_at.desc())
+        .first()
+    )
+
+
+def _compare_recommendations(
+    *,
+    previous: PlannerRecommendation | None,
+    current: PlannerRecommendation,
+) -> PlanMetricComparison:
+    current_cost = _decimal_or_zero(current.expected_cost)
+    current_duration = current.expected_duration_minutes
+    current_risk = current.expected_risk
+
+    if previous is None:
+        return PlanMetricComparison(
+            previous_cost=None,
+            new_cost=current_cost,
+            cost_delta=None,
+            previous_duration_minutes=None,
+            new_duration_minutes=current_duration,
+            duration_delta_minutes=None,
+            previous_risk=None,
+            new_risk=current_risk,
+            risk_delta=None,
+            is_improved=None,
+            decision_note="No baseline recommendation available. Stored as first incident-triggered replan.",
+        )
+
+    previous_cost = _decimal_or_zero(previous.expected_cost)
+    previous_duration = previous.expected_duration_minutes
+    previous_risk = previous.expected_risk
+
+    cost_delta = _money(current_cost - previous_cost)
+    duration_delta = None
+    if previous_duration is not None and current_duration is not None:
+        duration_delta = current_duration - previous_duration
+
+    risk_delta = None
+    if previous_risk is not None and current_risk is not None:
+        risk_delta = _risk_decimal(current_risk - previous_risk)
+
+    improved = _is_replan_improved(
+        previous_cost=previous_cost,
+        current_cost=current_cost,
+        previous_duration=previous_duration,
+        current_duration=current_duration,
+        previous_risk=previous_risk,
+        current_risk=current_risk,
+    )
+
+    return PlanMetricComparison(
+        previous_cost=previous_cost,
+        new_cost=current_cost,
+        cost_delta=cost_delta,
+        previous_duration_minutes=previous_duration,
+        new_duration_minutes=current_duration,
+        duration_delta_minutes=duration_delta,
+        previous_risk=previous_risk,
+        new_risk=current_risk,
+        risk_delta=risk_delta,
+        is_improved=improved,
+        decision_note=_decision_note(improved),
+    )
+
+
+def _is_replan_improved(
+    *,
+    previous_cost: Decimal,
+    current_cost: Decimal,
+    previous_duration: int | None,
+    current_duration: int | None,
+    previous_risk: Decimal | None,
+    current_risk: Decimal | None,
+) -> bool:
+    if previous_risk is not None and current_risk is not None and current_risk != previous_risk:
+        return current_risk < previous_risk
+    if current_cost != previous_cost:
+        return current_cost < previous_cost
+    if previous_duration is not None and current_duration is not None and current_duration != previous_duration:
+        return current_duration < previous_duration
+    return False
+
+
+def _decision_note(is_improved: bool) -> str:
+    if is_improved:
+        return "New plan improves primary comparison metric(s) versus baseline."
+    return "New plan does not improve baseline metrics but has been recorded for operator decision."
+
+
+def _decimal_or_zero(value: Decimal | None) -> Decimal:
+    if value is None:
+        return Decimal("0.00")
+    return _money(value)
+
+
+def _risk_decimal(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.0001"))
