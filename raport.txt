@@ -402,3 +402,21 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: ustabilizowac zachowanie planera przy braku OR-Tools, ograniczyc czas pracy solvera i udokumentowac szybki smoke dla generowania planu.
 - [2026-05-02] Zacommitowano i otagowano CP-04 Fazy 4.
   Cel: zamknac checkpoint timeout/fallback/performance jako stabilny punkt wejscia do dalszych prac Fazy 4.
+
+9.4) FAZA 4 - ZAMKNIECIE KONCOWE
+- Status fazy: ZAMKNIETA.
+- Finalny zakres potwierdzony:
+  - CP-01: `phase-4-cp-01-ortools-scaffold`
+  - CP-02: `phase-4-cp-02-ortools-db-mapping`
+  - CP-03: `phase-4-cp-03-plan-generation-and-runs`
+  - CP-04: `phase-4-cp-04-timeout-fallback-performance-smoke`
+- Finalna walidacja wykonania Fazy 4:
+  - Testy Fazy 4: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase4_cp01.py tests/test_phase4_cp02.py tests/test_phase4_cp03.py tests/test_phase4_cp04.py -q` -> 11 passed.
+  - Regresja Faza 3 + Faza 4: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp01.py tests/test_phase3_cp02.py tests/test_phase3_cp03.py tests/test_phase3_cp04.py tests/test_phase3_cp05.py tests/test_phase4_cp01.py tests/test_phase4_cp02.py tests/test_phase4_cp03.py tests/test_phase4_cp04.py -q` -> 23 passed.
+  - Pelny pakiet: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 42 passed.
+  - Smoke collection: `docs/smoke/phase4-smoke.md`.
+- Artifact zamkniecia:
+  - tag koncowy: `phase-4-complete`.
+
+- [2026-05-02] Oznaczono FazÄ™ 4 jako zamknieta.
+  Cel: potwierdzic komplet OR-Tools planner + planner runs i gotowosc wejscia do Fazy 5.
