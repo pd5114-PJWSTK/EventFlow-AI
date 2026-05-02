@@ -845,3 +845,40 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-05 Fazy 7 (realistyczny dataset + holdout + multi-algorithm model selection).
   Cel: wytrenowac mniej sztywny, bardziej praktyczny model predykcji czasu trwania oraz wybierac najlepszy algorytm na podstawie metryk testowych.
+
+12.6) FAZA 7 - POSTEP IMPLEMENTACJI (CP-06)
+- Status checkpointu: `phase-7-cp-06-hardening-60-real-samples` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Rozszerzono konfiguracje hardening pipeline:
+    - `ML_HARDENING_REQUIRED_REAL_SAMPLES` (domyslnie 60),
+    - `ML_HARDENING_TRAIN_SAMPLES` (domyslnie 50),
+    - `ML_HARDENING_TEST_SAMPLES` (domyslnie 10) (`app/config.py`, `.env.example`).
+  - Dodano dedykowany workflow hardeningu modelu duration:
+    - nowy endpoint `POST /api/ml/models/harden-duration`,
+    - nowe kontrakty API `HardenDurationModelRequest/Response` (`app/schemas/ml_models.py`, `app/api/ml_models.py`).
+  - Rozszerzono serwis treningu `app/services/ml_training_service.py` o:
+    - zbieranie i selekcje dokladnie 60 realnych probek,
+    - split czasowy holdout 50/10 (`time_ordered_holdout`),
+    - walidacje datasetu przed treningiem (duplikaty eventow, zakresy cech, targety, zgodnosc splitu),
+    - dwuetapowy proces modelowania:
+      - etap 1: wybor najlepszego algorytmu po metrykach testowych,
+      - etap 2: tuning hyperparametrow dla zwyciezcy i wybor najlepszego trialu,
+    - zapis metryk hardeningu do `metrics.dataset`, `metrics.dataset_validation`, `metrics.model_selection`, `metrics.hyperparameter_tuning`.
+  - Dodano testy CP-06:
+    - `tests/test_phase7_cp06.py`.
+- Wynik hardeningu (ostatni artefakt treningowy):
+  - backend: `sklearn_hardened_duration_model`,
+  - dataset: `real=60`, `augmented=0`, `total=60`,
+  - split: `train=50`, `test=10`, `split_strategy=time_ordered_holdout`,
+  - walidacja danych: `is_valid=true`, `issues=[]`, `duplicate_event_count=0`, `invalid_target_count=0`, `invalid_feature_count=0`,
+  - selected algorithm: `linear_regression`,
+  - tuning winner params: `{}` (single trial dla linear model),
+  - test metrics selected model: `MAE=0.3211`, `RMSE=0.3395`, `R2=0.999881`.
+- Walidacja wykonania:
+  - Kontrola skladni: `docker compose exec -e READY_CHECK_EXTERNALS=false backend python -m py_compile app/config.py app/schemas/ml_models.py app/api/ml_models.py app/services/ml_training_service.py tests/test_phase7_cp06.py` -> passed.
+  - Testy CP-06: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp06.py -q` -> 2 passed.
+  - Testy Fazy 7 (CP-01..CP-06): `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase7_cp03.py tests/test_phase7_cp04.py tests/test_phase7_cp05.py tests/test_phase7_cp06.py -q` -> 16 passed.
+  - Pelny pakiet regresji: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 84 passed.
+
+- [2026-05-02] Zaimplementowano CP-06 Fazy 7 (hardening: 60 real samples + walidacja + tuning najlepszego modelu).
+  Cel: podniesc wiarygodnosc modelu przez sztywny protokol danych i kontrolowany tuning hyperparametrow.
