@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.core import Assignment, Event, EventStatus
+from app.models.core import Assignment, AssignmentStatus, Event, EventStatus
 from app.models.ops import (
     ActualTiming,
     EventExecutionLog,
@@ -96,10 +96,18 @@ def create_resource_checkpoint(
 ) -> RuntimeCheckpointResponse:
     event = _get_event_or_error(db, event_id, for_update=True)
     checkpoint_time = to_utc(payload.checkpoint_time) or datetime.now(UTC)
+    effective_assignment_id = payload.assignment_id or _resolve_assignment_for_checkpoint(
+        db,
+        event_id=event.event_id,
+        resource_type=payload.resource_type.value,
+        person_id=payload.person_id,
+        equipment_id=payload.equipment_id,
+        vehicle_id=payload.vehicle_id,
+    )
 
     checkpoint = ResourceCheckpoint(
         event_id=event.event_id,
-        assignment_id=payload.assignment_id,
+        assignment_id=effective_assignment_id,
         resource_type=payload.resource_type,
         person_id=payload.person_id,
         equipment_id=payload.equipment_id,
@@ -114,7 +122,7 @@ def create_resource_checkpoint(
 
     log = EventExecutionLog(
         event_id=event.event_id,
-        assignment_id=payload.assignment_id,
+        assignment_id=effective_assignment_id,
         log_type=OpsLogType.note,
         author_type=payload.author_type,
         author_reference=payload.author_reference,
@@ -131,7 +139,7 @@ def create_resource_checkpoint(
     db.add(log)
     _mark_assignment_consumed(
         db,
-        assignment_id=payload.assignment_id,
+        assignment_id=effective_assignment_id,
         consumed_at=checkpoint_time,
     )
 
@@ -364,3 +372,38 @@ def _mark_assignment_consumed(
     assignment.is_consumed_in_execution = True
     assignment.consumed_at = consumed_at
     db.add(assignment)
+
+
+def _resolve_assignment_for_checkpoint(
+    db: Session,
+    *,
+    event_id: str,
+    resource_type: str,
+    person_id: str | None,
+    equipment_id: str | None,
+    vehicle_id: str | None,
+) -> str | None:
+    query = db.query(Assignment).filter(
+        Assignment.event_id == event_id,
+        Assignment.status.in_(
+            [
+                AssignmentStatus.proposed,
+                AssignmentStatus.planned,
+                AssignmentStatus.confirmed,
+                AssignmentStatus.active,
+            ]
+        ),
+    )
+    if resource_type == "person" and person_id:
+        query = query.filter(Assignment.person_id == person_id)
+    elif resource_type == "equipment" and equipment_id:
+        query = query.filter(Assignment.equipment_id == equipment_id)
+    elif resource_type == "vehicle" and vehicle_id:
+        query = query.filter(Assignment.vehicle_id == vehicle_id)
+    else:
+        return None
+
+    assignment = query.order_by(Assignment.created_at.desc()).first()
+    if assignment is None:
+        return None
+    return assignment.assignment_id

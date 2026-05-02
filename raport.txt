@@ -1041,3 +1041,45 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-02 Fazy 8 (priorytet starszego eventu + workflow luk dla uzytkownika).
   Cel: wymusic spójna polityke konfliktow i dac operatorowi jednoznaczne sciezki decyzji przy planie niepelnym.
+
+13.1.1) FAZA 8 - ROZSZERZENIE CP-02 (DOMKNIECIE LOGIKI)
+- Status: ZREALIZOWANY (pelne domkniecie po przegladzie brakow logicznych).
+- Zakres uzupelniajacy wykonany:
+  - Twarda semantyka priorytetu eventow:
+    - zaakceptowane eventy (`confirmed`, `in_progress`) maja wyzszy priorytet niz niezaakceptowane,
+    - przy tym samym poziomie akceptacji wygrywa event wczesniej dodany (`created_at`, tie-break `event_id`),
+    - implementacja lockow kandydatow: `app/services/planner_input_builder.py`.
+  - Atomowy guard konfliktow przy commit planu:
+    - lock na poziomie zasobu + kontrola konfliktow overlap assignmentow w transakcji,
+    - blokada przy konflikcie z eventem o wyzszym/rownym priorytecie,
+    - kontrolowana preempcja assignmentu eventu nizszego priorytetu (gdy bezpieczna: brak manual override i brak consumed),
+    - implementacja: `app/services/planner_generation_service.py`.
+  - Workflow luk jako flow wykonawczy (nie tylko informacyjny):
+    - nowy endpoint `POST /api/planner/resolve-gaps/{event_id}`,
+    - strategia `augment_resources`: dodanie tymczasowych zasobow + availability + rerun planera,
+    - strategia `reschedule_event`: zmiana okna eventu + rerun planera,
+    - idempotency + mapowanie bledow API,
+    - implementacja: `app/api/planner.py`, `app/schemas/planner.py`, `app/services/planner_generation_service.py`.
+  - Dodatkowe domkniecie usability workflow luk:
+    - `gap_resolution.suggested_reschedule_windows` (szybkie proponowane okna do przeplanowania),
+    - rozszerzenie kontraktu odpowiedzi planera: `app/schemas/planner.py`.
+  - Doprecyzowane freeze rules dla live replanningu (transport):
+    - checkpoint bez `assignment_id` automatycznie podpina assignment po zasobie,
+    - preserve transport legs tylko dla pojazdow faktycznie consumed (zamiast zachowywania wszystkich),
+    - merge consumed assignmentow respektuje nowa ilosc requirement (bez nadmiarowych zasobow po zmniejszeniu quantity),
+    - implementacja: `app/services/runtime_ops_service.py`, `app/services/planner_generation_service.py`.
+  - Rozszerzone testy CP-02:
+    - `tests/test_phase8_cp02.py`:
+      - accepted-event priority + preempcja nizszego priorytetu,
+      - `resolve-gaps` augment/reschedule end-to-end,
+      - selektywne preserve consumed transport legs.
+- Walidacja wykonania:
+  - Kontrola skladni:
+    - `python -m py_compile app/schemas/planner.py app/api/planner.py app/services/planner_input_builder.py app/services/planner_generation_service.py app/services/runtime_ops_service.py tests/test_phase8_cp02.py` -> passed.
+  - Testy fokusowe:
+    - `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q tests/test_phase8_cp01.py tests/test_phase8_cp02.py tests/test_phase7_cp08.py tests/test_phase6_cp04.py` -> 16 passed.
+  - Pelny pakiet regresji:
+    - `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 99 passed.
+
+- [2026-05-02] Domknieto CP-02 o brakujace elementy produkcyjne (priorytety accepted, atomowe locki, wykonawczy workflow luk, stage-freeze transportu).
+  Cel: uszczelnic logike planowania/replanningu pod realna prace operacyjna przed frontendem.

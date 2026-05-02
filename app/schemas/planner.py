@@ -4,7 +4,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.models.core import PersonRole, VehicleType
 
 
 class ConstraintCheckRequest(BaseModel):
@@ -74,10 +76,20 @@ class GapResolutionOption(BaseModel):
     endpoints: list[str] = Field(default_factory=list)
 
 
+class SuggestedRescheduleWindow(BaseModel):
+    planned_start: datetime
+    planned_end: datetime
+    score: Decimal = Field(default=Decimal("0.00"))
+    note: str
+
+
 class GapResolutionGuidance(BaseModel):
     has_gaps: bool = False
     requirement_gaps: list[RequirementGapSummary] = Field(default_factory=list)
     options: list[GapResolutionOption] = Field(default_factory=list)
+    suggested_reschedule_windows: list[SuggestedRescheduleWindow] = Field(
+        default_factory=list
+    )
 
 
 class GeneratePlanResponse(BaseModel):
@@ -177,3 +189,77 @@ class RecommendBestPlanResponse(BaseModel):
     selected_explanation: str
     selected_plan: GeneratePlanResponse
     candidates: list[PlanCandidateEvaluation] = Field(default_factory=list)
+
+
+class GapAugmentPersonInput(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    role: PersonRole
+    home_base_location_id: str | None = None
+    cost_per_hour: Decimal | None = None
+    reliability_notes: str | None = None
+    available_from: datetime | None = None
+    available_to: datetime | None = None
+
+
+class GapAugmentEquipmentInput(BaseModel):
+    equipment_type_id: str
+    asset_tag: str | None = None
+    warehouse_location_id: str | None = None
+    hourly_cost_estimate: Decimal | None = None
+    transport_requirements: str | None = None
+    available_from: datetime | None = None
+    available_to: datetime | None = None
+
+
+class GapAugmentVehicleInput(BaseModel):
+    vehicle_name: str = Field(min_length=1, max_length=255)
+    vehicle_type: VehicleType
+    home_location_id: str | None = None
+    registration_number: str | None = None
+    cost_per_km: Decimal | None = None
+    cost_per_hour: Decimal | None = None
+    available_from: datetime | None = None
+    available_to: datetime | None = None
+
+
+class ResolvePlanGapsRequest(BaseModel):
+    strategy: Literal["augment_resources", "reschedule_event"]
+    initiated_by: str | None = None
+    commit_to_assignments: bool = True
+    solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    fallback_enabled: bool = True
+    add_people: list[GapAugmentPersonInput] = Field(default_factory=list)
+    add_equipment: list[GapAugmentEquipmentInput] = Field(default_factory=list)
+    add_vehicles: list[GapAugmentVehicleInput] = Field(default_factory=list)
+    new_planned_start: datetime | None = None
+    new_planned_end: datetime | None = None
+    expected_event_updated_at: datetime | None = None
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_strategy_payload(self) -> "ResolvePlanGapsRequest":
+        if self.strategy == "augment_resources":
+            if not (self.add_people or self.add_equipment or self.add_vehicles):
+                raise ValueError(
+                    "augment_resources requires add_people/add_equipment/add_vehicles."
+                )
+        if self.strategy == "reschedule_event":
+            if self.new_planned_start is None or self.new_planned_end is None:
+                raise ValueError(
+                    "reschedule_event requires new_planned_start and new_planned_end."
+                )
+            if self.new_planned_end <= self.new_planned_start:
+                raise ValueError("new_planned_end must be after new_planned_start.")
+        return self
+
+
+class ResolvePlanGapsResponse(BaseModel):
+    event_id: str
+    strategy: Literal["augment_resources", "reschedule_event"]
+    created_people_ids: list[str] = Field(default_factory=list)
+    created_equipment_ids: list[str] = Field(default_factory=list)
+    created_vehicle_ids: list[str] = Field(default_factory=list)
+    updated_event_window_start: datetime | None = None
+    updated_event_window_end: datetime | None = None
+    generated_plan: GeneratePlanResponse
+    decision_summary: str

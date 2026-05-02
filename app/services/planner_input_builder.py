@@ -20,6 +20,7 @@ class PlannerInputError(ValueError):
 
 _LOCKING_EVENT_STATUSES = {"planned", "confirmed", "in_progress"}
 _LOCKING_ASSIGNMENT_STATUSES = {"proposed", "planned", "confirmed", "active"}
+_ACCEPTED_EVENT_STATUSES = {"confirmed", "in_progress"}
 
 
 def build_planner_input(
@@ -487,14 +488,23 @@ def _build_priority_locks(
     people: dict[str, list] = {}
     equipment: dict[str, list] = {}
     vehicles: dict[str, list] = {}
-    current_priority = _event_priority_key(event)
+    current_status = _enum_value(getattr(event, "status", None)) or ""
 
     for assignment, other_event in lock_rows:
-        if _enum_value(getattr(other_event, "status", None)) not in _LOCKING_EVENT_STATUSES:
+        other_status = _enum_value(getattr(other_event, "status", None)) or ""
+        if other_status not in _LOCKING_EVENT_STATUSES:
             continue
-        if _enum_value(getattr(assignment, "status", None)) not in _LOCKING_ASSIGNMENT_STATUSES:
+        if (
+            _enum_value(getattr(assignment, "status", None))
+            not in _LOCKING_ASSIGNMENT_STATUSES
+        ):
             continue
-        if _event_priority_key(other_event) > current_priority:
+        if not _other_event_has_priority_lock(
+            other_event=other_event,
+            other_status=other_status,
+            current_event=event,
+            current_status=current_status,
+        ):
             continue
 
         resource_type = _enum_value(getattr(assignment, "resource_type", None))
@@ -515,3 +525,19 @@ def _event_priority_key(event) -> tuple[float, str]:
         created_ts = created_at.timestamp()
     event_id = getattr(event, "event_id", "")
     return created_ts, event_id
+
+
+def _other_event_has_priority_lock(
+    *,
+    other_event,
+    other_status: str,
+    current_event,
+    current_status: str,
+) -> bool:
+    other_accepted = other_status in _ACCEPTED_EVENT_STATUSES
+    current_accepted = current_status in _ACCEPTED_EVENT_STATUSES
+    if other_accepted and not current_accepted:
+        return True
+    if current_accepted and not other_accepted:
+        return False
+    return _event_priority_key(other_event) <= _event_priority_key(current_event)

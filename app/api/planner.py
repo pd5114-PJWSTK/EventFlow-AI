@@ -10,6 +10,8 @@ from app.schemas.planner import (
     GeneratePlanResponse,
     RecommendBestPlanRequest,
     RecommendBestPlanResponse,
+    ResolvePlanGapsRequest,
+    ResolvePlanGapsResponse,
     ReplanRequest,
     ReplanResponse,
 )
@@ -17,6 +19,7 @@ from app.services.planner_generation_service import (
     PlanGenerationError,
     generate_plan,
     recommend_best_plan_with_ml,
+    resolve_plan_gaps,
     replan_event,
 )
 from app.services.idempotency_service import (
@@ -209,6 +212,84 @@ def recommend_best_plan_endpoint(
             message=str(exc),
         ) from exc
     except PlanGenerationError as exc:
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="PLANNER_GENERATION_ERROR",
+            message=str(exc),
+        ) from exc
+
+
+@router.post("/resolve-gaps/{event_id}", response_model=ResolvePlanGapsResponse)
+def resolve_plan_gaps_endpoint(
+    event_id: str,
+    payload: ResolvePlanGapsRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ResolvePlanGapsResponse:
+    reservation = None
+    try:
+        reservation = reserve_idempotency(
+            db,
+            scope="planner.resolve_gaps",
+            idempotency_key=payload.idempotency_key,
+            event_id=event_id,
+            request_payload=payload.model_dump(mode="json", exclude={"idempotency_key"}),
+        )
+        if reservation.replayed and reservation.replay_payload is not None:
+            response.headers["X-Idempotency-Replayed"] = "true"
+            response.headers["X-Operation-Status"] = "success"
+            return ResolvePlanGapsResponse.model_validate(reservation.replay_payload)
+    except IdempotencyConflictError as exc:
+        raise http_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="IDEMPOTENCY_CONFLICT",
+            message=str(exc),
+        ) from exc
+    except IdempotencyPendingError as exc:
+        raise http_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="IDEMPOTENCY_PENDING",
+            message=str(exc),
+        ) from exc
+
+    try:
+        result = resolve_plan_gaps(
+            db,
+            event_id=event_id,
+            payload=payload,
+        )
+        complete_idempotency(
+            db,
+            record=reservation.record if reservation else None,
+            response_payload=result.model_dump(mode="json"),
+        )
+        response.headers["X-Operation-Status"] = "success"
+        return result
+    except PlannerInputError as exc:
+        fail_idempotency(
+            db,
+            record=reservation.record if reservation else None,
+            error_code="PLANNER_INPUT_ERROR",
+            error_message=str(exc),
+        )
+        if str(exc) == "Event not found":
+            raise http_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_code="PLANNER_EVENT_NOT_FOUND",
+                message=str(exc),
+            ) from exc
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="PLANNER_INPUT_ERROR",
+            message=str(exc),
+        ) from exc
+    except PlanGenerationError as exc:
+        fail_idempotency(
+            db,
+            record=reservation.record if reservation else None,
+            error_code="PLANNER_GENERATION_ERROR",
+            error_message=str(exc),
+        )
         raise http_error(
             status_code=status.HTTP_400_BAD_REQUEST,
             error_code="PLANNER_GENERATION_ERROR",

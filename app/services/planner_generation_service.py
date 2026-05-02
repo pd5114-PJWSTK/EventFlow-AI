@@ -27,12 +27,16 @@ from app.models.core import (
     AssignmentResourceType,
     AssignmentStatus,
     Equipment,
+    EquipmentAvailability,
     Event,
     EventStatus,
     Location,
+    PeopleAvailability,
+    ResourceStatus,
     ResourcePerson,
     TransportLeg,
     Vehicle,
+    VehicleAvailability,
 )
 from app.models.ops import (
     ActualTiming,
@@ -49,7 +53,10 @@ from app.schemas.planner import (
     PlanMetricComparison,
     RequirementGapSummary,
     RecommendBestPlanResponse,
+    ResolvePlanGapsRequest,
+    ResolvePlanGapsResponse,
     ReplanResponse,
+    SuggestedRescheduleWindow,
 )
 from app.services.ortools_service import (
     PlannerCandidate,
@@ -79,6 +86,11 @@ class ConsumedAssignment:
     resource_type: str
     resource_id: str
     estimated_cost: Decimal
+
+
+_PRIORITY_LOCK_EVENT_STATUSES = {"planned", "confirmed", "in_progress"}
+_PRIORITY_ACCEPTED_STATUSES = {"confirmed", "in_progress"}
+_PRIORITY_LOCK_ASSIGNMENT_STATUSES = {"proposed", "planned", "confirmed", "active"}
 
 
 def generate_plan(
@@ -153,6 +165,12 @@ def generate_plan(
         assignment_ids: list[str] = []
         transport_leg_ids: list[str] = []
         if commit_to_assignments:
+            preserved_vehicle_ids: set[str] = set()
+            if preserve_consumed_resources:
+                preserved_vehicle_ids = _consumed_transport_vehicle_ids(
+                    db,
+                    event_id=event.event_id,
+                )
             assignment_ids = _commit_assignments(
                 db=db,
                 event=event,
@@ -168,6 +186,7 @@ def generate_plan(
                 assignments=result.assignments,
                 requirements=requirement_by_id,
                 preserve_existing_legs=preserve_consumed_resources,
+                preserve_vehicle_ids=preserved_vehicle_ids,
             )
             if _is_fully_assigned(result.assignments):
                 event.status = EventStatus.planned
@@ -206,6 +225,8 @@ def generate_plan(
             transport_leg_ids=transport_leg_ids,
             estimated_cost=_money(result.estimated_cost),
             gap_resolution=_build_gap_resolution_guidance(
+                db=db,
+                event=event,
                 event_id=event.event_id,
                 assignments=result.assignments,
                 requirements=requirement_by_id,
@@ -302,6 +323,154 @@ def replan_event(
         incident_summary=incident_summary,
         comparison=comparison,
         generated_plan=generated,
+    )
+
+
+def resolve_plan_gaps(
+    db: Session,
+    *,
+    event_id: str,
+    payload: ResolvePlanGapsRequest,
+) -> ResolvePlanGapsResponse:
+    event = _get_event_for_update(db, event_id)
+    if event is None:
+        raise PlannerInputError("Event not found")
+    _validate_expected_event_version(event, payload.expected_event_updated_at)
+
+    created_people_ids: list[str] = []
+    created_equipment_ids: list[str] = []
+    created_vehicle_ids: list[str] = []
+    updated_start: datetime | None = None
+    updated_end: datetime | None = None
+
+    if payload.strategy == "augment_resources":
+        for person_input in payload.add_people:
+            person = ResourcePerson(
+                full_name=person_input.full_name,
+                role=person_input.role,
+                home_base_location_id=person_input.home_base_location_id
+                or event.location_id,
+                cost_per_hour=person_input.cost_per_hour,
+                reliability_notes=person_input.reliability_notes,
+                availability_status=ResourceStatus.available,
+                active=True,
+            )
+            db.add(person)
+            db.flush()
+            created_people_ids.append(person.person_id)
+            db.add(
+                PeopleAvailability(
+                    person_id=person.person_id,
+                    available_from=person_input.available_from or event.planned_start,
+                    available_to=person_input.available_to or event.planned_end,
+                    is_available=True,
+                    source="gap_resolution",
+                    notes=f"Gap resolution for event {event_id}",
+                )
+            )
+
+        for equipment_input in payload.add_equipment:
+            equipment = Equipment(
+                equipment_type_id=equipment_input.equipment_type_id,
+                asset_tag=equipment_input.asset_tag,
+                warehouse_location_id=equipment_input.warehouse_location_id
+                or event.location_id,
+                hourly_cost_estimate=equipment_input.hourly_cost_estimate,
+                transport_requirements=equipment_input.transport_requirements,
+                status=ResourceStatus.available,
+                active=True,
+            )
+            db.add(equipment)
+            db.flush()
+            created_equipment_ids.append(equipment.equipment_id)
+            db.add(
+                EquipmentAvailability(
+                    equipment_id=equipment.equipment_id,
+                    available_from=equipment_input.available_from or event.planned_start,
+                    available_to=equipment_input.available_to or event.planned_end,
+                    is_available=True,
+                    source="gap_resolution",
+                    notes=f"Gap resolution for event {event_id}",
+                )
+            )
+
+        for vehicle_input in payload.add_vehicles:
+            vehicle = Vehicle(
+                vehicle_name=vehicle_input.vehicle_name,
+                vehicle_type=vehicle_input.vehicle_type,
+                home_location_id=vehicle_input.home_location_id or event.location_id,
+                registration_number=vehicle_input.registration_number,
+                cost_per_km=vehicle_input.cost_per_km,
+                cost_per_hour=vehicle_input.cost_per_hour,
+                status=ResourceStatus.available,
+                active=True,
+            )
+            db.add(vehicle)
+            db.flush()
+            created_vehicle_ids.append(vehicle.vehicle_id)
+            db.add(
+                VehicleAvailability(
+                    vehicle_id=vehicle.vehicle_id,
+                    available_from=vehicle_input.available_from or event.planned_start,
+                    available_to=vehicle_input.available_to or event.planned_end,
+                    is_available=True,
+                    source="gap_resolution",
+                    notes=f"Gap resolution for event {event_id}",
+                )
+            )
+
+    else:
+        event.planned_start = to_utc(payload.new_planned_start) or event.planned_start
+        event.planned_end = to_utc(payload.new_planned_end) or event.planned_end
+        if event.planned_end <= event.planned_start:
+            raise PlanGenerationError("new_planned_end must be after new_planned_start.")
+        updated_start = event.planned_start
+        updated_end = event.planned_end
+        db.add(event)
+
+    db.flush()
+    db.commit()
+    db.refresh(event)
+
+    generated = generate_plan(
+        db,
+        event_id=event_id,
+        initiated_by=payload.initiated_by,
+        trigger_reason="gap_resolution",
+        commit_to_assignments=payload.commit_to_assignments,
+        solver_timeout_seconds=payload.solver_timeout_seconds,
+        fallback_enabled=payload.fallback_enabled,
+        preserve_consumed_resources=True,
+    )
+    emit_event(
+        "planner.gap_resolution.completed",
+        event_id=event_id,
+        strategy=payload.strategy,
+        created_people=len(created_people_ids),
+        created_equipment=len(created_equipment_ids),
+        created_vehicles=len(created_vehicle_ids),
+        updated_event_window=bool(updated_start and updated_end),
+        planner_run_id=generated.planner_run_id,
+    )
+    if payload.strategy == "augment_resources":
+        summary = (
+            "Dodano nowe zasoby i dostepnosc, nastepnie wykonano ponowne planowanie."
+        )
+    else:
+        summary = (
+            "Przesunieto termin eventu i wykonano ponowne planowanie dla nowego okna."
+        )
+
+    return ResolvePlanGapsResponse(
+        event_id=event_id,
+        strategy=payload.strategy,
+        created_people_ids=created_people_ids,
+        created_equipment_ids=created_equipment_ids,
+        created_vehicle_ids=created_vehicle_ids,
+        updated_event_window_start=updated_start,
+        updated_event_window_end=updated_end,
+        generated_plan=generated,
+        decision_summary=summary,
     )
 
 
@@ -586,6 +755,8 @@ def recommend_best_plan_with_ml(
         transport_leg_ids=transport_leg_ids,
         estimated_cost=_money(selected_result.estimated_cost),
         gap_resolution=_build_gap_resolution_guidance(
+            db=db,
+            event=event,
             event_id=event.event_id,
             assignments=selected_result.assignments,
             requirements=requirement_by_id,
@@ -682,6 +853,12 @@ def _commit_assignments(
     assignments: list[PlannerAssignment],
     consumed_assignments: list[ConsumedAssignment] | None = None,
 ) -> list[str]:
+    _lock_and_validate_assignment_conflicts(
+        db=db,
+        event=event,
+        requirements=requirements,
+        assignments=assignments,
+    )
     consumed_assignment_ids = {
         item.assignment_id for item in (consumed_assignments or [])
     }
@@ -725,6 +902,127 @@ def _commit_assignments(
     return assignment_ids
 
 
+def _lock_and_validate_assignment_conflicts(
+    *,
+    db: Session,
+    event: Event,
+    requirements: dict[str, PlannerRequirement],
+    assignments: list[PlannerAssignment],
+) -> None:
+    proposed: list[tuple[str, str, datetime, datetime]] = []
+    for item in assignments:
+        requirement = requirements.get(item.requirement_id)
+        if requirement is None:
+            continue
+        resource_type = requirement.resource_type
+        for resource_id in item.resource_ids:
+            proposed.append(
+                (
+                    resource_type,
+                    resource_id,
+                    requirement.required_start,
+                    requirement.required_end,
+                )
+            )
+
+    if not proposed:
+        return
+
+    for resource_type, resource_id, _, _ in proposed:
+        if resource_type == "person":
+            (
+                db.query(ResourcePerson)
+                .filter(ResourcePerson.person_id == resource_id)
+                .with_for_update()
+                .first()
+            )
+        elif resource_type == "equipment":
+            (
+                db.query(Equipment)
+                .filter(Equipment.equipment_id == resource_id)
+                .with_for_update()
+                .first()
+            )
+        elif resource_type == "vehicle":
+            (
+                db.query(Vehicle)
+                .filter(Vehicle.vehicle_id == resource_id)
+                .with_for_update()
+                .first()
+            )
+
+    current_status = event.status.value
+    for resource_type, resource_id, start, end in proposed:
+        conflict_query = (
+            db.query(Assignment, Event)
+            .join(Event, Event.event_id == Assignment.event_id)
+            .filter(
+                Assignment.event_id != event.event_id,
+                Assignment.planned_start < end,
+                Assignment.planned_end > start,
+                Event.status.in_(_PRIORITY_LOCK_EVENT_STATUSES),
+                Assignment.status.in_(_PRIORITY_LOCK_ASSIGNMENT_STATUSES),
+            )
+            .with_for_update()
+        )
+        if resource_type == "person":
+            conflict_query = conflict_query.filter(Assignment.person_id == resource_id)
+        elif resource_type == "equipment":
+            conflict_query = conflict_query.filter(Assignment.equipment_id == resource_id)
+        elif resource_type == "vehicle":
+            conflict_query = conflict_query.filter(Assignment.vehicle_id == resource_id)
+        else:
+            continue
+
+        conflict = conflict_query.first()
+        if conflict is None:
+            continue
+        conflict_assignment, conflict_event = conflict
+        conflict_status = conflict_event.status.value
+        conflict_higher_or_equal = _other_event_has_priority_over_current(
+            other_event=conflict_event,
+            other_status=conflict_status,
+            current_event=event,
+            current_status=current_status,
+        )
+        if conflict_higher_or_equal:
+            raise PlanGenerationError(
+                "Atomic assignment lock conflict for "
+                f"{resource_type}:{resource_id} with event {conflict_event.event_id} "
+                f"(relation=higher_or_equal_priority, assignment_id={conflict_assignment.assignment_id})."
+            )
+
+        can_preempt = (
+            not conflict_assignment.is_manual_override
+            and not conflict_assignment.is_consumed_in_execution
+            and conflict_assignment.status
+            in {AssignmentStatus.proposed, AssignmentStatus.planned}
+        )
+        if not can_preempt:
+            raise PlanGenerationError(
+                "Atomic assignment lock conflict for "
+                f"{resource_type}:{resource_id} with event {conflict_event.event_id} "
+                "(relation=lower_priority_but_non_preemptable)."
+            )
+        db.delete(conflict_assignment)
+        if resource_type == "vehicle":
+            db.execute(
+                delete(TransportLeg).where(
+                    TransportLeg.event_id == conflict_event.event_id,
+                    TransportLeg.vehicle_id == resource_id,
+                    TransportLeg.notes.like("Generated by planner run%"),
+                )
+            )
+        emit_event(
+            "planner.priority_preemption",
+            event_id=event.event_id,
+            preempted_event_id=conflict_event.event_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            preempted_assignment_id=conflict_assignment.assignment_id,
+        )
+
+
 def _create_transport_legs(
     *,
     db: Session,
@@ -733,20 +1031,25 @@ def _create_transport_legs(
     assignments: list[PlannerAssignment],
     requirements: dict[str, PlannerRequirement],
     preserve_existing_legs: bool = False,
+    preserve_vehicle_ids: set[str] | None = None,
 ) -> list[str]:
     if not event.requires_transport:
         return []
 
     existing_leg_by_vehicle: dict[str, str] = {}
     if preserve_existing_legs:
+        allowed_vehicle_ids = preserve_vehicle_ids or set()
         existing_legs = (
             db.query(TransportLeg)
             .filter(TransportLeg.event_id == event.event_id)
             .all()
         )
         for leg in existing_legs:
-            if leg.vehicle_id:
+            if leg.vehicle_id and leg.vehicle_id in allowed_vehicle_ids:
                 existing_leg_by_vehicle[leg.vehicle_id] = leg.transport_leg_id
+            else:
+                db.delete(leg)
+        db.flush()
     else:
         db.execute(
             delete(TransportLeg).where(
@@ -904,6 +1207,41 @@ def _consumed_assignment_ids(db: Session, *, event_id: str) -> set[str]:
     return consumed_ids
 
 
+def _consumed_transport_vehicle_ids(db: Session, *, event_id: str) -> set[str]:
+    from_checkpoint = (
+        db.query(ResourceCheckpoint.vehicle_id)
+        .filter(
+            ResourceCheckpoint.event_id == event_id,
+            ResourceCheckpoint.vehicle_id.isnot(None),
+            ResourceCheckpoint.checkpoint_type.in_(
+                [
+                    "transport_started",
+                    "transport_arrived",
+                    "loadout_started",
+                    "loadout_completed",
+                ]
+            ),
+        )
+        .all()
+    )
+    ids: set[str] = {item[0] for item in from_checkpoint if item[0]}
+
+    from_logs = (
+        db.query(Assignment.vehicle_id)
+        .join(EventExecutionLog, EventExecutionLog.assignment_id == Assignment.assignment_id)
+        .filter(
+            Assignment.event_id == event_id,
+            Assignment.vehicle_id.isnot(None),
+            EventExecutionLog.log_type.in_(
+                [OpsLogType.transport_started, OpsLogType.transport_arrived]
+            ),
+        )
+        .all()
+    )
+    ids.update(item[0] for item in from_logs if item[0])
+    return ids
+
+
 def _apply_consumed_assignments_to_input(
     *,
     planner_input: PlannerInput,
@@ -955,15 +1293,26 @@ def _merge_consumed_with_planner_result(
         requirement = requirement_map.get(assignment.requirement_id)
         consumed_items = consumed_by_requirement.get(assignment.requirement_id, [])
         consumed_resource_ids = [item.resource_id for item in consumed_items]
-        merged_ids = list(dict.fromkeys(consumed_resource_ids + assignment.resource_ids))
-        required_qty = requirement.quantity if requirement is not None else len(merged_ids)
+        required_qty = requirement.quantity if requirement is not None else len(consumed_resource_ids)
+        unique_new_ids = [
+            resource_id
+            for resource_id in assignment.resource_ids
+            if resource_id not in consumed_resource_ids
+        ]
+        remaining_slots = max(required_qty - len(consumed_resource_ids), 0)
+        selected_new_ids = unique_new_ids[:remaining_slots]
+        merged_ids = list(dict.fromkeys(consumed_resource_ids + selected_new_ids))
         unassigned_count = max(required_qty - len(merged_ids), 0)
         consumed_cost = sum((item.estimated_cost for item in consumed_items), Decimal("0"))
+        new_cost = Decimal("0")
+        if assignment.resource_ids:
+            per_resource_cost = assignment.estimated_cost / Decimal(len(assignment.resource_ids))
+            new_cost = per_resource_cost * Decimal(len(selected_new_ids))
         merged_assignment = PlannerAssignment(
             requirement_id=assignment.requirement_id,
             resource_ids=merged_ids,
             unassigned_count=unassigned_count,
-            estimated_cost=assignment.estimated_cost + consumed_cost,
+            estimated_cost=new_cost + consumed_cost,
         )
         merged_assignments.append(merged_assignment)
         merged_cost += merged_assignment.estimated_cost
@@ -980,6 +1329,8 @@ def _merge_consumed_with_planner_result(
 
 def _build_gap_resolution_guidance(
     *,
+    db: Session,
+    event: Event,
     event_id: str,
     assignments: list[PlannerAssignment],
     requirements: dict[str, PlannerRequirement],
@@ -1047,7 +1398,41 @@ def _build_gap_resolution_guidance(
         has_gaps=True,
         requirement_gaps=requirement_gaps,
         options=[augment_option, reschedule_option],
+        suggested_reschedule_windows=_suggest_reschedule_windows(
+            db=db,
+            event=event,
+            requirements=requirements,
+        ),
     )
+
+
+def _suggest_reschedule_windows(
+    *,
+    db: Session,
+    event: Event,
+    requirements: dict[str, PlannerRequirement],
+) -> list[SuggestedRescheduleWindow]:
+    del db
+    del requirements
+    duration = max(event.planned_end - event.planned_start, timedelta(hours=1))
+    base = to_utc(event.planned_start) or event.planned_start
+    windows: list[SuggestedRescheduleWindow] = []
+    for offset_days in (1, 2, 3):
+        start = base + timedelta(days=offset_days)
+        end = start + duration
+        score = Decimal("0.70") - Decimal(str(offset_days - 1)) * Decimal("0.05")
+        windows.append(
+            SuggestedRescheduleWindow(
+                planned_start=start,
+                planned_end=end,
+                score=score.quantize(Decimal("0.00")),
+                note=(
+                    "Proponowane okno do szybkiego rerunu planera; "
+                    "potwierdz dostepnosc zasobow po zmianie."
+                ),
+            )
+        )
+    return windows
 
 
 def _response_assignment(
@@ -1714,6 +2099,28 @@ def _ratio_decimal(numerator: Decimal, denominator: Decimal) -> Decimal:
     if denominator <= 0:
         return Decimal("0")
     return (numerator / denominator).quantize(Decimal("0.0001"))
+
+
+def _other_event_has_priority_over_current(
+    *,
+    other_event: Event,
+    other_status: str,
+    current_event: Event,
+    current_status: str,
+) -> bool:
+    other_accepted = other_status in _PRIORITY_ACCEPTED_STATUSES
+    current_accepted = current_status in _PRIORITY_ACCEPTED_STATUSES
+    if other_accepted and not current_accepted:
+        return True
+    if current_accepted and not other_accepted:
+        return False
+    return _event_priority_key(other_event) <= _event_priority_key(current_event)
+
+
+def _event_priority_key(event: Event) -> tuple[float, str]:
+    created_at = event.created_at
+    created_ts = created_at.timestamp() if isinstance(created_at, datetime) else 0.0
+    return created_ts, event.event_id
 
 
 def _latest_recommendation_for_event(
