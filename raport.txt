@@ -129,18 +129,18 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 13 passed.
 
 7) DZIENNIK KROTKICH AKTUALIZACJI - FAZA 2
-- [2026-04-25] Uruchomiono Fazę 2 i dodano tag startowy `phase-2-start`.
+- [2026-04-25] Uruchomiono Faz?? 2 i dodano tag startowy `phase-2-start`.
   Cel: wyznaczyc stabilny punkt startu i przejscie z Fazy 1 do Fazy 2.
 - [2026-04-25] Zaimplementowano CP-01 (CRUD clients/locations/events + walidacje + testy).
-  Cel: dostarczyc komplet danych wejściowych `core.*` jako bazę dla kolejnych checkpointow i planera.
+  Cel: dostarczyc komplet danych wej??ciowych `core.*` jako baz?? dla kolejnych checkpointow i planera.
 - [2026-04-25] Zacommitowano i otagowano CP-01 oraz wypchnieto branch/tagi do GitHub.
   Cel: zamknac pierwszy checkpoint Fazy 2 w historii Git i miec stabilny punkt rollback.
 - [2026-04-25] Zaimplementowano CP-02 (resources CRUD: people/equipment/vehicles + skills).
   Cel: dostarczyc komplet rejestrow zasobow i powiazan umiejetnosci jako wejscie do CP-03.
 - [2026-04-25] Zaimplementowano CP-03 (requirements + availability + conflict detection + testy).
-  Cel: domknac warstwe danych wejściowych i kalendarzy dostepnosci wymaganą do walidacji constraints.
+  Cel: domknac warstwe danych wej??ciowych i kalendarzy dostepnosci wymagan?? do walidacji constraints.
 - [2026-04-26] Zacommitowano i otagowano CP-03 oraz wypchnieto zmiany do GitHub.
-  Cel: zamknac trzeci checkpoint Fazy 2 jako stabilny punkt wejścia do CP-04.
+  Cel: zamknac trzeci checkpoint Fazy 2 jako stabilny punkt wej??cia do CP-04.
 
 6.3) FAZA 2 - POSTEP IMPLEMENTACJI (CP-04)
 - Status checkpointu: `phase-2-cp-04-domain-validations` -> ZREALIZOWANY (implementacja + testy).
@@ -202,7 +202,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 - [2026-04-27] Zacommitowano, otagowano i wypchnieto CP-05.
   Cel: zamknac checkpoint test infrastructure i smoke collection jako ostatni etap wykonawczy Fazy 2.
 - [2026-04-27] Oznaczono i wypchnieto tag `phase-2-complete`.
-  Cel: formalnie zamknac Fazę 2 i potwierdzic gotowosc wejscia do Fazy 3.
+  Cel: formalnie zamknac Faz?? 2 i potwierdzic gotowosc wejscia do Fazy 3.
 
 8) FAZA 3 - POSTEP IMPLEMENTACJI (CP-01)
 - Status fazy: W TOKU (rozpoczeta).
@@ -218,7 +218,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp01.py tests/test_phase2_cp04.py -q` -> 8 passed.
   - Lint/format (scope CP-01): `ruff check` + `black` -> passed.
 
-- [2026-04-27] Uruchomiono Fazę 3 i dodano tag startowy `phase-3-start`.
+- [2026-04-27] Uruchomiono Faz?? 3 i dodano tag startowy `phase-3-start`.
   Cel: wyznaczyc stabilny punkt wejscia i zachowac ten sam workflow checkpointow co w Fazie 2.
 - [2026-04-27] Zaimplementowano CP-01 Fazy 3 (availability-focused constraint checks).
   Cel: poprawic diagnostyke walidatora dla przypadkow, gdzie zasoby istnieja, ale nie sa dostepne w wymaganym oknie czasu.
@@ -231,7 +231,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Rozszerzono `app/services/validation_service.py` o:
     - walidacje ograniczen godzinowych (`max_daily_hours`) z gapem `MAX_HOURS_EXCEEDED`,
     - rozliczanie kosztow per typ zasobu (people/equipment/vehicles),
-    - spójne wystawianie `estimated_cost` i `cost_breakdown.total_cost`.
+    - sp??jne wystawianie `estimated_cost` i `cost_breakdown.total_cost`.
   - Dodano testy CP-02: `tests/test_phase3_cp02.py`.
 - Walidacja wykonania:
   - Testy: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp02.py tests/test_phase3_cp01.py tests/test_phase2_cp04.py -q` -> 11 passed.
@@ -299,7 +299,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 - [2026-04-27] Zaimplementowano CP-05 Fazy 3 (validation report tests + smoke).
   Cel: domknac warstwe testowa planner-core i potwierdzic gotowosc do kolejnej fazy.
 - [2026-04-27] Oznaczono i wypchnieto tag `phase-3-complete`.
-  Cel: formalnie zamknac Fazę 3 i potwierdzic gotowosc wejscia do Fazy 4.
+  Cel: formalnie zamknac Faz?? 3 i potwierdzic gotowosc wejscia do Fazy 4.
 
 9) FAZA 4 - POSTEP IMPLEMENTACJI (CP-01)
 - Status fazy: W TOKU (rozpoczeta).
@@ -312,7 +312,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Testy: `python -m pytest tests/test_phase4_cp01.py` -> 2 passed.
   - Lint/format (scope CP-01): `ruff check` + `black` -> passed.
 
-- [2026-04-28] Uruchomiono Fazę 4 i dodano tag startowy `phase-4-start`.
+- [2026-04-28] Uruchomiono Faz?? 4 i dodano tag startowy `phase-4-start`.
   Cel: wyznaczyc punkt startu dla implementacji OR-Tools.
 - [2026-04-28] Zaimplementowano CP-01 Fazy 4 (OR-Tools scaffold + fallback + testy).
   Cel: dostarczyc minimalny solver z deterministycznym fallbackiem i uruchamialnymi testami.
@@ -418,7 +418,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 - Artifact zamkniecia:
   - tag koncowy: `phase-4-complete`.
 
-- [2026-05-02] Oznaczono FazÄ™ 4 jako zamknieta.
+- [2026-05-02] Oznaczono Faz????? 4 jako zamknieta.
   Cel: potwierdzic komplet OR-Tools planner + planner runs i gotowosc wejscia do Fazy 5.
 
 10) FAZA 5 - POSTEP IMPLEMENTACJI (CP-01)
@@ -594,7 +594,7 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Szybka regresja: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase5_cp03.py -q` -> 11 passed.
 
 - [2026-05-02] Zaimplementowano CP-03 Fazy 6 (live replanning + evaluator porownania planow + trigger_reason incident).
-  Cel: umo�liwic operacyjne przeplanowanie po incydencie i uzasadniona decyzje plan-vs-plan.
+  Cel: umo?liwic operacyjne przeplanowanie po incydencie i uzasadniona decyzje plan-vs-plan.
 
 11.3) FAZA 6 - POSTEP IMPLEMENTACJI (CP-04)
 - Status checkpointu: `phase-6-cp-04-runtime-notifications-celery-feed` -> ZREALIZOWANY (implementacja + testy).
@@ -644,3 +644,26 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Oznaczono Faze 6 jako zamknieta.
   Cel: potwierdzic gotowosc runtime operations + live reactions (incident parse, replan, notyfikacje) do dalszych prac nad Faza 7.
+
+11.5) FAZA 6 - POSTEP IMPLEMENTACJI (CP-05)
+- Status checkpointu: `phase-6-cp-05-live-replan-consumed-resources` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Rozszerzono kontrakt replanningu runtime:
+    - `ReplanRequest.preserve_consumed_resources` (domyslnie `true`) w `app/schemas/planner.py`.
+  - Rozszerzono endpoint replanningu:
+    - `POST /api/planner/replan/{event_id}` przekazuje `preserve_consumed_resources` do serwisu (`app/api/planner.py`).
+  - Rozszerzono serwis planowania `app/services/planner_generation_service.py` o logike zachowania zasobow juz zuzytych:
+    - identyfikacja assignmentow "zuzytych" na podstawie runtime sygnalow (`resource_checkpoints`, `actual_timings`, `event_execution_logs`) oraz statusow (`active/completed/confirmed`),
+    - redukcja zapotrzebowania planera o juz zuzyte zasoby (solver planuje tylko brakujaca czesc),
+    - merge wyniku solwera z assignmentami zuzytymi (zuzyte zasoby pozostaja w planie),
+    - commit replanu bez usuwania assignmentow zuzytych,
+    - tworzenie transport legs tylko dla nowych brakujacych elementow przy zachowaniu istniejacych nog transportowych.
+  - Dodano test CP-05:
+    - `tests/test_phase6_cp05.py` (scenariusz: Tomek juz na miejscu + zwiekszenie requirementu -> replan zachowuje Tomka i dodaje tylko brakujaca osobe).
+- Walidacja wykonania:
+  - Kontrola skladni: `docker compose exec -e READY_CHECK_EXTERNALS=false backend python -m py_compile app/api/planner.py app/schemas/planner.py app/services/planner_generation_service.py tests/test_phase6_cp05.py` -> passed.
+  - Testy CP-04 + CP-05: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp04.py tests/test_phase6_cp05.py -q` -> 4 passed.
+  - Testy Fazy 6 (CP-01..CP-05): `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase6_cp04.py tests/test_phase6_cp05.py -q` -> 12 passed.
+
+- [2026-05-02] Zaimplementowano CP-05 Fazy 6 (live replanning: zachowanie zuzytych zasobow + dokladanie brakow).
+  Cel: uniknac podmiany zasobow, ktore sa juz w realizacji, i planowac przy incydencie tylko brakujace elementy.
