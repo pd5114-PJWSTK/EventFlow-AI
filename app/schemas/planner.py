@@ -83,6 +83,7 @@ class ReplanRequest(BaseModel):
     commit_to_assignments: bool = True
     solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
     fallback_enabled: bool = True
+    preserve_consumed_resources: bool = True
 
 
 class PlanMetricComparison(BaseModel):

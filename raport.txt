@@ -975,3 +975,26 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: pelna gotowosc warstwy ML do wyboru planu i bezpiecznego fallbacku przy niskim zaufaniu/wysokim ryzyku.
 - [2026-05-02] Zrealizowano CP-08 (2 realne scenariusze E2E + dokument `Test_programu.md`).
   Cel: potwierdzic praktyczne dzialanie programu od ingestu eventu, przez planowanie/replanning, do finalizacji i logowania outcome.
+
+11.5) FAZA 6 - POSTEP IMPLEMENTACJI (CP-05)
+- Status checkpointu: `phase-6-cp-05-live-replan-consumed-resources` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Rozszerzono kontrakt replanningu runtime:
+    - `ReplanRequest.preserve_consumed_resources` (domyslnie `true`) w `app/schemas/planner.py`.
+  - Rozszerzono endpoint replanningu:
+    - `POST /api/planner/replan/{event_id}` przekazuje `preserve_consumed_resources` do serwisu (`app/api/planner.py`).
+  - Rozszerzono serwis planowania `app/services/planner_generation_service.py` o logike zachowania zasobow juz zuzytych:
+    - identyfikacja assignmentow "zuzytych" na podstawie runtime sygnalow (`resource_checkpoints`, `actual_timings`, `event_execution_logs`) oraz statusow (`active/completed/confirmed`),
+    - redukcja zapotrzebowania planera o juz zuzyte zasoby (solver planuje tylko brakujaca czesc),
+    - merge wyniku solwera z assignmentami zuzytymi (zuzyte zasoby pozostaja w planie),
+    - commit replanu bez usuwania assignmentow zuzytych,
+    - tworzenie transport legs tylko dla nowych brakujacych elementow przy zachowaniu istniejacych nog transportowych.
+  - Dodano test CP-05:
+    - `tests/test_phase6_cp05.py` (scenariusz: Tomek juz na miejscu + zwiekszenie requirementu -> replan zachowuje Tomka i dodaje tylko brakujaca osobe).
+- Walidacja wykonania:
+  - Kontrola skladni: `docker compose exec -e READY_CHECK_EXTERNALS=false backend python -m py_compile app/api/planner.py app/schemas/planner.py app/services/planner_generation_service.py tests/test_phase6_cp05.py` -> passed.
+  - Testy CP-04 + CP-05: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp04.py tests/test_phase6_cp05.py -q` -> 4 passed.
+  - Testy Fazy 6 (CP-01..CP-05): `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase6_cp01.py tests/test_phase6_cp02.py tests/test_phase6_cp03.py tests/test_phase6_cp04.py tests/test_phase6_cp05.py -q` -> 12 passed.
+
+- [2026-05-02] Zaimplementowano CP-05 Fazy 6 (live replanning: zachowanie zuzytych zasobow + dokladanie brakow).
+  Cel: uniknac podmiany zasobow, ktore sa juz w realizacji, i planowac przy incydencie tylko brakujace elementy.

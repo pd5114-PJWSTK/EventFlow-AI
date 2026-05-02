@@ -87,6 +87,7 @@ def replan_event_endpoint(
             commit_to_assignments=payload.commit_to_assignments,
             solver_timeout_seconds=payload.solver_timeout_seconds,
             fallback_enabled=payload.fallback_enabled,
+            preserve_consumed_resources=payload.preserve_consumed_resources,
         )
     except PlannerInputError as exc:
         if str(exc) == "Event not found":
