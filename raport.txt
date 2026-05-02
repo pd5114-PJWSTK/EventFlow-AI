@@ -447,3 +447,32 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Uruchomiono Faze 5 i zaimplementowano CP-01 (Azure OpenAI integration + limity kosztowe + prompt templates).
   Cel: dostarczyc bezpieczna kosztowo warstwe LLM pod kolejne checkpointy LangGraph i endpointy AI Agents.
+
+10.1) FAZA 5 - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-5-cp-02-langgraph-state-machine-guardrails` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano serwis orkiestracji agentowej:
+    - `app/services/ai_orchestration_service.py`.
+  - Zaimplementowano flow CP-02:
+    - input generation -> optimize -> evaluator,
+    - tryb wykonania `langgraph` (gdy biblioteka dostepna) lub bezpieczny fallback `sequential`.
+  - Dodano guardrails schema validation (Pydantic, `extra=forbid`) dla etapow:
+    - parsed input,
+    - optimization proposal,
+    - risk evaluation.
+  - Dodano fallback heurystyki per-krok:
+    - parser fallback dla surowego inputu,
+    - optimization fallback,
+    - risk evaluation fallback.
+  - Zaktualizowano prompt templates, aby wymuszac strict JSON dla optimization i risk explanation:
+    - `app/services/ai_prompt_templates.py`.
+  - Dodano `langgraph` do zaleznosci projektu:
+    - `requirements.txt`.
+  - Dodano testy CP-02:
+    - `tests/test_phase5_cp02.py`.
+- Walidacja wykonania:
+  - Testy CP-02: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp02.py -q` -> 6 passed.
+  - Szybka regresja: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase5_cp01.py tests/test_phase5_cp02.py tests/test_phase4_cp04.py -q` -> 14 passed.
+
+- [2026-05-02] Zaimplementowano CP-02 Fazy 5 (LangGraph state machine + guardrails + fallback heuristics).
+  Cel: dostarczyc deterministyczny workflow agentowy gotowy pod endpointy AI Agents w kolejnych checkpointach.

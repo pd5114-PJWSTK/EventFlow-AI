@@ -6,6 +6,7 @@ redis==5.2.0
 celery==5.4.0
 pydantic-settings==2.7.0
 PyJWT==2.10.1
+langgraph==0.2.60
 
 pytest==8.3.4
 httpx==0.28.1

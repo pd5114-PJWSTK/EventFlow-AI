@@ -27,11 +27,12 @@ def build_optimization_prompt(planner_snapshot: str) -> PromptTemplate:
     return PromptTemplate(
         system=(
             "You are an optimization assistant for event planning. "
-            "Propose improvements that reduce risk, cost, or delays."
+            "Propose improvements that reduce risk, cost, or delays. "
+            "Return strict JSON only."
         ),
         user=(
-            "Analyze the planner snapshot and produce a concise optimization proposal. "
-            "Keep the response structured with sections: summary, changes, tradeoffs.\n\n"
+            "Analyze the planner snapshot and return JSON optimization proposal with keys: "
+            "summary (string), changes (array of strings), tradeoffs (array of strings).\n\n"
             f"SNAPSHOT:\n{planner_snapshot}"
         ),
     )
@@ -40,11 +41,13 @@ def build_optimization_prompt(planner_snapshot: str) -> PromptTemplate:
 def build_risk_explanation_prompt(plan_summary: str) -> PromptTemplate:
     return PromptTemplate(
         system=(
-            "You explain operational risk in plain language with clear mitigation actions."
+            "You explain operational risk in plain language with clear mitigation actions. "
+            "Return strict JSON only."
         ),
         user=(
-            "Explain the top execution risks in this plan and suggest mitigations. "
-            "Rank risks from highest to lowest impact.\n\n"
+            "Return JSON with keys: overall_risk (low|medium|high), "
+            "top_risks (array of strings), mitigations (array of strings). "
+            "Rank top_risks from highest to lowest impact.\n\n"
             f"PLAN SUMMARY:\n{plan_summary}"
         ),
     )
