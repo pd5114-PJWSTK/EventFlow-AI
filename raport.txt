@@ -882,3 +882,44 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-02] Zaimplementowano CP-06 Fazy 7 (hardening: 60 real samples + walidacja + tuning najlepszego modelu).
   Cel: podniesc wiarygodnosc modelu przez sztywny protokol danych i kontrolowany tuning hyperparametrow.
+
+12.7) FAZA 7 - POSTEP IMPLEMENTACJI (CP-07)
+- Status checkpointu: `phase-7-cp-07-ml-plan-proposal-and-evaluator` -> ZREALIZOWANY (implementacja + testy).
+- Zakres wykonany:
+  - Dodano model ML do ewaluacji kandydatow planu:
+    - endpoint treningu `POST /api/ml/models/train-plan-evaluator`,
+    - kontrakty `TrainPlanEvaluatorRequest/Response` (`app/schemas/ml_models.py`, `app/api/ml_models.py`),
+    - serwis treningu `train_plan_evaluator_model(...)` w `app/services/ml_training_service.py`.
+  - Przygotowano dane uczace pod CP-07 z naciskiem na jakosc:
+    - wymagane min. 60 realnych probek eventow (`real_samples`),
+    - feature engineering do datasetu planowego: 4 profile decyzyjne na event (`profiles_per_event=4`),
+    - lacznie 240 probek kandydatow planu (`candidate_samples`),
+    - holdout split do walidacji algorytmow + tuning zwyciezcy.
+  - Dodano endpoint rekomendacji najlepszego planu z warstwa ML:
+    - `POST /api/planner/recommend-best-plan` (`app/schemas/planner.py`, `app/api/planner.py`).
+  - Nowy workflow CP-07 w `app/services/planner_generation_service.py`:
+    - generowanie wielu wariantow planu przez profile polityk (balanced / low_cost / reliability_first / coverage_guarded),
+    - uruchomienie solvera dla kazdego wariantu z zachowaniem constraintow planera,
+    - predykcja czasu (aktywny model duration) + predykcja jakosci planu (plan evaluator),
+    - ranking kandydatow po `ml_quality_score` i wybor najlepszego,
+    - opcjonalny commit wybranego planu do assignments + recommendation.
+  - Rozszerzono konfiguracje pod hardening danych i split (utrzymane z CP-06):
+    - `ML_HARDENING_REQUIRED_REAL_SAMPLES`,
+    - `ML_HARDENING_TRAIN_SAMPLES`,
+    - `ML_HARDENING_TEST_SAMPLES`.
+  - Dodano testy CP-07:
+    - `tests/test_phase7_cp07.py`.
+- Wynik treningu modelu `plan_candidate_evaluator` (ostatni artefakt):
+  - backend: `sklearn_plan_evaluator_selector`,
+  - dataset: `real_samples=60`, `candidate_samples=240`, `profiles_per_event=4`,
+  - split: `train_samples=192`, `test_samples=48`, `test_split_ratio=0.2`,
+  - selected algorithm: `linear_regression`,
+  - test metrics selected model: `MAE=0.0073`, `RMSE=0.0097`, `R2=0.999997`.
+- Walidacja wykonania:
+  - Kontrola skladni: `docker compose exec -e READY_CHECK_EXTERNALS=false backend python -m py_compile app/schemas/planner.py app/api/planner.py app/schemas/ml_models.py app/api/ml_models.py app/services/planner_generation_service.py app/services/ml_training_service.py tests/test_phase7_cp07.py` -> passed.
+  - Testy CP-07: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp07.py -q` -> 2 passed.
+  - Testy Fazy 7 (CP-01..CP-07): `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase7_cp01.py tests/test_phase7_cp02.py tests/test_phase7_cp03.py tests/test_phase7_cp04.py tests/test_phase7_cp05.py tests/test_phase7_cp06.py tests/test_phase7_cp07.py -q` -> 18 passed.
+  - Pelny pakiet regresji: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 86 passed.
+
+- [2026-05-02] Zaimplementowano CP-07 Fazy 7 (ML plan proposal: training data + evaluator model + najlepszy kandydat planu).
+  Cel: przejsc od samej ewaluacji pojedynczej predykcji do aktywnego wyboru najlepszego wariantu planu przez warstwe ML nad solverem.
