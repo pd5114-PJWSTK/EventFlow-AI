@@ -19,7 +19,7 @@ def api_client() -> Generator[TestClient, None, None]:
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-        execution_options={"schema_translate_map": {"core": None}},
+        execution_options={"schema_translate_map": {"core": None, "ai": None}},
         future=True,
     )
     testing_session_local = sessionmaker(

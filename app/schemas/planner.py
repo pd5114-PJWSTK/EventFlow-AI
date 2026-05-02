@@ -40,3 +40,31 @@ class ConstraintCheckResponse(BaseModel):
     )
     budget_available: Decimal | None = None
     budget_exceeded: bool = False
+
+
+class GeneratePlanRequest(BaseModel):
+    event_id: str
+    initiated_by: str | None = None
+    trigger_reason: str = "manual"
+    commit_to_assignments: bool = True
+
+
+class GeneratedPlanAssignment(BaseModel):
+    requirement_id: str
+    resource_type: str
+    resource_ids: list[str] = Field(default_factory=list)
+    unassigned_count: int
+    estimated_cost: Decimal = Field(default=Decimal("0.00"))
+
+
+class GeneratePlanResponse(BaseModel):
+    event_id: str
+    planner_run_id: str
+    recommendation_id: str
+    plan_id: str
+    solver: Literal["ortools", "fallback"]
+    is_fully_assigned: bool
+    assignments: list[GeneratedPlanAssignment] = Field(default_factory=list)
+    assignment_ids: list[str] = Field(default_factory=list)
+    transport_leg_ids: list[str] = Field(default_factory=list)
+    estimated_cost: Decimal = Field(default=Decimal("0.00"))

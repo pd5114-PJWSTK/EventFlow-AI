@@ -329,3 +329,38 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-04-28] Zaimplementowano CP-02 Fazy 4 (mapowanie DB -> PlannerInput).
   Cel: przygotowac dane do solwera na bazie eventu, requirements i dostepnosci.
+
+9.2) FAZA 4 - POSTEP IMPLEMENTACJI (CP-03)
+- Status checkpointu: `phase-4-cp-03-plan-generation-and-runs` -> ZREALIZOWANY i zacommitowany + otagowany.
+- Zakres wykonany:
+  - Dodano ORM dla zapisu planowania:
+    - `core.assignments`,
+    - `core.transport_legs`,
+    - `ai.planner_runs`,
+    - `ai.planner_recommendations`,
+    - `ai.planner_recommendation_assignments`.
+  - Dodano serwis generowania planu:
+    - `app/services/planner_generation_service.py`.
+  - Dodano endpoint:
+    - `POST /api/planner/generate-plan`.
+  - Endpoint wykonuje:
+    - zaladowanie danych przez builder CP-02,
+    - uruchomienie `PlannerService` z fallbackiem, gdy OR-Tools nie jest dostepny,
+    - zapis `ai.planner_runs` i wybranej rekomendacji,
+    - commit rekomendacji do `core.assignments`,
+    - utworzenie prostych `core.transport_legs` dla przypisanych pojazdow z baza domowa inna niz lokalizacja eventu,
+    - oznaczenie eventu jako `planned`, gdy wszystkie wymagania sa przypisane.
+  - Poprawiono fallback OR-Tools dla srodowiska bez pakietu `ortools`, gdzie `find_spec("ortools.constraint_solver")` rzucal `ModuleNotFoundError`.
+  - Rozszerzono fixture SQLite o mapowanie schematu `ai`.
+  - Dodano testy CP-03: `tests/test_phase4_cp03.py`.
+- Walidacja wykonania:
+  - Testy Fazy 4: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase4_cp01.py tests/test_phase4_cp02.py tests/test_phase4_cp03.py -q` -> 6 passed.
+  - Regresja Faza 3 + Faza 4: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp01.py tests/test_phase3_cp02.py tests/test_phase3_cp03.py tests/test_phase3_cp04.py tests/test_phase3_cp05.py tests/test_phase4_cp01.py tests/test_phase4_cp02.py tests/test_phase4_cp03.py -q` -> 18 passed.
+  - Pelny pakiet: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 37 passed.
+  - Kontrola skladni: `docker compose exec backend python -m py_compile ...` -> passed.
+  - Lint/format: `black` i `ruff` nie sa dostepne w aktualnym obrazie backendu (`executable file not found`).
+
+- [2026-05-02] Zaimplementowano CP-03 Fazy 4 (plan generation + planner runs + assignments).
+  Cel: domknac pierwszy end-to-end przeplyw generowania planu z traceability w `ai.*` i zapisem planu do `core.*`.
+- [2026-05-02] Zacommitowano i otagowano CP-03 Fazy 4.
+  Cel: zamknac checkpoint jako stabilny punkt wejscia do CP-04.

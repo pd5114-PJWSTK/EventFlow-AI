@@ -1,6 +1,9 @@
 """SQLAlchemy model exports."""
 
 from app.models.core import (
+	Assignment,
+	AssignmentResourceType,
+	AssignmentStatus,
 	Client,
 	EquipmentAvailability,
 	EmploymentType,
@@ -19,12 +22,22 @@ from app.models.core import (
 	ResourcePerson,
 	ResourceStatus,
 	Skill,
+	TransportLeg,
 	Vehicle,
 	VehicleAvailability,
 	VehicleType,
 )
+from app.models.ai import (
+	PlannerRecommendation,
+	PlannerRecommendationAssignment,
+	PlannerRun,
+	PlannerRunStatus,
+)
 
 __all__ = [
+	"Assignment",
+	"AssignmentResourceType",
+	"AssignmentStatus",
 	"Client",
 	"EquipmentAvailability",
 	"EmploymentType",
@@ -38,11 +51,16 @@ __all__ = [
 	"PeopleAvailability",
 	"PersonRole",
 	"PersonSkill",
+	"PlannerRecommendation",
+	"PlannerRecommendationAssignment",
+	"PlannerRun",
+	"PlannerRunStatus",
 	"PriorityLevel",
 	"RequirementType",
 	"ResourcePerson",
 	"ResourceStatus",
 	"Skill",
+	"TransportLeg",
 	"Vehicle",
 	"VehicleAvailability",
 	"VehicleType",

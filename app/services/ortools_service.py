@@ -57,7 +57,14 @@ class PlannerService:
         return self._fallback_greedy(model, solver_name="fallback")
 
     def _try_ortools(self, model: PlannerInput) -> PlannerResult | None:
-        if importlib.util.find_spec("ortools.constraint_solver") is None:
+        try:
+            has_ortools = (
+                importlib.util.find_spec("ortools.constraint_solver") is not None
+            )
+        except ModuleNotFoundError:
+            has_ortools = False
+
+        if not has_ortools:
             return None
 
         # Scaffold: until the real model is implemented, reuse the fallback logic.

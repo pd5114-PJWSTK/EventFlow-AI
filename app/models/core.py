@@ -26,11 +26,18 @@ from app.database import Base
 
 settings = get_settings()
 CORE_SCHEMA = None if settings.database_url.startswith("sqlite") else "core"
+AI_SCHEMA = None if settings.database_url.startswith("sqlite") else "ai"
 
 
 def _core_table(name: str) -> str:
     if CORE_SCHEMA:
         return f"{CORE_SCHEMA}.{name}"
+    return name
+
+
+def _ai_table(name: str) -> str:
+    if AI_SCHEMA:
+        return f"{AI_SCHEMA}.{name}"
     return name
 
 
@@ -108,6 +115,22 @@ class RequirementType(str, Enum):
     vehicle_type = "vehicle_type"
     time_buffer = "time_buffer"
     other = "other"
+
+
+class AssignmentResourceType(str, Enum):
+    person = "person"
+    equipment = "equipment"
+    vehicle = "vehicle"
+
+
+class AssignmentStatus(str, Enum):
+    proposed = "proposed"
+    planned = "planned"
+    confirmed = "confirmed"
+    active = "active"
+    completed = "completed"
+    cancelled = "cancelled"
+    failed = "failed"
 
 
 class Client(Base):
@@ -200,6 +223,12 @@ class Event(Base):
     client: Mapped[Client] = relationship(back_populates="events")
     location: Mapped[Location] = relationship(back_populates="events")
     requirements: Mapped[list[EventRequirement]] = relationship(back_populates="event", cascade="all,delete-orphan")
+    assignments: Mapped[list[Assignment]] = relationship(
+        back_populates="event", cascade="all,delete-orphan"
+    )
+    transport_legs: Mapped[list[TransportLeg]] = relationship(
+        back_populates="event", cascade="all,delete-orphan"
+    )
 
 
 class Skill(Base):
@@ -440,3 +469,120 @@ class VehicleAvailability(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     vehicle: Mapped[Vehicle] = relationship(back_populates="availability_windows")
+
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    assignment_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4())
+    )
+    event_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("events.event_id"), ondelete="CASCADE"),
+        nullable=False,
+    )
+    resource_type: Mapped[AssignmentResourceType] = mapped_column(
+        SAEnum(AssignmentResourceType, native_enum=False), nullable=False
+    )
+    person_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("resources_people.person_id"), ondelete="CASCADE"),
+    )
+    equipment_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("equipment.equipment_id"), ondelete="CASCADE"),
+    )
+    vehicle_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("vehicles.vehicle_id"), ondelete="CASCADE"),
+    )
+    assignment_role: Mapped[str | None] = mapped_column(Text)
+    planned_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    planned_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[AssignmentStatus] = mapped_column(
+        SAEnum(AssignmentStatus, native_enum=False),
+        default=AssignmentStatus.planned,
+        nullable=False,
+    )
+    planner_run_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_ai_table("planner_runs.planner_run_id"), ondelete="SET NULL"),
+    )
+    is_manual_override: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    event: Mapped[Event] = relationship(back_populates="assignments")
+    person: Mapped[ResourcePerson | None] = relationship()
+    equipment: Mapped[Equipment | None] = relationship()
+    vehicle: Mapped[Vehicle | None] = relationship()
+
+
+class TransportLeg(Base):
+    __tablename__ = "transport_legs"
+    __table_args__ = {"schema": CORE_SCHEMA}
+
+    transport_leg_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid4())
+    )
+    event_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("events.event_id"), ondelete="CASCADE"),
+        nullable=False,
+    )
+    vehicle_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("vehicles.vehicle_id"), ondelete="SET NULL"),
+    )
+    driver_person_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("resources_people.person_id"), ondelete="SET NULL"),
+    )
+    origin_location_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("locations.location_id"), ondelete="RESTRICT"),
+        nullable=False,
+    )
+    destination_location_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey(_core_table("locations.location_id"), ondelete="RESTRICT"),
+        nullable=False,
+    )
+    planned_departure: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    planned_arrival: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    estimated_distance_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    estimated_duration_minutes: Mapped[int | None] = mapped_column(Integer)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    event: Mapped[Event] = relationship(back_populates="transport_legs")
+    vehicle: Mapped[Vehicle | None] = relationship()
+    driver: Mapped[ResourcePerson | None] = relationship()
+    origin_location: Mapped[Location] = relationship(
+        foreign_keys=[origin_location_id]
+    )
+    destination_location: Mapped[Location] = relationship(
+        foreign_keys=[destination_location_id]
+    )
