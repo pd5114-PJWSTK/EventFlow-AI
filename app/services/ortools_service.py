@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 import importlib.util
+from time import perf_counter
 from typing import Literal
 from uuid import uuid4
 
@@ -34,6 +35,16 @@ class PlannerInput:
 
 
 @dataclass(frozen=True)
+class PlannerPolicy:
+    timeout_seconds: float = 10.0
+    fallback_enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if self.timeout_seconds <= 0:
+            raise PlannerPolicyError("timeout_seconds must be greater than 0")
+
+
+@dataclass(frozen=True)
 class PlannerAssignment:
     requirement_id: str
     resource_ids: list[str]
@@ -47,16 +58,49 @@ class PlannerResult:
     solver: Literal["ortools", "fallback"]
     assignments: list[PlannerAssignment]
     estimated_cost: Decimal
+    duration_ms: int = 0
+    fallback_reason: str | None = None
+
+
+class PlannerPolicyError(ValueError):
+    pass
+
+
+class PlannerTimeoutError(TimeoutError):
+    pass
 
 
 class PlannerService:
-    def solve(self, model: PlannerInput) -> PlannerResult:
-        ortools_result = self._try_ortools(model)
-        if ortools_result is not None:
-            return ortools_result
-        return self._fallback_greedy(model, solver_name="fallback")
+    def __init__(self, policy: PlannerPolicy | None = None) -> None:
+        self.policy = policy or PlannerPolicy()
 
-    def _try_ortools(self, model: PlannerInput) -> PlannerResult | None:
+    def solve(self, model: PlannerInput) -> PlannerResult:
+        started_at = perf_counter()
+        deadline = started_at + self.policy.timeout_seconds
+        fallback_reason: str | None = None
+
+        try:
+            ortools_result = self._try_ortools(model, deadline=deadline)
+            if ortools_result is not None:
+                return _with_duration(ortools_result, started_at)
+            fallback_reason = "ortools_unavailable"
+        except PlannerTimeoutError:
+            fallback_reason = "ortools_timeout"
+
+        if not self.policy.fallback_enabled:
+            raise PlannerPolicyError(f"Fallback disabled after {fallback_reason}")
+
+        fallback_result = self._fallback_greedy(
+            model,
+            solver_name="fallback",
+            deadline=deadline,
+            fallback_reason=fallback_reason,
+        )
+        return _with_duration(fallback_result, started_at)
+
+    def _try_ortools(
+        self, model: PlannerInput, *, deadline: float
+    ) -> PlannerResult | None:
         try:
             has_ortools = (
                 importlib.util.find_spec("ortools.constraint_solver") is not None
@@ -68,21 +112,33 @@ class PlannerService:
             return None
 
         # Scaffold: until the real model is implemented, reuse the fallback logic.
-        return self._fallback_greedy(model, solver_name="ortools")
+        return self._fallback_greedy(
+            model,
+            solver_name="ortools",
+            deadline=deadline,
+            fallback_reason=None,
+        )
 
     def _fallback_greedy(
-        self, model: PlannerInput, *, solver_name: Literal["ortools", "fallback"]
+        self,
+        model: PlannerInput,
+        *,
+        solver_name: Literal["ortools", "fallback"],
+        deadline: float,
+        fallback_reason: str | None,
     ) -> PlannerResult:
         assignments: list[PlannerAssignment] = []
         schedule: dict[str, list[tuple[datetime | None, datetime | None]]] = {}
         total_cost = Decimal("0")
 
         for requirement in model.requirements:
+            _raise_if_timed_out(deadline)
             requirement_hours = _requirement_hours(requirement)
             selected_ids: list[str] = []
             selected_cost = Decimal("0")
 
             for candidate in _sorted_candidates(requirement.candidates):
+                _raise_if_timed_out(deadline)
                 if not _candidate_covers_window(candidate, requirement):
                     continue
                 if not _can_use_resource(schedule, candidate.resource_id, requirement):
@@ -110,6 +166,7 @@ class PlannerService:
             solver=solver_name,
             assignments=assignments,
             estimated_cost=total_cost,
+            fallback_reason=fallback_reason,
         )
 
 
@@ -187,3 +244,19 @@ def _windows_overlap(
     latest_start = max(start_a, start_b)
     earliest_end = min(end_a, end_b)
     return latest_start < earliest_end
+
+
+def _raise_if_timed_out(deadline: float) -> None:
+    if perf_counter() > deadline:
+        raise PlannerTimeoutError("Planner timeout exceeded")
+
+
+def _with_duration(result: PlannerResult, started_at: float) -> PlannerResult:
+    return PlannerResult(
+        plan_id=result.plan_id,
+        solver=result.solver,
+        assignments=result.assignments,
+        estimated_cost=result.estimated_cost,
+        duration_ms=max(int((perf_counter() - started_at) * 1000), 0),
+        fallback_reason=result.fallback_reason,
+    )

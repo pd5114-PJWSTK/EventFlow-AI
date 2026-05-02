@@ -33,7 +33,10 @@ from app.schemas.planner import (
 from app.services.ortools_service import (
     PlannerAssignment,
     PlannerRequirement,
+    PlannerPolicy,
+    PlannerPolicyError,
     PlannerService,
+    PlannerTimeoutError,
 )
 from app.services.planner_input_builder import PlannerInputError, load_planner_input
 
@@ -49,6 +52,8 @@ def generate_plan(
     initiated_by: str | None = None,
     trigger_reason: str = "manual",
     commit_to_assignments: bool = True,
+    solver_timeout_seconds: float = 10.0,
+    fallback_enabled: bool = True,
 ) -> GeneratePlanResponse:
     event = db.get(Event, event_id)
     if event is None:
@@ -56,16 +61,26 @@ def generate_plan(
 
     model = load_planner_input(db, event_id)
     planner_run = PlannerRun(
-        objective_version="phase-4-cp-03-v1",
+        objective_version="phase-4-cp-04-v1",
         initiated_by=initiated_by,
         trigger_reason=trigger_reason,
-        input_snapshot=_jsonable(model),
+        input_snapshot={
+            "planner_input": _jsonable(model),
+            "policy": {
+                "timeout_seconds": solver_timeout_seconds,
+                "fallback_enabled": fallback_enabled,
+            },
+        },
     )
     db.add(planner_run)
     db.flush()
 
     try:
-        result = PlannerService().solve(model)
+        policy = PlannerPolicy(
+            timeout_seconds=solver_timeout_seconds,
+            fallback_enabled=fallback_enabled,
+        )
+        result = PlannerService(policy=policy).solve(model)
         requirement_by_id = {
             requirement.requirement_id: requirement for requirement in model.requirements
         }
@@ -112,6 +127,10 @@ def generate_plan(
             recommendation_id=recommendation.recommendation_id,
             plan_id=result.plan_id,
             solver=result.solver,
+            solver_duration_ms=result.duration_ms,
+            fallback_reason=result.fallback_reason,
+            fallback_enabled=fallback_enabled,
+            solver_timeout_seconds=solver_timeout_seconds,
             is_fully_assigned=_is_fully_assigned(result.assignments),
             assignments=[
                 _response_assignment(assignment, requirement_by_id)
@@ -121,6 +140,12 @@ def generate_plan(
             transport_leg_ids=transport_leg_ids,
             estimated_cost=_money(result.estimated_cost),
         )
+    except (PlannerPolicyError, PlannerTimeoutError) as exc:
+        planner_run.finished_at = datetime.utcnow()
+        planner_run.run_status = PlannerRunStatus.failed
+        planner_run.notes = str(exc)
+        db.commit()
+        raise PlanGenerationError(str(exc)) from exc
     except Exception as exc:
         planner_run.finished_at = datetime.utcnow()
         planner_run.run_status = PlannerRunStatus.failed

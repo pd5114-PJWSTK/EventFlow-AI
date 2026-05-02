@@ -48,6 +48,8 @@ def generate_plan_endpoint(
             initiated_by=payload.initiated_by,
             trigger_reason=payload.trigger_reason,
             commit_to_assignments=payload.commit_to_assignments,
+            solver_timeout_seconds=payload.solver_timeout_seconds,
+            fallback_enabled=payload.fallback_enabled,
         )
     except PlannerInputError as exc:
         if str(exc) == "Event not found":

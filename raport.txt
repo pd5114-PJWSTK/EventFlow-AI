@@ -364,3 +364,41 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: domknac pierwszy end-to-end przeplyw generowania planu z traceability w `ai.*` i zapisem planu do `core.*`.
 - [2026-05-02] Zacommitowano i otagowano CP-03 Fazy 4.
   Cel: zamknac checkpoint jako stabilny punkt wejscia do CP-04.
+
+9.3) FAZA 4 - POSTEP IMPLEMENTACJI (CP-04)
+- Status checkpointu: `phase-4-cp-04-timeout-fallback-performance-smoke` -> ZREALIZOWANY i zacommitowany + otagowany.
+- Zakres wykonany:
+  - Dodano polityke planera:
+    - `PlannerPolicy(timeout_seconds, fallback_enabled)`.
+  - Rozszerzono `PlannerService` o:
+    - deadline/timeout w petli planowania,
+    - `PlannerTimeoutError`,
+    - `PlannerPolicyError`,
+    - jawny `fallback_reason`,
+    - metryke `duration_ms`.
+  - Rozszerzono `POST /api/planner/generate-plan` o:
+    - `solver_timeout_seconds`,
+    - `fallback_enabled`.
+  - Rozszerzono odpowiedz endpointu o:
+    - `solver_duration_ms`,
+    - `fallback_reason`,
+    - `fallback_enabled`,
+    - `solver_timeout_seconds`.
+  - Zapisywany `ai.planner_runs.input_snapshot` zawiera teraz snapshot danych planera i zastosowana polityke.
+  - Dodano testy CP-04:
+    - fallback disabled,
+    - timeout solvera,
+    - test wydajnosciowy 120 requirementow / 360 kandydatow,
+    - endpointowy smoke fallback policy.
+  - Dodano smoke collection: `docs/smoke/phase4-smoke.md`.
+- Walidacja wykonania:
+  - Testy Fazy 4: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase4_cp01.py tests/test_phase4_cp02.py tests/test_phase4_cp03.py tests/test_phase4_cp04.py -q` -> 11 passed.
+  - Regresja Faza 3 + Faza 4: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest tests/test_phase3_cp01.py tests/test_phase3_cp02.py tests/test_phase3_cp03.py tests/test_phase3_cp04.py tests/test_phase3_cp05.py tests/test_phase4_cp01.py tests/test_phase4_cp02.py tests/test_phase4_cp03.py tests/test_phase4_cp04.py -q` -> 23 passed.
+  - Pelny pakiet: `docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q` -> 42 passed.
+  - Kontrola skladni: `docker compose exec backend python -m py_compile ...` -> passed.
+  - Lint/format: `black` i `ruff` nie sa dostepne w aktualnym obrazie backendu (`executable file not found`).
+
+- [2026-05-02] Zaimplementowano CP-04 Fazy 4 (timeout + fallback policy + performance + smoke).
+  Cel: ustabilizowac zachowanie planera przy braku OR-Tools, ograniczyc czas pracy solvera i udokumentowac szybki smoke dla generowania planu.
+- [2026-05-02] Zacommitowano i otagowano CP-04 Fazy 4.
+  Cel: zamknac checkpoint timeout/fallback/performance jako stabilny punkt wejscia do dalszych prac Fazy 4.

@@ -47,6 +47,8 @@ class GeneratePlanRequest(BaseModel):
     initiated_by: str | None = None
     trigger_reason: str = "manual"
     commit_to_assignments: bool = True
+    solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    fallback_enabled: bool = True
 
 
 class GeneratedPlanAssignment(BaseModel):
@@ -63,6 +65,10 @@ class GeneratePlanResponse(BaseModel):
     recommendation_id: str
     plan_id: str
     solver: Literal["ortools", "fallback"]
+    solver_duration_ms: int = 0
+    fallback_reason: str | None = None
+    fallback_enabled: bool = True
+    solver_timeout_seconds: float
     is_fully_assigned: bool
     assignments: list[GeneratedPlanAssignment] = Field(default_factory=list)
     assignment_ids: list[str] = Field(default_factory=list)
