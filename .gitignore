@@ -31,3 +31,8 @@ htmlcov/
 celerybeat-schedule
 celerybeat-schedule.*
 models/
+
+# Local PoC / temporary artifacts
+.deps/
+poc_escape_dynamic/
+poc_escape_dynamic_vps/
