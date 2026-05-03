@@ -1,0 +1,59 @@
+import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Alert, Box, Button, Paper, Stack, TextField, Typography } from "@mui/material";
+
+import { useAuth } from "../lib/auth";
+
+export function LoginPage(): JSX.Element {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [username, setUsername] = useState("test-admin");
+  const [password, setPassword] = useState("StrongPass!234");
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard";
+
+  const onSubmit = async (): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await login(username, password);
+      navigate(redirectTo, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nie uda³o siê zalogowaæ.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Box
+      sx={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        background: "radial-gradient(circle at 20% 20%, #99f6e4, #f4f7f6 40%)",
+      }}
+    >
+      <Paper sx={{ p: 4, width: "min(440px, 92vw)", borderRadius: 4 }} elevation={4}>
+        <Stack spacing={2}>
+          <Typography variant="h4">Logowanie u¿ytkownika</Typography>
+          <Typography color="text.secondary">Zaloguj siê do panelu operacyjnego EventFlow AI.</Typography>
+          {error && <Alert severity="error">{error}</Alert>}
+          <TextField label="Nazwa u¿ytkownika" value={username} onChange={(e) => setUsername(e.target.value)} />
+          <TextField
+            label="Has³o"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button variant="contained" size="large" onClick={() => void onSubmit()} disabled={isLoading}>
+            {isLoading ? "Logowanie..." : "Zaloguj"}
+          </Button>
+        </Stack>
+      </Paper>
+    </Box>
+  );
+}

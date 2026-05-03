@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.middleware.rbac import get_current_auth_payload
 from app.schemas.ai_agents import (
+    AIAgentsIngestEventCommitRequest,
+    AIAgentsIngestEventPreviewRequest,
+    AIAgentsIngestEventPreviewResponse,
     AIAgentsEvaluateRequest,
     AIAgentsEvaluateResponse,
     AIAgentsIngestEventRequest,
@@ -12,6 +15,7 @@ from app.schemas.ai_agents import (
     AIAgentsOptimizeResponse,
 )
 from app.services.ai_event_ingest_service import AIEventIngestError, ingest_event_from_text
+from app.services.ai_event_ingest_service import commit_ingest_event_draft, preview_ingest_event_from_text
 from app.services.ai_orchestration_service import (
     AIOrchestrationError,
     run_ai_optimization,
@@ -83,6 +87,49 @@ def ingest_event_endpoint(
             initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
             initiated_by_user_id=str(auth_payload.get("sub", "")),
             prefer_langgraph=payload.prefer_langgraph,
+        )
+    except AIEventIngestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/ingest-event/preview", response_model=AIAgentsIngestEventPreviewResponse)
+def ingest_event_preview_endpoint(
+    payload: AIAgentsIngestEventPreviewRequest,
+    auth_payload: dict = Depends(get_current_auth_payload),
+) -> AIAgentsIngestEventPreviewResponse:
+    try:
+        return preview_ingest_event_from_text(
+            raw_input=payload.raw_input,
+            initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
+            prefer_langgraph=payload.prefer_langgraph,
+        )
+    except AIEventIngestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post("/ingest-event/commit", response_model=AIAgentsIngestEventResponse)
+def ingest_event_commit_endpoint(
+    payload: AIAgentsIngestEventCommitRequest,
+    db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
+) -> AIAgentsIngestEventResponse:
+    try:
+        return commit_ingest_event_draft(
+            db,
+            payload=AIAgentsIngestEventCommitRequest(
+                draft=payload.draft,
+                assumptions=payload.assumptions,
+                parser_mode=payload.parser_mode,
+                used_fallback=payload.used_fallback,
+                initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
+            ),
+            initiated_by_user_id=str(auth_payload.get("sub", "")),
         )
     except AIEventIngestError as exc:
         raise HTTPException(

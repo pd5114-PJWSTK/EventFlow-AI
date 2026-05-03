@@ -70,3 +70,21 @@ def build_incident_parsing_prompt(raw_log: str) -> PromptTemplate:
             f"LOG:\n{raw_log}"
         ),
     )
+
+
+def build_post_event_summary_prompt(raw_summary: str) -> PromptTemplate:
+    return PromptTemplate(
+        system=(
+            "You parse post-event operational summaries into strict JSON only. "
+            "Never return markdown."
+        ),
+        user=(
+            "Extract event completion outcome details from the summary text. "
+            "Return JSON with keys: finished_on_time (boolean|null), total_delay_minutes (integer|null), "
+            "actual_cost (number|null), overtime_cost (number|null), transport_cost (number|null), "
+            "sla_breached (boolean), client_satisfaction_score (number|null), "
+            "internal_quality_score (number|null), margin_estimate (number|null), summary_notes (string). "
+            "Use null where unknown.\n\n"
+            f"SUMMARY:\n{raw_summary}"
+        ),
+    )

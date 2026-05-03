@@ -154,3 +154,30 @@ class RuntimeNotificationFeedResponse(BaseModel):
     event_id: str
     items: list[RuntimeNotificationItem] = Field(default_factory=list)
     total: int
+
+
+class RuntimePostEventParseRequest(BaseModel):
+    raw_summary: str = Field(min_length=1, max_length=6000)
+    prefer_llm: bool = True
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class RuntimePostEventParseResponse(BaseModel):
+    event_id: str
+    parser_mode: str
+    parse_confidence: float
+    gaps: list[str] = Field(default_factory=list)
+    draft_complete: RuntimeCompleteRequest
+
+
+class RuntimePostEventCommitRequest(BaseModel):
+    completion: RuntimeCompleteRequest
+    source_mode: str = "manual"
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class RuntimePostEventCommitResponse(BaseModel):
+    event_id: str
+    source_mode: str
+    committed_at: datetime
+    completion: RuntimeCompleteResponse

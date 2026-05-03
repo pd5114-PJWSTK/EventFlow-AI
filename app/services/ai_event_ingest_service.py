@@ -5,17 +5,15 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models.core import (
-    Client,
-    EquipmentType,
-    Location,
-    LocationType,
-    PersonRole,
-    PriorityLevel,
-    RequirementType,
-    VehicleType,
+from app.models.core import Client, EquipmentType, Location, LocationType, PersonRole, PriorityLevel, RequirementType, VehicleType
+from app.schemas.ai_agents import (
+    AIAgentsIngestEventCommitRequest,
+    AIAgentsIngestEventDraftGap,
+    AIAgentsIngestEventDraftPayload,
+    AIAgentsIngestEventDraftRequirement,
+    AIAgentsIngestEventPreviewResponse,
+    AIAgentsIngestEventResponse,
 )
-from app.schemas.ai_agents import AIAgentsIngestEventResponse
 from app.schemas.events import EventCreate
 from app.schemas.requirements import EventRequirementCreate
 from app.services.ai_orchestration_service import run_ai_optimization
@@ -27,6 +25,141 @@ class AIEventIngestError(ValueError):
     pass
 
 
+def preview_ingest_event_from_text(
+    *,
+    raw_input: str,
+    initiated_by: str | None,
+    prefer_langgraph: bool,
+) -> AIAgentsIngestEventPreviewResponse:
+    try:
+        parsed = _parse_structured_lines(raw_input)
+        assumptions = list(parsed["assumptions"])
+        parser_mode = "deterministic"
+        used_fallback = False
+
+        requirements = list(parsed["requirements"])
+        try:
+            llm_result = run_ai_optimization(
+                raw_input=raw_input,
+                planner_snapshot="",
+                prefer_langgraph=prefer_langgraph,
+            )
+            assumptions.extend(llm_result.parsed_input.assumptions)
+            requirements = _merge_requirements(
+                deterministic_requirements=requirements,
+                llm_requirements=llm_result.parsed_input.requirements,
+            )
+            parser_mode = "hybrid_llm"
+            used_fallback = bool(llm_result.used_fallback)
+        except Exception:
+            parser_mode = "deterministic_fallback"
+            used_fallback = True
+
+        draft = AIAgentsIngestEventDraftPayload(
+            client_name=str(parsed["client_name"]),
+            client_priority=_priority(str(parsed["client_priority"])),
+            location_name=str(parsed["location_name"]),
+            city=str(parsed["city"]),
+            location_type=_location_type(str(parsed["location_type"])),
+            setup_complexity_score=int(parsed["setup_complexity"]),
+            access_difficulty=int(parsed["access_difficulty"]),
+            parking_difficulty=int(parsed["parking_difficulty"]),
+            event_name=str(parsed["event_name"]),
+            event_type=str(parsed["event_type"]),
+            event_subtype=str(parsed["event_subtype"]) if parsed["event_subtype"] else None,
+            attendee_count=int(parsed["attendee_count"]),
+            planned_start=parsed["planned_start"],
+            planned_end=parsed["planned_end"],
+            event_priority=_priority(str(parsed["event_priority"])),
+            budget_estimate=Decimal(str(parsed["budget_estimate"])),
+            requires_transport=bool(parsed["requires_transport"]),
+            requires_setup=bool(parsed["requires_setup"]),
+            requires_teardown=bool(parsed["requires_teardown"]),
+            requirements=[AIAgentsIngestEventDraftRequirement(**requirement) for requirement in requirements],
+        )
+
+        gaps = _build_preview_gaps(raw_input=raw_input, draft=draft)
+        if not draft.requirements:
+            gaps.append(
+                AIAgentsIngestEventDraftGap(
+                    field="requirements",
+                    message="Brak wymagan eventu. Dodaj co najmniej jeden requirement.",
+                    severity="critical",
+                )
+            )
+
+        return AIAgentsIngestEventPreviewResponse(
+            draft=draft,
+            assumptions=assumptions,
+            gaps=gaps,
+            parser_mode=parser_mode,
+            used_fallback=used_fallback,
+        )
+    except Exception as exc:
+        raise AIEventIngestError(str(exc)) from exc
+
+
+def commit_ingest_event_draft(
+    db: Session,
+    *,
+    payload: AIAgentsIngestEventCommitRequest,
+    initiated_by_user_id: str | None,
+) -> AIAgentsIngestEventResponse:
+    try:
+        draft = payload.draft
+        initiated_by = payload.initiated_by or "ai_ingest"
+
+        client = _resolve_or_create_client(db, draft=draft)
+        location = _resolve_or_create_location(db, draft=draft)
+
+        event_payload = EventCreate(
+            client_id=client.client_id,
+            location_id=location.location_id,
+            event_name=draft.event_name,
+            event_type=draft.event_type,
+            event_subtype=draft.event_subtype,
+            attendee_count=draft.attendee_count,
+            planned_start=draft.planned_start,
+            planned_end=draft.planned_end,
+            priority=draft.event_priority,
+            budget_estimate=draft.budget_estimate,
+            requires_transport=draft.requires_transport,
+            requires_setup=draft.requires_setup,
+            requires_teardown=draft.requires_teardown,
+            source_channel="ai_ingest",
+            created_by=initiated_by,
+            created_by_user_id=initiated_by_user_id,
+            notes="Created by AI ingest pipeline.",
+        )
+        event = create_event(db, event_payload)
+
+        requirement_ids: list[str] = []
+        for requirement in draft.requirements:
+            req_payload = requirement.model_dump(mode="json")
+            if req_payload.get("requirement_type") == RequirementType.equipment_type:
+                req_payload["equipment_type_id"] = _resolve_equipment_type_id(
+                    db, str(req_payload.get("equipment_type_id"))
+                )
+            created = create_requirement(
+                db,
+                event.event_id,
+                EventRequirementCreate(**req_payload),
+            )
+            requirement_ids.append(created.requirement_id)
+
+        return AIAgentsIngestEventResponse(
+            client_id=client.client_id,
+            location_id=location.location_id,
+            event_id=event.event_id,
+            requirement_ids=requirement_ids,
+            assumptions=payload.assumptions,
+            parser_mode=payload.parser_mode,
+            used_fallback=payload.used_fallback,
+        )
+    except Exception as exc:
+        raise AIEventIngestError(str(exc)) from exc
+
+
 def ingest_event_from_text(
     db: Session,
     *,
@@ -36,97 +169,96 @@ def ingest_event_from_text(
     prefer_langgraph: bool,
 ) -> AIAgentsIngestEventResponse:
     try:
-        parsed = _parse_structured_lines(raw_input)
-        assumptions = list(parsed["assumptions"])
-        parser_mode = "deterministic"
-        used_fallback = False
-
-        try:
-            llm_result = run_ai_optimization(
-                raw_input=raw_input,
-                planner_snapshot="",
-                prefer_langgraph=prefer_langgraph,
-            )
-            assumptions.extend(llm_result.parsed_input.assumptions)
-            if llm_result.used_fallback:
-                used_fallback = True
-            requirements = _merge_requirements(
-                deterministic_requirements=parsed["requirements"],
-                llm_requirements=llm_result.parsed_input.requirements,
-            )
-        except Exception:
-            requirements = parsed["requirements"]
-            used_fallback = True
-            parser_mode = "deterministic_fallback"
-        else:
-            parser_mode = "hybrid_llm"
-
-        client = Client(
-            name=str(parsed["client_name"]),
-            priority=_priority(parsed["client_priority"]),
-            notes="Created by AI ingest pipeline.",
+        preview = preview_ingest_event_from_text(
+            raw_input=raw_input,
+            initiated_by=initiated_by,
+            prefer_langgraph=prefer_langgraph,
         )
-        db.add(client)
-        db.flush()
-
-        location = Location(
-            name=str(parsed["location_name"]),
-            city=str(parsed["city"]),
-            location_type=_location_type(parsed["location_type"]),
-            setup_complexity_score=int(parsed["setup_complexity"]),
-            access_difficulty=int(parsed["access_difficulty"]),
-            parking_difficulty=int(parsed["parking_difficulty"]),
-            notes="Created by AI ingest pipeline.",
-        )
-        db.add(location)
-        db.flush()
-
-        event_payload = EventCreate(
-            client_id=client.client_id,
-            location_id=location.location_id,
-            event_name=str(parsed["event_name"]),
-            event_type=str(parsed["event_type"]),
-            event_subtype=str(parsed["event_subtype"]) if parsed["event_subtype"] else None,
-            attendee_count=int(parsed["attendee_count"]),
-            planned_start=parsed["planned_start"],
-            planned_end=parsed["planned_end"],
-            priority=_priority(parsed["event_priority"]),
-            budget_estimate=Decimal(str(parsed["budget_estimate"])),
-            requires_transport=bool(parsed["requires_transport"]),
-            requires_setup=bool(parsed["requires_setup"]),
-            requires_teardown=bool(parsed["requires_teardown"]),
-            source_channel="ai_ingest",
-            created_by=initiated_by or "ai_ingest",
-            created_by_user_id=initiated_by_user_id,
-            notes="Created by AI ingest pipeline.",
-        )
-        event = create_event(db, event_payload)
-
-        requirement_ids: list[str] = []
-        for requirement in requirements:
-            payload = dict(requirement)
-            if payload.get("requirement_type") == RequirementType.equipment_type:
-                payload["equipment_type_id"] = _resolve_equipment_type_id(
-                    db, str(payload.get("equipment_type_id"))
-                )
-            created = create_requirement(
-                db,
-                event.event_id,
-                EventRequirementCreate(**payload),
-            )
-            requirement_ids.append(created.requirement_id)
-
-        return AIAgentsIngestEventResponse(
-            client_id=client.client_id,
-            location_id=location.location_id,
-            event_id=event.event_id,
-            requirement_ids=requirement_ids,
-            assumptions=assumptions,
-            parser_mode=parser_mode,
-            used_fallback=used_fallback,
+        return commit_ingest_event_draft(
+            db,
+            payload=AIAgentsIngestEventCommitRequest(
+                draft=preview.draft,
+                assumptions=preview.assumptions,
+                parser_mode=preview.parser_mode,
+                used_fallback=preview.used_fallback,
+                initiated_by=initiated_by,
+            ),
+            initiated_by_user_id=initiated_by_user_id,
         )
     except Exception as exc:
         raise AIEventIngestError(str(exc)) from exc
+
+
+def _resolve_or_create_client(db: Session, *, draft: AIAgentsIngestEventDraftPayload) -> Client:
+    if draft.client_id:
+        client = db.get(Client, draft.client_id)
+        if client is None:
+            raise AIEventIngestError("client_id z draftu nie istnieje.")
+        return client
+
+    client = Client(
+        name=draft.client_name,
+        priority=draft.client_priority,
+        notes="Created by AI ingest pipeline.",
+    )
+    db.add(client)
+    db.flush()
+    return client
+
+
+def _resolve_or_create_location(db: Session, *, draft: AIAgentsIngestEventDraftPayload) -> Location:
+    if draft.location_id:
+        location = db.get(Location, draft.location_id)
+        if location is None:
+            raise AIEventIngestError("location_id z draftu nie istnieje.")
+        return location
+
+    location = Location(
+        name=draft.location_name,
+        city=draft.city,
+        location_type=draft.location_type,
+        setup_complexity_score=draft.setup_complexity_score,
+        access_difficulty=draft.access_difficulty,
+        parking_difficulty=draft.parking_difficulty,
+        notes="Created by AI ingest pipeline.",
+    )
+    db.add(location)
+    db.flush()
+    return location
+
+
+def _build_preview_gaps(*, raw_input: str, draft: AIAgentsIngestEventDraftPayload) -> list[AIAgentsIngestEventDraftGap]:
+    gaps: list[AIAgentsIngestEventDraftGap] = []
+    kv_keys = {line.split(":", 1)[0].strip().lower() for line in raw_input.splitlines() if ":" in line}
+
+    key_to_field = {
+        "client_name": "client_name",
+        "location_name": "location_name",
+        "city": "city",
+        "event_name": "event_name",
+        "event_type": "event_type",
+        "planned_start": "planned_start",
+        "planned_end": "planned_end",
+    }
+    for key, field_name in key_to_field.items():
+        if key not in kv_keys:
+            gaps.append(
+                AIAgentsIngestEventDraftGap(
+                    field=field_name,
+                    message=f"Pole {field_name} zostalo uzupelnione domyslnie i wymaga weryfikacji.",
+                    severity="warning",
+                )
+            )
+
+    if draft.planned_end <= draft.planned_start:
+        gaps.append(
+            AIAgentsIngestEventDraftGap(
+                field="planned_end",
+                message="planned_end musi byc pozniejszy niz planned_start.",
+                severity="critical",
+            )
+        )
+    return gaps
 
 
 def _parse_structured_lines(raw_input: str) -> dict:
@@ -285,7 +417,6 @@ def _merge_requirements(*, deterministic_requirements: list[dict], llm_requireme
 
 
 def _ensure_equipment_type_id(type_name: str) -> str:
-    # Sentinel deterministic id handled later by lookup/creation in create flow.
     return f"__AUTO_EQUIPMENT_TYPE__::{type_name.lower().strip()}"
 
 

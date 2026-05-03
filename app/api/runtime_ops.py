@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Response, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
@@ -16,14 +17,20 @@ from app.schemas.runtime_ops import (
     RuntimeIncidentRequest,
     RuntimeIncidentResponse,
     RuntimeNotificationFeedResponse,
+    RuntimePostEventCommitRequest,
+    RuntimePostEventCommitResponse,
+    RuntimePostEventParseRequest,
+    RuntimePostEventParseResponse,
     RuntimeStartRequest,
     RuntimeStartResponse,
 )
+from app.services.event_service import get_event
 from app.services.runtime_notification_service import list_runtime_notifications
 from app.services.runtime_incident_parser import (
     RuntimeIncidentParsingError,
     parse_and_report_incident,
 )
+from app.services.runtime_post_event_parser import RuntimePostEventParsingError, parse_post_event_summary
 from app.services.idempotency_service import (
     IdempotencyConflictError,
     IdempotencyPendingError,
@@ -351,6 +358,154 @@ def complete_event_endpoint(
             payload=payload,
             actor_user_id=str(auth_payload.get("sub", "")),
             actor_username=str(auth_payload.get("username", "")),
+        )
+        complete_idempotency(
+            db,
+            record=reservation.record if reservation else None,
+            response_payload=result.model_dump(mode="json"),
+        )
+        response.headers["X-Operation-Status"] = "success"
+        return result
+    except IdempotencyConflictError as exc:
+        raise http_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="IDEMPOTENCY_CONFLICT",
+            message=str(exc),
+        ) from exc
+    except IdempotencyPendingError as exc:
+        raise http_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="IDEMPOTENCY_PENDING",
+            message=str(exc),
+        ) from exc
+    except RuntimeOpsError as exc:
+        fail_idempotency(
+            db,
+            record=reservation.record if reservation else None,
+            error_code="RUNTIME_OPS_ERROR",
+            error_message=str(exc),
+        )
+        if str(exc) == "Event not found":
+            raise http_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_code="RUNTIME_EVENT_NOT_FOUND",
+                message=str(exc),
+            ) from exc
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="RUNTIME_OPS_ERROR",
+            message=str(exc),
+        ) from exc
+
+
+@router.post("/events/{event_id}/post-event/parse", response_model=RuntimePostEventParseResponse)
+def parse_post_event_endpoint(
+    event_id: str,
+    payload: RuntimePostEventParseRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
+) -> RuntimePostEventParseResponse:
+    del auth_payload
+    reservation = None
+    try:
+        if get_event(db, event_id) is None:
+            raise http_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                error_code="RUNTIME_EVENT_NOT_FOUND",
+                message="Event not found",
+            )
+
+        reservation = reserve_idempotency(
+            db,
+            scope="runtime.post_event.parse",
+            idempotency_key=payload.idempotency_key,
+            event_id=event_id,
+            request_payload=payload.model_dump(mode="json", exclude={"idempotency_key"}),
+        )
+        if reservation.replayed and reservation.replay_payload is not None:
+            response.headers["X-Idempotency-Replayed"] = "true"
+            response.headers["X-Operation-Status"] = "success"
+            return RuntimePostEventParseResponse.model_validate(reservation.replay_payload)
+
+        parsed = parse_post_event_summary(
+            raw_summary=payload.raw_summary,
+            prefer_llm=payload.prefer_llm,
+        )
+        result = RuntimePostEventParseResponse(
+            event_id=event_id,
+            parser_mode=parsed.parser_mode,
+            parse_confidence=parsed.parse_confidence,
+            gaps=parsed.gaps,
+            draft_complete=parsed.completion,
+        )
+        complete_idempotency(
+            db,
+            record=reservation.record if reservation else None,
+            response_payload=result.model_dump(mode="json"),
+        )
+        response.headers["X-Operation-Status"] = "success"
+        return result
+    except IdempotencyConflictError as exc:
+        raise http_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="IDEMPOTENCY_CONFLICT",
+            message=str(exc),
+        ) from exc
+    except IdempotencyPendingError as exc:
+        raise http_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="IDEMPOTENCY_PENDING",
+            message=str(exc),
+        ) from exc
+    except RuntimePostEventParsingError as exc:
+        fail_idempotency(
+            db,
+            record=reservation.record if reservation else None,
+            error_code="RUNTIME_POST_EVENT_PARSE_ERROR",
+            error_message=str(exc),
+        )
+        raise http_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="RUNTIME_POST_EVENT_PARSE_ERROR",
+            message=str(exc),
+        ) from exc
+
+
+@router.post("/events/{event_id}/post-event/commit", response_model=RuntimePostEventCommitResponse)
+def commit_post_event_endpoint(
+    event_id: str,
+    payload: RuntimePostEventCommitRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    auth_payload: dict = Depends(get_current_auth_payload),
+) -> RuntimePostEventCommitResponse:
+    reservation = None
+    try:
+        reservation = reserve_idempotency(
+            db,
+            scope="runtime.post_event.commit",
+            idempotency_key=payload.idempotency_key,
+            event_id=event_id,
+            request_payload=payload.model_dump(mode="json", exclude={"idempotency_key"}),
+        )
+        if reservation.replayed and reservation.replay_payload is not None:
+            response.headers["X-Idempotency-Replayed"] = "true"
+            response.headers["X-Operation-Status"] = "success"
+            return RuntimePostEventCommitResponse.model_validate(reservation.replay_payload)
+
+        completion = complete_event_execution(
+            db,
+            event_id=event_id,
+            payload=payload.completion,
+            actor_user_id=str(auth_payload.get("sub", "")),
+            actor_username=str(auth_payload.get("username", "")),
+        )
+        result = RuntimePostEventCommitResponse(
+            event_id=event_id,
+            source_mode=payload.source_mode,
+            committed_at=datetime.now(UTC),
+            completion=completion,
         )
         complete_idempotency(
             db,

@@ -1321,3 +1321,51 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-03] Wdrożono latki z 2-iteracyjnego security check: access token revocation enforcement oraz proxy-aware throttling pod VPS.
   Cel: zamknac okno przejecia aktywnego tokena po logout/dezaktywacji i ograniczyc ryzyko masowych lockoutow za reverse proxy.
+
+14) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-01)
+- Status checkpointu: `phase-8-frontend-cp-01-full-user-login-and-planning-console` -> ZREALIZOWANY (backend + frontend + testy).
+- Zakres wykonany:
+  - Backend API pod arkusze korekty:
+    - AI intake:
+      - `POST /api/ai-agents/ingest-event/preview`
+      - `POST /api/ai-agents/ingest-event/commit`
+    - Post-event logging:
+      - `POST /api/runtime/events/{event_id}/post-event/parse`
+      - `POST /api/runtime/events/{event_id}/post-event/commit`
+  - Dodano/rozszerzono kontrakty schematow:
+    - `app/schemas/ai_agents.py`
+    - `app/schemas/runtime_ops.py`
+  - Dodano serwisy:
+    - `app/services/ai_event_ingest_service.py` (preview + commit + kompatybilnosc ingest legacy)
+    - `app/services/runtime_post_event_parser.py`
+    - `app/services/ai_prompt_templates.py` (prompt pod post-event)
+  - Rozszerzono routery API:
+    - `app/api/ai_agents.py`
+    - `app/api/runtime_ops.py`
+  - Dodano testy backendowe CP-01 FE:
+    - `tests/test_phase8_frontend_cp01.py`
+  - Dodano frontend `frontend/` (React + TypeScript + MUI + Vite):
+    - okno logowania uzytkownikow (`/login`) z obsluga sesji,
+    - panel admin shell z modulami:
+      - Dashboard,
+      - Intake AI (preview -> arkusz -> commit),
+      - Planner Studio (validate/generate/recommend/preview-gaps/resolve-gaps + animowany pipeline),
+      - Runtime + Replan (incident parse + replan + animowany pipeline),
+      - Post-Event Log (parse -> arkusz -> commit),
+      - Eventy, Zasoby, AI Agents, ML, Uzytkownicy, Moje konto.
+    - testy FE:
+      - `frontend/src/__tests__/login.test.tsx`
+      - `frontend/src/__tests__/intake.test.tsx`
+- Walidacja wykonania:
+  - Backend (fokus):
+    - `docker compose run --rm --build -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase8_frontend_cp01.py tests/test_auth.py tests/test_phase8_cp05.py` -> 20 passed.
+  - Backend (pelna regresja):
+    - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q` -> 126 passed.
+  - Frontend:
+    - `npm run typecheck` -> passed.
+    - `npm run test` -> 2 passed.
+    - `npm run build` -> passed.
+    - `npm run lint` -> passed (1 warning: react-refresh/only-export-components).
+
+- [2026-05-03] Zaimplementowano CP-01 FE Fazy 8 (AI intake sheet, planner/replan UX, post-event sheet, okno logowania uzytkownikow, panele administracyjne).
+  Cel: dostarczyc kompletny panel operacyjny admina z flow LLM -> korekta -> zatwierdzenie oraz live runtime/replan.
