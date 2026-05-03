@@ -28,3 +28,19 @@ def test_login_invalid_credentials(api_client: TestClient) -> None:
     )
     assert response.status_code == 401
 
+
+def test_login_lockout_after_repeated_failures(api_client: TestClient) -> None:
+    for _ in range(5):
+        response = api_client.post(
+            "/auth/login",
+            json={"username": "test-admin", "password": "wrong-password"},
+        )
+        assert response.status_code == 401
+
+    blocked = api_client.post(
+        "/auth/login",
+        json={"username": "test-admin", "password": "wrong-password"},
+    )
+    assert blocked.status_code == 429
+    assert blocked.headers.get("Retry-After") is not None
+

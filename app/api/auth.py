@@ -15,6 +15,7 @@ from app.services.auth_service import (
     revoke_refresh_session,
     rotate_refresh_session,
 )
+from app.services.auth_rate_limit_service import login_throttle_service
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,6 +45,16 @@ def login(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    throttle_key = f"{payload.username.strip().lower()}|{client_ip}"
+    throttle_state = login_throttle_service.check_allowed(key=throttle_key, settings=settings)
+    if not throttle_state.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Try again later.",
+            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
+        )
+
     user = authenticate_user(
         db,
         username=payload.username,
@@ -51,13 +62,15 @@ def login(
         settings=settings,
     )
     if user is None:
+        login_throttle_service.register_failure(key=throttle_key, settings=settings)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    login_throttle_service.register_success(key=throttle_key)
     tokens = create_session_tokens(
         db,
         user=user,
         settings=settings,
         user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
+        ip_address=client_ip if request.client else None,
     )
     return _token_response(tokens)
 

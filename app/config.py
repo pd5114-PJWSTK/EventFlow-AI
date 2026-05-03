@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     auth_bootstrap_admin_username: str | None = None
     auth_bootstrap_admin_password: str | None = None
     api_test_jobs_enabled: bool = False
+    auth_login_rate_limit_window_seconds: int = 300
+    auth_login_rate_limit_max_attempts: int = 5
+    auth_login_lockout_seconds: int = 900
 
     ready_check_externals: bool = False
     celery_always_eager: bool = True
@@ -88,9 +91,16 @@ class Settings(BaseSettings):
             password = (self.demo_admin_password or "").strip()
             if not username or not password:
                 raise ValueError("DEMO_ADMIN_USERNAME and DEMO_ADMIN_PASSWORD are required when demo auth is enabled.")
+        if self.auth_login_rate_limit_window_seconds <= 0:
+            raise ValueError("AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS must be greater than 0.")
+        if self.auth_login_rate_limit_max_attempts <= 0:
+            raise ValueError("AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS must be greater than 0.")
+        if self.auth_login_lockout_seconds <= 0:
+            raise ValueError("AUTH_LOGIN_LOCKOUT_SECONDS must be greater than 0.")
         return self
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+

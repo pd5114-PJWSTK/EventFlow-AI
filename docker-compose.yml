@@ -4,10 +4,8 @@ services:
     container_name: eventflow-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-eventflow}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eventflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-eventflow}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
@@ -21,8 +19,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: eventflow-redis
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -37,7 +33,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://eventflow:eventflow@postgres:5432/eventflow}
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       READY_CHECK_EXTERNALS: "true"
       CELERY_ALWAYS_EAGER: "false"
@@ -48,7 +44,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./:/app
 
@@ -60,7 +56,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://eventflow:eventflow@postgres:5432/eventflow}
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CELERY_ALWAYS_EAGER: "false"
     depends_on:
@@ -80,7 +76,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://eventflow:eventflow@postgres:5432/eventflow}
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CELERY_ALWAYS_EAGER: "false"
     depends_on:

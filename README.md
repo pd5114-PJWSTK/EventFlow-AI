@@ -79,6 +79,18 @@ docker compose up --build
 - `http://localhost:8000/ready`
 - `http://localhost:8000/docs`
 
+## Produkcja (VPS)
+1. Przygotuj env dla produkcji:
+```bash
+cp env.production.example .env
+```
+2. Ustaw silne sekrety (`JWT_SECRET_KEY`, `POSTGRES_PASSWORD`, bootstrap admin).
+3. Uruchom preflight:
+```bash
+python scripts/check_production_env.py
+```
+4. Wystaw publicznie tylko API (bez publikowania portow Postgres/Redis).
+
 ## Testy
 Pełna regresja w kontenerze backend:
 ```bash

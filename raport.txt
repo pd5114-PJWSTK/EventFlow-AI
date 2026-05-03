@@ -1236,3 +1236,28 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-03] Zaimplementowano CP-05 Fazy 8 (drugi update security hardening po raporcie podatnosci).
   Cel: domknac wszystkie uwagi z `Security_check.md` i potwierdzic brak regresji pelnym testem Docker.
+
+13.5) FAZA 8 - SECURITY CHECK REMEDIATION (POST-AUDIT)
+- Status: ZREALIZOWANY.
+- Zakres napraw wykonany na podstawie Security_check.md:
+  - Deployment hardening (VPS):
+    - usunieto publikacje portow Postgres/Redis do hosta (docker-compose.yml),
+    - usunieto --reload z runtime backendu,
+    - usunieto fallback hasla DB w compose (POSTGRES_PASSWORD) oraz fallback DATABASE_URL.
+  - Konfiguracja bezpieczenstwa:
+    - utwardzono domyslne ustawienia w app/config.py,
+    - dodano parametry login throttle/lockout i ich walidacje,
+    - zaktualizowano .env.example,
+    - dodano env.production.example,
+    - dodano preflight scripts/check_production_env.py (blokada deploy przy dev/weak settings).
+  - Hardening auth login (bruteforce mitigation):
+    - dodano app/services/auth_rate_limit_service.py (window + max attempts + lockout),
+    - login w app/api/auth.py zwraca 429 po przekroczeniu limitu (Retry-After).
+  - Testy i walidacja:
+    - py_compile -> passed,
+    - pytest tests/test_auth.py -> 3 passed,
+    - dodany test lockout: test_login_lockout_after_repeated_failures,
+    - scripts/check_production_env.py poprawnie failuje przy dev env (oczekiwane).
+
+- [2026-05-03] Wdrozono pelne latki po security check: deploy hardening + auth throttling/lockout + production preflight.
+  Cel: domknac ryzyka ekspozycji VPS oraz atakow brute force na warstwe logowania.

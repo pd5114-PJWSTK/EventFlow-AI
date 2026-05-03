@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app.services.auth_rate_limit_service import login_throttle_service
 from app.services.auth_service import create_user, ensure_default_roles
 
 
@@ -60,6 +61,7 @@ def api_client() -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as client:
+        login_throttle_service.clear()
         login_response = client.post(
             "/auth/login",
             json={"username": "test-admin", "password": "StrongPass!234"},
@@ -70,4 +72,5 @@ def api_client() -> Generator[TestClient, None, None]:
         yield client
 
     app.dependency_overrides.clear()
+    login_throttle_service.clear()
     Base.metadata.drop_all(bind=engine)

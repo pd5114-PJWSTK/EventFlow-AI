@@ -52,3 +52,4 @@ def init_auth_state() -> None:
         bootstrap_initial_admin(db, settings=settings)
     finally:
         db.close()
+
