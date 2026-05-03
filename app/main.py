@@ -24,8 +24,14 @@ settings = get_settings()
 MANAGER_ROLES = ["manager"]
 PLANNING_ROLES = ["manager", "coordinator"]
 RUNTIME_ROLES = ["manager", "coordinator", "technician"]
+docs_enabled = settings.app_env.lower().strip() == "development" and settings.api_docs_enabled
 
-app = FastAPI(title=settings.app_name)
+app = FastAPI(
+    title=settings.app_name,
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url="/redoc" if docs_enabled else None,
+    openapi_url="/openapi.json" if docs_enabled else None,
+)
 
 app.include_router(health_router)
 app.include_router(auth_router)
@@ -52,4 +58,3 @@ def init_auth_state() -> None:
         bootstrap_initial_admin(db, settings=settings)
     finally:
         db.close()
-

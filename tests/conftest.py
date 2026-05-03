@@ -16,9 +16,11 @@ from app.services.auth_service import create_user, ensure_default_roles
 
 @pytest.fixture
 def api_client() -> Generator[TestClient, None, None]:
+    os.environ["APP_ENV"] = "development"
     os.environ["READY_CHECK_EXTERNALS"] = "false"
     os.environ["CELERY_ALWAYS_EAGER"] = "true"
     os.environ["API_TEST_JOBS_ENABLED"] = "true"
+    os.environ["API_DOCS_ENABLED"] = "true"
     from app.config import get_settings
 
     get_settings.cache_clear()

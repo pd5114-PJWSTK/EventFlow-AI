@@ -26,6 +26,7 @@ def main() -> int:
     jwt_secret = (os.getenv("JWT_SECRET_KEY") or "").strip()
     demo_admin_enabled = _is_true(os.getenv("DEMO_ADMIN_ENABLED"))
     test_jobs_enabled = _is_true(os.getenv("API_TEST_JOBS_ENABLED"))
+    api_docs_enabled = _is_true(os.getenv("API_DOCS_ENABLED"))
 
     errors: list[str] = []
     if app_env == "development":
@@ -36,6 +37,8 @@ def main() -> int:
         errors.append("DEMO_ADMIN_ENABLED must be false in production.")
     if test_jobs_enabled:
         errors.append("API_TEST_JOBS_ENABLED must be false in production.")
+    if api_docs_enabled:
+        errors.append("API_DOCS_ENABLED must be false in production.")
 
     if errors:
         for error in errors:

@@ -15,7 +15,12 @@ from app.services.auth_service import (
     revoke_refresh_session,
     rotate_refresh_session,
 )
-from app.services.auth_rate_limit_service import login_throttle_service
+from app.services.auth_rate_limit_service import (
+    LOGIN_IP_SCOPE,
+    LOGIN_USER_SCOPE,
+    REFRESH_IP_SCOPE,
+    login_throttle_service,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -46,13 +51,23 @@ def login(
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
     client_ip = request.client.host if request.client else "unknown"
-    throttle_key = f"{payload.username.strip().lower()}|{client_ip}"
-    throttle_state = login_throttle_service.check_allowed(key=throttle_key, settings=settings)
-    if not throttle_state.allowed:
+    username_key = payload.username.strip().lower()
+    user_throttle_state = login_throttle_service.check_allowed(
+        scope=LOGIN_USER_SCOPE,
+        key=username_key,
+        settings=settings,
+    )
+    ip_throttle_state = login_throttle_service.check_allowed(
+        scope=LOGIN_IP_SCOPE,
+        key=client_ip,
+        settings=settings,
+    )
+    if not user_throttle_state.allowed or not ip_throttle_state.allowed:
+        retry_after = max(user_throttle_state.retry_after_seconds, ip_throttle_state.retry_after_seconds)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Try again later.",
-            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
+            headers={"Retry-After": str(retry_after)},
         )
 
     user = authenticate_user(
@@ -62,9 +77,10 @@ def login(
         settings=settings,
     )
     if user is None:
-        login_throttle_service.register_failure(key=throttle_key, settings=settings)
+        login_throttle_service.register_failure(scope=LOGIN_USER_SCOPE, key=username_key, settings=settings)
+        login_throttle_service.register_failure(scope=LOGIN_IP_SCOPE, key=client_ip, settings=settings)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    login_throttle_service.register_success(key=throttle_key)
+    login_throttle_service.register_success(scope=LOGIN_USER_SCOPE, key=username_key)
     tokens = create_session_tokens(
         db,
         user=user,
@@ -82,16 +98,30 @@ def refresh(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    refresh_throttle_state = login_throttle_service.check_allowed(
+        scope=REFRESH_IP_SCOPE,
+        key=client_ip,
+        settings=settings,
+    )
+    if not refresh_throttle_state.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed refresh attempts. Try again later.",
+            headers={"Retry-After": str(refresh_throttle_state.retry_after_seconds)},
+        )
     refresh_token = _parse_bearer(authorization)
     tokens = rotate_refresh_session(
         db,
         refresh_token=refresh_token,
         settings=settings,
         user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
+        ip_address=client_ip if request.client else None,
     )
     if tokens is None:
+        login_throttle_service.register_failure(scope=REFRESH_IP_SCOPE, key=client_ip, settings=settings)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    login_throttle_service.register_success(scope=REFRESH_IP_SCOPE, key=client_ip)
     return _token_response(tokens)
 
 

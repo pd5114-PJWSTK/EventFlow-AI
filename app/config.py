@@ -26,9 +26,13 @@ class Settings(BaseSettings):
     auth_bootstrap_admin_username: str | None = None
     auth_bootstrap_admin_password: str | None = None
     api_test_jobs_enabled: bool = False
+    api_docs_enabled: bool = True
     auth_login_rate_limit_window_seconds: int = 300
     auth_login_rate_limit_max_attempts: int = 5
     auth_login_lockout_seconds: int = 900
+    auth_refresh_rate_limit_window_seconds: int = 300
+    auth_refresh_rate_limit_max_attempts: int = 10
+    auth_refresh_lockout_seconds: int = 900
 
     ready_check_externals: bool = False
     celery_always_eager: bool = True
@@ -86,6 +90,8 @@ class Settings(BaseSettings):
                 raise ValueError("DEMO_ADMIN_ENABLED must be false outside development.")
             if self.api_test_jobs_enabled:
                 raise ValueError("API_TEST_JOBS_ENABLED must be false outside development.")
+            if self.api_docs_enabled:
+                raise ValueError("API_DOCS_ENABLED must be false outside development.")
         if self.demo_admin_enabled:
             username = (self.demo_admin_username or "").strip()
             password = (self.demo_admin_password or "").strip()
@@ -97,10 +103,15 @@ class Settings(BaseSettings):
             raise ValueError("AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS must be greater than 0.")
         if self.auth_login_lockout_seconds <= 0:
             raise ValueError("AUTH_LOGIN_LOCKOUT_SECONDS must be greater than 0.")
+        if self.auth_refresh_rate_limit_window_seconds <= 0:
+            raise ValueError("AUTH_REFRESH_RATE_LIMIT_WINDOW_SECONDS must be greater than 0.")
+        if self.auth_refresh_rate_limit_max_attempts <= 0:
+            raise ValueError("AUTH_REFRESH_RATE_LIMIT_MAX_ATTEMPTS must be greater than 0.")
+        if self.auth_refresh_lockout_seconds <= 0:
+            raise ValueError("AUTH_REFRESH_LOCKOUT_SECONDS must be greater than 0.")
         return self
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

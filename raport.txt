@@ -1261,3 +1261,31 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-03] Wdrozono pelne latki po security check: deploy hardening + auth throttling/lockout + production preflight.
   Cel: domknac ryzyka ekspozycji VPS oraz atakow brute force na warstwe logowania.
+
+13.6) FAZA 8 - SECURITY CHECK REMEDIATION (VPS RE-CHECK)
+- Status: ZREALIZOWANY.
+- Zakres napraw wykonany:
+  - Wyłączono publiczne docs/OpenAPI poza development:
+    - `app/main.py` (warunkowe `docs_url/redoc_url/openapi_url`),
+    - `app/config.py` (`API_DOCS_ENABLED` + fail-fast poza development),
+    - `scripts/check_production_env.py`, `.env.example`, `env.production.example`.
+  - Rozszerzono i utwardzono throttling auth:
+    - `app/services/auth_rate_limit_service.py`:
+      - scope `login_user`, `login_ip`, `refresh_ip`,
+      - backend Redis (globalny dla wielu instancji),
+      - fallback in-memory tylko w development,
+      - fail-closed w non-dev gdy Redis niedostepny.
+    - `app/api/auth.py`:
+      - lockout per-user i per-IP dla `/auth/login`,
+      - lockout dla `/auth/refresh`,
+      - `Retry-After` przy 429.
+  - Hardening kontenerow pod VPS:
+    - `Dockerfile`: uruchamianie jako non-root (`USER appuser`),
+    - `docker-compose.yml`: usuniete bind mounty `./:/app` dla backend/worker/beat,
+    - dodane `security_opt: no-new-privileges:true` + `cap_drop: ALL`.
+  - Testy i walidacja:
+    - `docker compose run --rm --build backend pytest tests/test_auth.py tests/test_phase8_cp05.py -q` -> 16 passed.
+    - `python -m py_compile app/services/auth_rate_limit_service.py app/api/auth.py app/main.py app/config.py` -> passed.
+
+- [2026-05-03] Wdrożono łatki po ponownym security check pod VPS: docs hardening, distributed auth throttling, container hardening.
+  Cel: zamknąć ryzyka rekonesansu API, brute force przy wielu instancjach oraz eskalacji skutków RCE w kontenerach.

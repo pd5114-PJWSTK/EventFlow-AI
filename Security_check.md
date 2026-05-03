@@ -1,96 +1,76 @@
-# Security Check - EventFlow AI (Po CP-05)
+# Security Check - EventFlow AI (VPS)
 
-Data aktualizacji: 2026-05-03  
-Zakres: repozytorium `C:\repos\Projekt`  
-Metoda: przeglad statyczny + testy automatyczne CP-04/CP-05 + regresja Docker
+Data: 2026-05-03  
+Zakres: `C:\repos\Projekt`  
+Metoda: przeglad statyczny + szybki test dynamiczny w kontenerze
 
-## Executive summary
+## Executive Summary
 
-Status podatnosci z raportu:
-
-1. `P0` Brak wymuszenia auth/authz na endpointach biznesowych -> **FIXED**
-2. `P1` Path traversal przy zapisie artefaktow modeli ML -> **FIXED**
-3. `P2` Niebezpieczne domyslne sekrety i konto administracyjne -> **FIXED**
+Wczesniejsze krytyczne luki (RBAC, path traversal ML, slabe domyslne sekrety) pozostaja zalatane.  
+W tym skanie wykryto 3 aktualne obszary do poprawy przed wystawieniem na VPS.
 
 ---
 
-## 1) [P0] Auth/Authz na endpointach biznesowych - FIXED
+## 1) [P1] Publiczna ekspozycja dokumentacji API i OpenAPI
 
-### Co wdrozono
-- Wymuszenie RBAC per grupa endpointow:
-  - planowanie i CRUD domenowe: `manager`, `coordinator`,
-  - runtime operacyjny + websocket runtime: `manager`, `coordinator`, `technician`,
-  - trening modeli ML i `api/test/*`: `manager`,
-  - administracja userami: `admin`.
-- `/health`, `/ready`, `/auth/login`, `/auth/refresh` pozostaja publiczne.
+### Opis
+Instancja publikuje `/docs` i `/openapi.json` bez uwierzytelnienia. Na publicznym VPS ulatwia to rekonesans atakujacemu (pelna mapa endpointow, modele wejscia/wyjscia, nazwy operacji).
 
-### Dowody statyczne
-- `app/main.py` - routery podpinane z `Depends(require_role(...))` zgodnie z matryca.
-- `app/middleware/rbac.py` - wspolna walidacja access token + role-check dla HTTP i WS.
+### Dowody
+- Kod: `app/main.py:28` (`FastAPI(...)` bez `docs_url=None`, `redoc_url=None`, `openapi_url=None` w trybie produkcyjnym).
+- Test dynamiczny:
+  - `/docs -> 200`
+  - `/openapi.json -> 200`
+  - kontrolnie endpoint biznesowy `/api/clients -> 401`
 
-### Dowody testowe
-- `tests/test_phase8_cp04.py`:
-  - `401` bez tokena na `/api/*`,
-  - `403` dla non-admin na `/admin/*`,
-  - reject/accept websocket auth.
-- `tests/test_phase8_cp05.py`:
-  - parametryzowane `401` dla mutujacych endpointow `/api/*`,
-  - `403` dla roli nieuprawnionej (technician/coordinator/admin-only),
-  - runtime WS role enforcement.
+### Plan zalatania
+1. Dodac w `Settings` flage np. `api_docs_enabled` (domyslnie `False` poza development).
+2. Tworzyc aplikacje warunkowo:
+   - production: `FastAPI(..., docs_url=None, redoc_url=None, openapi_url=None)`
+   - development: standardowe URL dokumentacji.
+3. Dodac test regresyjny: w `APP_ENV=production` endpointy docs zwracaja `404`.
 
 ---
 
-## 2) [P1] Path Traversal przy artefaktach ML - FIXED
+## 2) [P1] Brute-force lockout dziala tylko in-memory (brak wspolnego store)
 
-### Co wdrozono
-- Whitelist `model_name`: `^[A-Za-z0-9_-]{1,120}$`.
-- Blokada separatorow i traversal w resolverze zapisu artefaktu.
-- Twarda kontrola po `resolve()`: zapis musi pozostac pod `ML_MODELS_DIR`.
+### Opis
+Rate limiting logowania jest trzymany w procesie (`dict` + `Lock`). Przy wielu instancjach backendu lub restarcie procesu lockout znika i atak brute-force mozna obchodzic przez rozproszenie prob miedzy repliki/procesy.
 
-### Dowody statyczne
-- `app/schemas/ml_models.py` - `pattern` na `model_name`.
-- `app/services/ml_training_service.py` - `_resolve_model_artifact_dir(...)` z kontrola `relative_to`.
+### Dowody
+- `app/services/auth_rate_limit_service.py:24-26` - lokalny stan `self._buckets`.
+- `app/services/auth_rate_limit_service.py:61-63` - `clear()` kasuje caly stan; restart procesu daje ten sam efekt.
+- `app/api/auth.py:49` - klucz ograniczenia oparty o `username|ip` tylko w lokalnym serwisie.
 
-### Dowody testowe
-- `tests/test_phase8_cp04.py` - blokada `../` i `..\\`.
-- `tests/test_phase8_cp05.py` - blokada `../`, `..\\`, sciezek absolutnych i UNC.
-
----
-
-## 3) [P2] Domyslne sekrety i demo-admin - FIXED
-
-### Co wdrozono
-- Usuniete niebezpieczne defaulty demo:
-  - `DEMO_ADMIN_ENABLED=false` domyslnie,
-  - brak domyslnych `DEMO_ADMIN_USERNAME/DEMO_ADMIN_PASSWORD`.
-- Fail-fast security:
-  - poza `development` slaby/krótki `JWT_SECRET_KEY` blokuje start,
-  - poza `development` `DEMO_ADMIN_ENABLED=true` blokuje start,
-  - poza `development` `API_TEST_JOBS_ENABLED=true` blokuje start.
-- Gdy demo jest jawnie wlaczone, wymagane sa jawne demo credentials.
-
-### Dowody statyczne
-- `app/config.py` - walidator `validate_security_settings`.
-- `.env.example` - bezpieczne domyslne wartosci.
-
-### Dowody testowe
-- `tests/test_phase8_cp04.py` - fail-fast dla slabych sekretow poza development.
-- `tests/test_phase8_cp05.py` - fail-fast dla `API_TEST_JOBS_ENABLED` poza development i dla demo bez jawnych credow.
+### Plan zalatania
+1. Przeniesc limiter do wspolnego magazynu (Redis) z TTL.
+2. Wprowadzic dwa niezalezne limity:
+   - per `username` (globalnie),
+   - per `ip` (globalnie).
+3. Dodac licznik i lockout dla `/auth/refresh` (ochrona przed credential stuffing tokenow).
+4. Dodac testy integracyjne potwierdzajace lockout po restarcie procesu i miedzy instancjami.
 
 ---
 
-## Walidacja koncowa (regresja)
+## 3) [P2] Konfiguracja kontenerow nieutwardzona pod produkcje (root + bind mount kodu)
 
-- Pelny pakiet testow przez Docker:
-  - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q`
-- Wynik oczekiwany dla CP-05: brak regresji i zielony komplet testow.
+### Opis
+Kontenery aplikacyjne dzialaja jako root i montuja caly katalog projektu RW (`./:/app`). Przy RCE w aplikacji napastnik moze trwale modyfikowac kod uruchomieniowy i artefakty na hoscie.
+
+### Dowody
+- `Dockerfile:1-15` - brak `USER`, proces startuje jako root.
+- `docker-compose.yml:48-49`, `68-69`, `88-89` - bind mount `./:/app` dla backend/worker/beat.
+
+### Plan zalatania
+1. W `Dockerfile` dodac uzytkownika nieuprzywilejowanego (`useradd`, `chown`, `USER app`).
+2. Dla produkcji usunac bind mount kodu (`./:/app`) i uruchamiac tylko z immutable image.
+3. Rozdzielic compose na `docker-compose.dev.yml` (z mountami) i `docker-compose.prod.yml` (bez mountow, minimalne uprawnienia).
+4. Opcjonalnie: `read_only: true`, `tmpfs` dla katalogow tymczasowych, ograniczenia `cap_drop` i `no-new-privileges`.
 
 ---
 
-## Residual Risk (operacyjny)
+## Priorytet wdrozenia
 
-- Bezpieczenstwo nadal zalezy od poprawnej konfiguracji VPS:
-  - mocny `JWT_SECRET_KEY`,
-  - `APP_ENV=production`,
-  - `DEMO_ADMIN_ENABLED=false`,
-  - rotacja hasel bootstrap/admin po wdrozeniu.
+1. Zablokowac publiczne docs/openapi w production.
+2. Wdrozyc rozproszony limiter logowania (Redis) z limitami per-user i per-IP.
+3. Utwardzic kontenery produkcyjne (non-root, bez bind mountow kodu).

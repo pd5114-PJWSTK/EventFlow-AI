@@ -63,8 +63,13 @@ flowchart TB
 - `POST /api/ml/models/train-plan-evaluator`
 - `POST /api/ml/predictions`
 
+## Konfiguracja ENV
+- `.env` - aktywny plik konfiguracyjny używany przez aplikację i docker-compose.
+- `.env.example` - szablon dla środowiska development.
+- `.env.production.example` - szablon dla środowiska production/VPS.
+
 ## Quick start
-1. Skopiuj konfiguracje:
+1. Skopiuj konfiguracje (DEV):
 ```bash
 cp .env.example .env
 ```
@@ -77,12 +82,12 @@ docker compose up --build
 3. Sprawdz API:
 - `http://localhost:8000/health`
 - `http://localhost:8000/ready`
-- `http://localhost:8000/docs`
+- `http://localhost:8000/docs` (tylko gdy `APP_ENV=development` oraz `API_DOCS_ENABLED=true`)
 
 ## Produkcja (VPS)
 1. Przygotuj env dla produkcji:
 ```bash
-cp env.production.example .env
+cp .env.production.example .env
 ```
 2. Ustaw silne sekrety (`JWT_SECRET_KEY`, `POSTGRES_PASSWORD`, bootstrap admin).
 3. Uruchom preflight:

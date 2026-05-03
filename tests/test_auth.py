@@ -44,3 +44,19 @@ def test_login_lockout_after_repeated_failures(api_client: TestClient) -> None:
     assert blocked.status_code == 429
     assert blocked.headers.get("Retry-After") is not None
 
+
+def test_refresh_lockout_after_repeated_failures(api_client: TestClient) -> None:
+    for _ in range(10):
+        response = api_client.post(
+            "/auth/refresh",
+            headers={"Authorization": "Bearer invalid-refresh-token"},
+        )
+        assert response.status_code == 401
+
+    blocked = api_client.post(
+        "/auth/refresh",
+        headers={"Authorization": "Bearer invalid-refresh-token"},
+    )
+    assert blocked.status_code == 429
+    assert blocked.headers.get("Retry-After") is not None
+

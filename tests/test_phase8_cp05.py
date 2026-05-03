@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -184,9 +185,34 @@ def test_phase8_cp05_settings_fail_fast_for_demo_and_test_jobs(monkeypatch: pyte
     with pytest.raises(ValidationError):
         Settings()
 
+    monkeypatch.setenv("API_TEST_JOBS_ENABLED", "false")
+    monkeypatch.setenv("API_DOCS_ENABLED", "true")
+    with pytest.raises(ValidationError):
+        Settings()
+
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("DEMO_ADMIN_ENABLED", "true")
     monkeypatch.setenv("DEMO_ADMIN_USERNAME", "")
     monkeypatch.setenv("DEMO_ADMIN_PASSWORD", "")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_phase8_cp05_docs_disabled_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET_KEY", "this-is-a-very-strong-secret-key-with-entropy-123")
+    monkeypatch.setenv("DEMO_ADMIN_ENABLED", "false")
+    monkeypatch.setenv("API_TEST_JOBS_ENABLED", "false")
+    monkeypatch.setenv("API_DOCS_ENABLED", "false")
+
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    import app.main as app_main_module
+
+    app_main_module = importlib.reload(app_main_module)
+    app_main_module.app.router.on_startup.clear()
+
+    with TestClient(app_main_module.app) as client:
+        assert client.get("/docs").status_code == 404
+        assert client.get("/openapi.json").status_code == 404
