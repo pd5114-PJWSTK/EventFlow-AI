@@ -84,6 +84,28 @@ docker compose up --build
 - `http://localhost:8000/ready`
 - `http://localhost:8000/docs` (tylko gdy `APP_ENV=development` oraz `API_DOCS_ENABLED=true`)
 
+## Frontend (CP-01)
+Frontend znajduje sie w katalogu `frontend/` (React + TypeScript + MUI).
+
+1. Uruchom backend i uslugi:
+```bash
+docker compose up --build
+```
+
+2. W nowym terminalu uruchom frontend:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+3. Otworz panel:
+- `http://localhost:5173`
+
+4. Logowanie:
+- domyslnie (test/development): `test-admin` / `StrongPass!234`
+- lub konto utworzone przez endpointy admina.
+
 ## Produkcja (VPS)
 1. Przygotuj env dla produkcji:
 ```bash
@@ -101,6 +123,19 @@ python scripts/check_production_env.py
 Pełna regresja w kontenerze backend:
 ```bash
 docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q
+```
+
+Scenariusze E2E (w tym scenariusze opisane w `docs/reports/Test_programu.md`):
+```bash
+docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py
+```
+
+Frontend quality checks:
+```bash
+cd frontend
+npm run typecheck
+npm run test
+npm run build
 ```
 
 ## Struktura projektu
