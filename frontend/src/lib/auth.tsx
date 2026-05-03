@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { ApiClient } from "./api";
@@ -18,14 +18,16 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [tokens, setTokens] = useState<AuthTokens | null>(() => getStoredTokens());
+  const tokensRef = useRef<AuthTokens | null>(getStoredTokens());
+  const [tokens, setTokens] = useState<AuthTokens | null>(() => tokensRef.current);
   const [me, setMe] = useState<UserMe | null>(null);
 
   const api = useMemo(
     () =>
       new ApiClient(
-        () => tokens,
+        () => tokensRef.current,
         (nextTokens) => {
+          tokensRef.current = nextTokens;
           if (nextTokens) {
             storeTokens(nextTokens);
             setTokens(nextTokens);
@@ -36,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
           }
         },
       ),
-    [tokens],
+    [],
   );
 
   const login = async (username: string, password: string): Promise<void> => {
@@ -51,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   };
 
   const loadMe = async (): Promise<void> => {
-    if (!tokens) {
+    if (!tokensRef.current) {
       setMe(null);
       return;
     }
