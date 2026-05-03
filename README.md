@@ -1,15 +1,15 @@
-ï»¿# EventFlow AI
+# EventFlow AI
 
 ![Status](https://img.shields.io/badge/status-active-success) ![Backend](https://img.shields.io/badge/backend-FastAPI-009688) ![DB](https://img.shields.io/badge/database-PostgreSQL-336791) ![Queue](https://img.shields.io/badge/queue-Celery%20%2B%20Redis-D32F2F) ![ML](https://img.shields.io/badge/ml-scikit--learn-F57C00)
 
-EventFlow AI to system backendowy do planowania i live replanningu eventow. Laczy deterministiczny planner zasobÃ³w (ludzie/sprzet/pojazdy/czas), runtime operations i warstwe ML do oceny wariantÃ³w planu.
+EventFlow AI to system backendowy do planowania i live replanningu eventow. Laczy deterministiczny planner zasobów (ludzie/sprzet/pojazdy/czas), runtime operations i warstwe ML do oceny wariantów planu.
 
 ## Co ten program robi
 - Buduje plan operacyjny eventu (`generate-plan`).
 - Wykrywa luki i prowadzi operatora przez decyzje (`preview-gaps` -> `resolve-gaps`).
-- Obsluguje incidenty i live replanning bez gubienia zasobÃ³w juz zuzytych.
+- Obsluguje incidenty i live replanning bez gubienia zasobów juz zuzytych.
 - Prowadzi audit trail wykonania (`ops.*`).
-- Trenuje i wykorzystuje modele ML do predykcji i rankingu planÃ³w.
+- Trenuje i wykorzystuje modele ML do predykcji i rankingu planów.
 
 ## Jak dziala (wysoki poziom)
 ```mermaid
@@ -26,7 +26,7 @@ flowchart LR
     J --> B
 ```
 
-## Architektura komponentÃ³w
+## Architektura komponentów
 ```mermaid
 flowchart TB
     UI["Frontend/UI"] --> API["FastAPI API"]
@@ -64,9 +64,9 @@ flowchart TB
 - `POST /api/ml/predictions`
 
 ## Konfiguracja ENV
-- `.env` - aktywny plik konfiguracyjny uÅ¼ywany przez aplikacjÄ™ i docker-compose.
-- `.env.example` - szablon dla Å›rodowiska development.
-- `.env.production.example` - szablon dla Å›rodowiska production/VPS.
+- `.env` - aktywny plik konfiguracyjny u¿ywany przez aplikacjê i docker-compose.
+- `.env.example` - szablon dla œrodowiska development.
+- `.env.production.example` - szablon dla œrodowiska production/VPS.
 
 ## Quick start
 1. Skopiuj konfiguracje (DEV):
@@ -103,8 +103,8 @@ npm run dev
 - `http://localhost:5173`
 
 4. Logowanie:
-- domyslnie (test/development): `test-admin` / `StrongPass!234`
-- lub konto utworzone przez endpointy admina.
+- domyslnie (z .env development): `admin` / `Adm1nVPS_2026!Secure`
+- lub konto utworzone przez endpointy admina (`/admin/users`).
 
 ## Produkcja (VPS)
 1. Przygotuj env dla produkcji:
@@ -120,7 +120,7 @@ python scripts/check_production_env.py
 5. Wystaw publicznie tylko API (bez publikowania portow Postgres/Redis).
 
 ## Testy
-PeÅ‚na regresja w kontenerze backend:
+Pe³na regresja w kontenerze backend:
 ```bash
 docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q
 ```
@@ -145,11 +145,11 @@ npm run build
 - `app/schemas/` - kontrakty API
 - `app/workers/` - zadania Celery
 - `docker/postgres/init/` - schema + seed dla nowych srodowisk
-- `scripts/sql/` - patche SQL dla istniejÄ…cych instancji
+- `scripts/sql/` - patche SQL dla istniej¹cych instancji
 - `tests/` - testy fazowe i regresyjne
 - `docs/` - dokumentacja techniczna i operacyjna
 
-## Dokumentacja dla osÃ³b trzecich
+## Dokumentacja dla osób trzecich
 - Start od: `docs/README.md`
 - Architektura/plan: `docs/reference/Plan.md`
 - Baza danych: `docs/database/README.md`

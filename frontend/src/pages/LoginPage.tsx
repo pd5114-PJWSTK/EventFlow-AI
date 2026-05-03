@@ -8,8 +8,8 @@ export function LoginPage(): JSX.Element {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [username, setUsername] = useState("test-admin");
-  const [password, setPassword] = useState("StrongPass!234");
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 

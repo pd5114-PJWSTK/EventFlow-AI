@@ -1369,3 +1369,36 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-03] Zaimplementowano CP-01 FE Fazy 8 (AI intake sheet, planner/replan UX, post-event sheet, okno logowania uzytkownikow, panele administracyjne).
   Cel: dostarczyc kompletny panel operacyjny admina z flow LLM -> korekta -> zatwierdzenie oraz live runtime/replan.
+
+14.1) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-02)
+- Status checkpointu: `phase-8-frontend-cp-02-hardening-e2e-and-local-start-script` -> ZREALIZOWANY (hardening FE + testy flow + skrypt uruchomieniowy).
+- Zakres wykonany:
+  - Przeglad punktow Fazy 8 z `docs/reference/plan.md`:
+    - domknieto brakujace elementy sekcji "E2E i hardening" po stronie FE (timeout/network handling + scenariusze glownego workflow UI).
+  - Hardening klienta API FE:
+    - `frontend/src/lib/api.ts`:
+      - timeout requestu (15s) z jednoznacznym komunikatem dla operatora,
+      - mapowanie `NetworkError` na czytelny blad biznesowy,
+      - observability: naglowek `X-Request-Id` + ostrzezenia dla wolnych zapytan.
+  - Rozszerzenie testow FE (scenariusze operatora):
+    - `frontend/src/__tests__/phase8-flows.test.tsx`:
+      - planner generate,
+      - runtime incident parse + replan,
+      - post-event parse + commit.
+    - `frontend/src/__tests__/api-client.test.ts`:
+      - walidacja mapowania bledow network i timeout.
+  - Porzadki repo:
+    - scalono reguly ignorowania do root `.gitignore` i usunieto duplikat `frontend/.gitignore`.
+  - One-command local start pod testowanie frontendu:
+    - dodano `scripts/start-local-test-env.ps1` (docker stack up + wait for health/ready + npm install + frontend dev).
+- Walidacja wykonania:
+  - Frontend:
+    - `npm run typecheck` -> passed.
+    - `npm run test -- --run` -> 7 passed.
+    - `npm run build` -> passed.
+    - `npm run lint` -> passed (1 warning: react-refresh/only-export-components).
+  - Backend E2E regresja (flow z raportu testowego):
+    - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py` -> 3 passed.
+
+- [2026-05-03] Zaimplementowano CP-02 FE Fazy 8 (hardening API klienta, rozszerzone testy workflow oraz skrypt one-command dla lokalnego testowania frontendu).
+  Cel: domknac sekcje hardening/E2E z planu Fazy 8 i uproscic lokalny start srodowiska testowego.

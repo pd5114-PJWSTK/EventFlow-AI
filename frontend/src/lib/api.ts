@@ -1,4 +1,4 @@
-import type { ApiErrorPayload, AuthTokens } from "../types/api";
+ï»¿import type { ApiErrorPayload, AuthTokens } from "../types/api";
 
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -16,6 +16,8 @@ export class ApiError extends Error {
 export class ApiClient {
   private getTokens: () => AuthTokens | null;
   private onTokenUpdate: (tokens: AuthTokens | null) => void;
+  private readonly requestTimeoutMs = 15000;
+  private readonly slowRequestWarnMs = 4000;
 
   constructor(
     getTokens: () => AuthTokens | null,
@@ -26,14 +28,14 @@ export class ApiClient {
   }
 
   async login(username: string, password: string): Promise<AuthTokens> {
-    const response = await fetch("/auth/login", {
+    const response = await this.safeFetch("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
     const data = await response.json();
     if (!response.ok) {
-      throw new ApiError(data?.detail ?? "B³¹d logowania", response.status, data ?? null);
+      throw new ApiError(data?.detail ?? "Blad logowania", response.status, data ?? null);
     }
     const tokens = { accessToken: data.access_token as string, refreshToken: data.refresh_token as string };
     this.onTokenUpdate(tokens);
@@ -43,7 +45,7 @@ export class ApiClient {
   async logout(): Promise<void> {
     const tokens = this.getTokens();
     if (tokens) {
-      await fetch("/auth/logout", {
+      await this.safeFetch("/auth/logout", {
         method: "POST",
         headers: { Authorization: `Bearer ${tokens.refreshToken}` },
       });
@@ -71,10 +73,10 @@ export class ApiClient {
     if (tokens?.accessToken) {
       headers.Authorization = `Bearer ${tokens.accessToken}`;
     } else if (!allowUnauthenticated) {
-      throw new ApiError("Brak sesji u¿ytkownika", 401, null);
+      throw new ApiError("Brak sesji uzytkownika", 401, null);
     }
 
-    const response = await fetch(path, {
+    const response = await this.safeFetch(path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -95,7 +97,7 @@ export class ApiClient {
     if (!response.ok) {
       const payload = (data as ApiErrorPayload | null) ?? null;
       throw new ApiError(
-        payload?.detail ?? payload?.message ?? `B³¹d API (${response.status})`,
+        payload?.detail ?? payload?.message ?? `Blad API (${response.status})`,
         response.status,
         payload,
       );
@@ -104,7 +106,7 @@ export class ApiClient {
   }
 
   private async refresh(refreshToken: string): Promise<boolean> {
-    const response = await fetch("/auth/refresh", {
+    const response = await this.safeFetch("/auth/refresh", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${refreshToken}`,
@@ -117,5 +119,41 @@ export class ApiClient {
     const data = await response.json();
     this.onTokenUpdate({ accessToken: data.access_token as string, refreshToken: data.refresh_token as string });
     return true;
+  }
+
+  private async safeFetch(input: string, init?: RequestInit): Promise<Response> {
+    const requestId =
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    const headers = new Headers(init?.headers);
+    headers.set("X-Request-Id", requestId);
+    try {
+      const response = await fetch(input, { ...init, headers, signal: controller.signal });
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= this.slowRequestWarnMs) {
+        console.warn(`[api][slow] ${String(input)} (${durationMs}ms, request-id=${requestId})`);
+      }
+      return response;
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ApiError("Przekroczono czas oczekiwania na odpowiedz API.", 0, null);
+      }
+      if (error instanceof TypeError) {
+        console.error(`[api][network] ${String(input)} (${durationMs}ms, request-id=${requestId})`);
+        throw new ApiError(
+          "Brak polaczenia z API. Sprawdz, czy backend dziala i czy frontend ma poprawny adres API.",
+          0,
+          null,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }
