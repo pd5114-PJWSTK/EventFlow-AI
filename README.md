@@ -90,11 +90,12 @@ docker compose up --build
 cp .env.production.example .env
 ```
 2. Ustaw silne sekrety (`JWT_SECRET_KEY`, `POSTGRES_PASSWORD`, bootstrap admin).
-3. Uruchom preflight:
+3. Skonfiguruj zaufane proxy IP w `AUTH_TRUSTED_PROXY_IPS` (bez `*`).
+4. Uruchom preflight:
 ```bash
 python scripts/check_production_env.py
 ```
-4. Wystaw publicznie tylko API (bez publikowania portow Postgres/Redis).
+5. Wystaw publicznie tylko API (bez publikowania portow Postgres/Redis).
 
 ## Testy
 Pełna regresja w kontenerze backend:

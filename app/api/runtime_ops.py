@@ -405,12 +405,17 @@ def runtime_notifications_endpoint(
 
 
 @router.websocket("/ws/events/{event_id}/notifications")
-async def runtime_notifications_websocket(websocket: WebSocket, event_id: str) -> None:
+async def runtime_notifications_websocket(
+    websocket: WebSocket,
+    event_id: str,
+    db: Session = Depends(get_db),
+) -> None:
     settings = get_settings()
     payload = await authorize_websocket(
         websocket,
         allowed_roles=["manager", "coordinator", "technician"],
         settings=settings,
+        db=db,
     )
     if payload is None:
         return

@@ -158,6 +158,36 @@ def test_phase8_cp05_websocket_role_enforcement(api_client: TestClient) -> None:
         pass
 
 
+def test_phase8_cp05_deactivated_user_access_token_is_revoked(api_client: TestClient) -> None:
+    target_user_response = api_client.post(
+        "/admin/users",
+        json={
+            "username": "deactivate-cp05",
+            "password": "StrongDeactivate!234",
+            "roles": ["manager"],
+            "is_superadmin": False,
+        },
+    )
+    assert target_user_response.status_code == 201
+    user_id = target_user_response.json()["user_id"]
+
+    login = api_client.post(
+        "/auth/login",
+        json={"username": "deactivate-cp05", "password": "StrongDeactivate!234"},
+    )
+    assert login.status_code == 200
+    access_token = login.json()["access_token"]
+
+    before_disable = api_client.get("/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert before_disable.status_code == 200
+
+    disable = api_client.patch(f"/admin/users/{user_id}", json={"is_active": False})
+    assert disable.status_code == 200
+
+    after_disable = api_client.get("/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert after_disable.status_code == 401
+
+
 def test_phase8_cp05_path_traversal_absolute_and_unc_rejected() -> None:
     for invalid_name in ("..\\evil", "../evil", "C:\\evil", "/tmp/evil", "\\\\server\\share\\evil"):
         with pytest.raises(ValidationError):
@@ -187,6 +217,11 @@ def test_phase8_cp05_settings_fail_fast_for_demo_and_test_jobs(monkeypatch: pyte
 
     monkeypatch.setenv("API_TEST_JOBS_ENABLED", "false")
     monkeypatch.setenv("API_DOCS_ENABLED", "true")
+    with pytest.raises(ValidationError):
+        Settings()
+
+    monkeypatch.setenv("API_DOCS_ENABLED", "false")
+    monkeypatch.setenv("AUTH_TRUSTED_PROXY_IPS", "*")
     with pytest.raises(ValidationError):
         Settings()
 

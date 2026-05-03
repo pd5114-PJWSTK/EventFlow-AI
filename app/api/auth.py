@@ -21,6 +21,7 @@ from app.services.auth_rate_limit_service import (
     REFRESH_IP_SCOPE,
     login_throttle_service,
 )
+from app.services.client_ip_service import resolve_client_ip
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -50,7 +51,7 @@ def login(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = resolve_client_ip(request=request, settings=settings)
     username_key = payload.username.strip().lower()
     user_throttle_state = login_throttle_service.check_allowed(
         scope=LOGIN_USER_SCOPE,
@@ -98,7 +99,7 @@ def refresh(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = resolve_client_ip(request=request, settings=settings)
     refresh_throttle_state = login_throttle_service.check_allowed(
         scope=REFRESH_IP_SCOPE,
         key=client_ip,

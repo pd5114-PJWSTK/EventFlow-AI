@@ -27,6 +27,7 @@ def main() -> int:
     demo_admin_enabled = _is_true(os.getenv("DEMO_ADMIN_ENABLED"))
     test_jobs_enabled = _is_true(os.getenv("API_TEST_JOBS_ENABLED"))
     api_docs_enabled = _is_true(os.getenv("API_DOCS_ENABLED"))
+    trusted_proxy_ips = (os.getenv("AUTH_TRUSTED_PROXY_IPS") or "").strip()
 
     errors: list[str] = []
     if app_env == "development":
@@ -39,6 +40,8 @@ def main() -> int:
         errors.append("API_TEST_JOBS_ENABLED must be false in production.")
     if api_docs_enabled:
         errors.append("API_DOCS_ENABLED must be false in production.")
+    if "*" in {item.strip() for item in trusted_proxy_ips.split(",") if item.strip()}:
+        errors.append("AUTH_TRUSTED_PROXY_IPS cannot contain '*' in production.")
 
     if errors:
         for error in errors:

@@ -189,17 +189,23 @@ class LoginThrottleService:
 
     @staticmethod
     def _resolve_policy(*, scope: str, settings: Settings) -> _ThrottlePolicy:
-        if scope == LOGIN_USER_SCOPE or scope == LOGIN_IP_SCOPE:
+        if scope == LOGIN_USER_SCOPE:
             return _ThrottlePolicy(
                 window_seconds=settings.auth_login_rate_limit_window_seconds,
                 max_attempts=settings.auth_login_rate_limit_max_attempts,
                 lockout_seconds=settings.auth_login_lockout_seconds,
             )
+        if scope == LOGIN_IP_SCOPE:
+            return _ThrottlePolicy(
+                window_seconds=settings.auth_login_ip_rate_limit_window_seconds,
+                max_attempts=settings.auth_login_ip_rate_limit_max_attempts,
+                lockout_seconds=settings.auth_login_ip_lockout_seconds,
+            )
         if scope == REFRESH_IP_SCOPE:
             return _ThrottlePolicy(
-                window_seconds=settings.auth_refresh_rate_limit_window_seconds,
-                max_attempts=settings.auth_refresh_rate_limit_max_attempts,
-                lockout_seconds=settings.auth_refresh_lockout_seconds,
+                window_seconds=settings.auth_refresh_ip_rate_limit_window_seconds,
+                max_attempts=settings.auth_refresh_ip_rate_limit_max_attempts,
+                lockout_seconds=settings.auth_refresh_ip_lockout_seconds,
             )
         raise ValueError(f"Unsupported throttle scope: {scope}")
 

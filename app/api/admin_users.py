@@ -15,6 +15,7 @@ from app.schemas.admin_users import (
 from app.services.auth_service import (
     create_user,
     list_user_roles,
+    revoke_all_user_sessions,
     reset_user_password,
     update_user_roles,
 )
@@ -63,17 +64,25 @@ def update_user_endpoint(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    revoke_sessions = False
     if payload.roles is not None:
         try:
             user = update_user_roles(db, user=user, role_names=payload.roles)
+            revoke_sessions = True
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if payload.is_active is not None:
+        if user.is_active != payload.is_active:
+            revoke_sessions = True
         user.is_active = payload.is_active
     if payload.is_superadmin is not None:
+        if user.is_superadmin != payload.is_superadmin:
+            revoke_sessions = True
         user.is_superadmin = payload.is_superadmin
     db.add(user)
     db.commit()
+    if revoke_sessions:
+        revoke_all_user_sessions(db, user_id=user.user_id, reason="admin_update")
     db.refresh(user)
     return _to_read(user)
 
@@ -91,5 +100,6 @@ def reset_password_endpoint(
         user = reset_user_password(db, user=user, password=payload.password)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    revoke_all_user_sessions(db, user_id=user.user_id, reason="password_reset")
     return _to_read(user)
 

@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from app.config import get_settings
 
 
 def test_login_success_and_refresh(api_client: TestClient) -> None:
@@ -46,7 +47,9 @@ def test_login_lockout_after_repeated_failures(api_client: TestClient) -> None:
 
 
 def test_refresh_lockout_after_repeated_failures(api_client: TestClient) -> None:
-    for _ in range(10):
+    settings = get_settings()
+    max_attempts = settings.auth_refresh_ip_rate_limit_max_attempts
+    for _ in range(max_attempts):
         response = api_client.post(
             "/auth/refresh",
             headers={"Authorization": "Bearer invalid-refresh-token"},
@@ -59,4 +62,12 @@ def test_refresh_lockout_after_repeated_failures(api_client: TestClient) -> None
     )
     assert blocked.status_code == 429
     assert blocked.headers.get("Retry-After") is not None
+
+
+def test_logout_all_invalidates_current_access_token(api_client: TestClient) -> None:
+    logout_all = api_client.post("/auth/logout-all")
+    assert logout_all.status_code == 200
+
+    me_after_logout = api_client.get("/auth/me")
+    assert me_after_logout.status_code == 401
 

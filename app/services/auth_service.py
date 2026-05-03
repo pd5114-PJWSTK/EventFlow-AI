@@ -189,18 +189,6 @@ def create_session_tokens(
     rotated_from_session_id: str | None = None,
 ) -> SessionTokens:
     now = datetime.now(UTC)
-    access_token = create_token(
-        subject=user.user_id,
-        token_type="access",
-        expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
-        settings=settings,
-        extra_claims={
-            "username": user.username,
-            "roles": user.roles,
-            "is_superadmin": user.is_superadmin,
-            "jti": secrets.token_hex(16),
-        },
-    )
     refresh_token = generate_refresh_token()
     expires_at = now + timedelta(minutes=settings.refresh_token_expire_minutes)
     session = AuthSession(
@@ -213,6 +201,20 @@ def create_session_tokens(
         ip_address=ip_address,
     )
     db.add(session)
+    db.flush()
+    access_token = create_token(
+        subject=user.user_id,
+        token_type="access",
+        expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
+        settings=settings,
+        extra_claims={
+            "username": user.username,
+            "roles": user.roles,
+            "is_superadmin": user.is_superadmin,
+            "jti": secrets.token_hex(16),
+            "sid": session.session_id,
+        },
+    )
     db.commit()
     return SessionTokens(access_token=access_token, refresh_token=refresh_token)
 

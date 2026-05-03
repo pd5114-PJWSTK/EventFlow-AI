@@ -1,76 +1,81 @@
-# Security Check - EventFlow AI (VPS)
+﻿# Security Check - EventFlow AI (2 iteracje)
 
 Data: 2026-05-03  
 Zakres: `C:\repos\Projekt`  
-Metoda: przeglad statyczny + szybki test dynamiczny w kontenerze
+Tryb: security scan repozytorium + PoC dynamiczny w kontenerze
 
-## Executive Summary
+## Podsumowanie
 
-Wczesniejsze krytyczne luki (RBAC, path traversal ML, slabe domyslne sekrety) pozostaja zalatane.  
-W tym skanie wykryto 3 aktualne obszary do poprawy przed wystawieniem na VPS.
-
----
-
-## 1) [P1] Publiczna ekspozycja dokumentacji API i OpenAPI
-
-### Opis
-Instancja publikuje `/docs` i `/openapi.json` bez uwierzytelnienia. Na publicznym VPS ulatwia to rekonesans atakujacemu (pelna mapa endpointow, modele wejscia/wyjscia, nazwy operacji).
-
-### Dowody
-- Kod: `app/main.py:28` (`FastAPI(...)` bez `docs_url=None`, `redoc_url=None`, `openapi_url=None` w trybie produkcyjnym).
-- Test dynamiczny:
-  - `/docs -> 200`
-  - `/openapi.json -> 200`
-  - kontrolnie endpoint biznesowy `/api/clients -> 401`
-
-### Plan zalatania
-1. Dodac w `Settings` flage np. `api_docs_enabled` (domyslnie `False` poza development).
-2. Tworzyc aplikacje warunkowo:
-   - production: `FastAPI(..., docs_url=None, redoc_url=None, openapi_url=None)`
-   - development: standardowe URL dokumentacji.
-3. Dodac test regresyjny: w `APP_ENV=production` endpointy docs zwracaja `404`.
+Wcześniejsze luki (RBAC endpointów, traversal ML, domyślne sekrety) nadal wyglądają na załatane.  
+W tym skanie wykryto podatności wymagające poprawy przed bezpiecznym wystawieniem na VPS.
 
 ---
 
-## 2) [P1] Brute-force lockout dziala tylko in-memory (brak wspolnego store)
+## Iteracja 1 - Findings
 
-### Opis
-Rate limiting logowania jest trzymany w procesie (`dict` + `Lock`). Przy wielu instancjach backendu lub restarcie procesu lockout znika i atak brute-force mozna obchodzic przez rozproszenie prob miedzy repliki/procesy.
+### 1) [P1] Access token nie jest unieważniany po `logout-all` ani po deaktywacji użytkownika
 
-### Dowody
-- `app/services/auth_rate_limit_service.py:24-26` - lokalny stan `self._buckets`.
-- `app/services/auth_rate_limit_service.py:61-63` - `clear()` kasuje caly stan; restart procesu daje ten sam efekt.
-- `app/api/auth.py:49` - klucz ograniczenia oparty o `username|ip` tylko w lokalnym serwisie.
+#### Opis
+Autoryzacja endpointów ufa wyłącznie claimom z JWT access token. Serwer nie sprawdza, czy sesja/token jest już odwołany oraz czy użytkownik został zdezaktywowany po wydaniu tokena.
 
-### Plan zalatania
-1. Przeniesc limiter do wspolnego magazynu (Redis) z TTL.
-2. Wprowadzic dwa niezalezne limity:
-   - per `username` (globalnie),
-   - per `ip` (globalnie).
-3. Dodac licznik i lockout dla `/auth/refresh` (ochrona przed credential stuffing tokenow).
-4. Dodac testy integracyjne potwierdzajace lockout po restarcie procesu i miedzy instancjami.
+#### Dowody statyczne
+- `app/middleware/rbac.py:10-27` - walidacja tylko podpisu/`type=access`, brak sprawdzenia stanu sesji i `is_active` użytkownika.
+- `app/services/auth_service.py:274-288` - `revoke_all_user_sessions` odwołuje tylko refresh sessions.
+- `app/services/auth_service.py:182-217` - access token powstaje jako stateless JWT, bez mechanizmu runtime revocation check.
 
----
+#### Dowody dynamiczne (PoC)
+- Po `POST /auth/logout-all` ten sam access token nadal działa:
+  - `login 200`, `logout_all 200`, `me_after_logout_all 200`.
+- Po deaktywacji użytkownika (`PATCH /admin/users/{id} is_active=false`) wcześniej wydany access token nadal działa:
+  - `me_before_disable 200`, `disable 200`, `me_after_disable 200`.
 
-## 3) [P2] Konfiguracja kontenerow nieutwardzona pod produkcje (root + bind mount kodu)
+#### Ryzyko
+Przejęty access token daje dostęp do API do czasu wygaśnięcia (`ACCESS_TOKEN_EXPIRE_MINUTES`), nawet po „wyloguj wszędzie” i po blokadzie konta.
 
-### Opis
-Kontenery aplikacyjne dzialaja jako root i montuja caly katalog projektu RW (`./:/app`). Przy RCE w aplikacji napastnik moze trwale modyfikowac kod uruchomieniowy i artefakty na hoscie.
-
-### Dowody
-- `Dockerfile:1-15` - brak `USER`, proces startuje jako root.
-- `docker-compose.yml:48-49`, `68-69`, `88-89` - bind mount `./:/app` dla backend/worker/beat.
-
-### Plan zalatania
-1. W `Dockerfile` dodac uzytkownika nieuprzywilejowanego (`useradd`, `chown`, `USER app`).
-2. Dla produkcji usunac bind mount kodu (`./:/app`) i uruchamiac tylko z immutable image.
-3. Rozdzielic compose na `docker-compose.dev.yml` (z mountami) i `docker-compose.prod.yml` (bez mountow, minimalne uprawnienia).
-4. Opcjonalnie: `read_only: true`, `tmpfs` dla katalogow tymczasowych, ograniczenia `cap_drop` i `no-new-privileges`.
+#### Plan zalatania
+1. Powiązać access token z serwerowym stanem sesji (`sid` / `session_id` claim).
+2. W `get_current_auth_payload` sprawdzać (cache/DB):
+   - czy sesja nie jest revoked,
+   - czy użytkownik jest `is_active=true`,
+   - czy wersja tokena użytkownika (np. `token_version`) jest aktualna.
+3. Przy `logout`, `logout-all`, deaktywacji usera, reset hasła, zmianie ról - zwiększać `token_version`/odwoływać aktywne sesje.
+4. Dodać testy regresyjne:
+   - `me` po `logout-all` => `401`,
+   - `me` po `is_active=false` => `401/403`.
 
 ---
 
-## Priorytet wdrozenia
+## Iteracja 2 - Re-check po analizie skutków łatania
 
-1. Zablokowac publiczne docs/openapi w production.
-2. Wdrozyc rozproszony limiter logowania (Redis) z limitami per-user i per-IP.
-3. Utwardzic kontenery produkcyjne (non-root, bez bind mountow kodu).
+Po zaadresowaniu problemów sesji przeprowadzono drugi pass pod kątem „co może wyjść dodatkowo” dla deploymentu VPS.
+
+### 2) [P2] Throttling per-IP jest podatny na masowe lockouty za reverse proxy (DoS)
+
+#### Opis
+Klucz limitera opiera się na `request.client.host`. W typowym scenariuszu VPS za Nginx/Traefik aplikacja może widzieć IP proxy zamiast realnego klienta. Wtedy wiele użytkowników dzieli jeden klucz IP i atakujący może łatwo wywołać lockout dla wszystkich za tym samym proxy/NAT.
+
+#### Dowody statyczne
+- `app/api/auth.py:53`, `app/api/auth.py:101` - użycie `request.client.host` jako źródła IP.
+- `app/services/auth_rate_limit_service.py:14-16`, `191-203` - osobne scope IP (`login_ip`, `refresh_ip`).
+- `docker-compose.yml:47` - uruchomienie uvicorn bez jawnej konfiguracji proxy trust (`forwarded-allow-ips`) dla środowiska reverse proxy.
+
+#### Ryzyko
+Atakujący generujący błędne logowania może zablokować logowanie/odświeżanie tokenów dla całej puli użytkowników widzianych pod wspólnym IP.
+
+#### Plan zalatania
+1. Wystandaryzować pozyskiwanie IP:
+   - ufać tylko nagłówkom zaufanego proxy (allowlist),
+   - odrzucać/ignorować spoofowane `X-Forwarded-For` spoza trust chain.
+2. Dodać konfigurację deploymentu proxy-aware (`FORWARDED_ALLOW_IPS` / analogiczna) i opisać ją w runbooku VPS.
+3. Zmniejszyć wpływ lockoutu per-IP:
+   - limit per-username jako priorytet,
+   - osobny, wyższy próg dla IP,
+   - telemetry i alerty przy anomaliach lockout.
+4. Dodać testy integracyjne z nagłówkami proxy oraz scenariuszem wielu użytkowników za jednym IP.
+
+---
+
+## Priorytet wdrożenia
+
+1. Zamknąć lukę unieważniania access tokenów (logout-all / disable user).  
+2. Utwardzić model pozyskiwania IP i politykę throttlingu pod reverse proxy na VPS.

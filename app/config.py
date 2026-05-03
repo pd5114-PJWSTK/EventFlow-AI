@@ -30,9 +30,16 @@ class Settings(BaseSettings):
     auth_login_rate_limit_window_seconds: int = 300
     auth_login_rate_limit_max_attempts: int = 5
     auth_login_lockout_seconds: int = 900
+    auth_login_ip_rate_limit_window_seconds: int = 300
+    auth_login_ip_rate_limit_max_attempts: int = 25
+    auth_login_ip_lockout_seconds: int = 120
     auth_refresh_rate_limit_window_seconds: int = 300
     auth_refresh_rate_limit_max_attempts: int = 10
     auth_refresh_lockout_seconds: int = 900
+    auth_refresh_ip_rate_limit_window_seconds: int = 300
+    auth_refresh_ip_rate_limit_max_attempts: int = 40
+    auth_refresh_ip_lockout_seconds: int = 120
+    auth_trusted_proxy_ips: str = "127.0.0.1,::1"
 
     ready_check_externals: bool = False
     celery_always_eager: bool = True
@@ -103,12 +110,29 @@ class Settings(BaseSettings):
             raise ValueError("AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS must be greater than 0.")
         if self.auth_login_lockout_seconds <= 0:
             raise ValueError("AUTH_LOGIN_LOCKOUT_SECONDS must be greater than 0.")
+        if self.auth_login_ip_rate_limit_window_seconds <= 0:
+            raise ValueError("AUTH_LOGIN_IP_RATE_LIMIT_WINDOW_SECONDS must be greater than 0.")
+        if self.auth_login_ip_rate_limit_max_attempts <= 0:
+            raise ValueError("AUTH_LOGIN_IP_RATE_LIMIT_MAX_ATTEMPTS must be greater than 0.")
+        if self.auth_login_ip_lockout_seconds <= 0:
+            raise ValueError("AUTH_LOGIN_IP_LOCKOUT_SECONDS must be greater than 0.")
         if self.auth_refresh_rate_limit_window_seconds <= 0:
             raise ValueError("AUTH_REFRESH_RATE_LIMIT_WINDOW_SECONDS must be greater than 0.")
         if self.auth_refresh_rate_limit_max_attempts <= 0:
             raise ValueError("AUTH_REFRESH_RATE_LIMIT_MAX_ATTEMPTS must be greater than 0.")
         if self.auth_refresh_lockout_seconds <= 0:
             raise ValueError("AUTH_REFRESH_LOCKOUT_SECONDS must be greater than 0.")
+        if self.auth_refresh_ip_rate_limit_window_seconds <= 0:
+            raise ValueError("AUTH_REFRESH_IP_RATE_LIMIT_WINDOW_SECONDS must be greater than 0.")
+        if self.auth_refresh_ip_rate_limit_max_attempts <= 0:
+            raise ValueError("AUTH_REFRESH_IP_RATE_LIMIT_MAX_ATTEMPTS must be greater than 0.")
+        if self.auth_refresh_ip_lockout_seconds <= 0:
+            raise ValueError("AUTH_REFRESH_IP_LOCKOUT_SECONDS must be greater than 0.")
+        trusted_proxy_ips = [value.strip() for value in self.auth_trusted_proxy_ips.split(",") if value.strip()]
+        if not trusted_proxy_ips:
+            raise ValueError("AUTH_TRUSTED_PROXY_IPS must contain at least one IP value.")
+        if non_dev and "*" in trusted_proxy_ips:
+            raise ValueError("AUTH_TRUSTED_PROXY_IPS cannot contain '*' outside development.")
         return self
 
 

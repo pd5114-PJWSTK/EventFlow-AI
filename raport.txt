@@ -1289,3 +1289,35 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-03] Wdrożono łatki po ponownym security check pod VPS: docs hardening, distributed auth throttling, container hardening.
   Cel: zamknąć ryzyka rekonesansu API, brute force przy wielu instancjach oraz eskalacji skutków RCE w kontenerach.
+
+13.7) FAZA 8 - SECURITY CHECK REMEDIATION (ITERACJA 2 / TOKEN REVOCATION + PROXY-AWARE THROTTLING)
+- Status: ZREALIZOWANY.
+- Zakres wdrozonych poprawek:
+  - Natychmiastowe uniewaznianie access tokenow po operacjach security-critical:
+    - access token powiazany z sesja (`sid` claim) podczas logowania,
+    - walidacja aktywnej sesji i aktywnego usera przy kazdym request (`get_current_auth_payload`),
+    - walidacja analogiczna dla websocket runtime.
+  - Revocation flow:
+    - `logout-all` natychmiast odcina aktualny access token,
+    - deaktywacja usera/admin update/reset hasla powoduje revocation wszystkich sesji usera.
+  - Utwardzenie throttlingu za reverse proxy:
+    - bezpieczne wyznaczanie client IP (`X-Forwarded-For` tylko dla zaufanych proxy),
+    - dodane `AUTH_TRUSTED_PROXY_IPS` + walidacja (blokada `*` poza development),
+    - rozdzielenie polityk login per-user i per-IP (osobne progi/lockout),
+    - osobne polityki refresh per-IP.
+  - Aktualizacje konfiguracji i dokumentacji:
+    - `app/config.py`, `.env.example`, `.env.production.example`,
+    - `scripts/check_production_env.py`, `README.md`.
+  - Testy regresyjne:
+    - dodane testy:
+      - `logout-all` uniewaznia access token,
+      - deaktywacja usera uniewaznia access token,
+      - walidacja `AUTH_TRUSTED_PROXY_IPS`.
+- Walidacja wykonania:
+  - security-regression:
+    - `docker compose run --rm --build backend pytest tests/test_auth.py tests/test_phase8_cp05.py -q` -> 18 passed.
+  - pelna regresja aplikacji:
+    - `docker compose run --rm backend pytest -q` -> 124 passed.
+
+- [2026-05-03] Wdrożono latki z 2-iteracyjnego security check: access token revocation enforcement oraz proxy-aware throttling pod VPS.
+  Cel: zamknac okno przejecia aktywnego tokena po logout/dezaktywacji i ograniczyc ryzyko masowych lockoutow za reverse proxy.
