@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_minutes: int = 24 * 60
 
-    demo_admin_username: str = "admin"
-    demo_admin_password: str = "admin123"
-    demo_admin_enabled: bool = True
+    demo_admin_username: str | None = None
+    demo_admin_password: str | None = None
+    demo_admin_enabled: bool = False
     auth_bootstrap_admin_username: str | None = None
     auth_bootstrap_admin_password: str | None = None
-    api_test_jobs_enabled: bool = True
+    api_test_jobs_enabled: bool = False
 
     ready_check_externals: bool = False
     celery_always_eager: bool = True
@@ -81,6 +81,13 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET_KEY is too weak for non-development environments.")
             if self.demo_admin_enabled:
                 raise ValueError("DEMO_ADMIN_ENABLED must be false outside development.")
+            if self.api_test_jobs_enabled:
+                raise ValueError("API_TEST_JOBS_ENABLED must be false outside development.")
+        if self.demo_admin_enabled:
+            username = (self.demo_admin_username or "").strip()
+            password = (self.demo_admin_password or "").strip()
+            if not username or not password:
+                raise ValueError("DEMO_ADMIN_USERNAME and DEMO_ADMIN_PASSWORD are required when demo auth is enabled.")
         return self
 
 

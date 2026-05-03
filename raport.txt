@@ -1200,3 +1200,39 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-03] Zaimplementowano CP-04 Fazy 8 (produkcyjny IAM + security hardening P0/P1/P2 + SQL patch + testy).
   Cel: domknac krytyczne wymagania bezpieczenstwa pod deploy VPS i utrzymac pelna zgodnosc regresyjna backendu.
+
+13.4) FAZA 8 - POSTEP IMPLEMENTACJI (CP-05)
+- Status checkpointu: `phase-8-cp-05-security-second-hardening-update` -> ZREALIZOWANY (implementacja + testy + regresja Docker).
+- Zakres wykonany:
+  - Domknieto uwagi z `Security_check.md` jako drugi update security:
+    - P0: wprowadzono granularny RBAC per grupy endpointow zamiast jednolitego broad access dla wszystkich `/api/*`.
+    - P1: utrzymano blokade path traversal i rozszerzono testy o sciezki absolutne oraz UNC.
+    - P2: usunieto niebezpieczne domyslne demo-auth i zaostrzono fail-fast config.
+  - Matryca dostepu (RBAC):
+    - CRUD/planning/AI ingest + predykcje: `manager|coordinator`,
+    - runtime HTTP+WS: `manager|coordinator|technician`,
+    - trening/retraining modeli ML + `api/test/*`: `manager`,
+    - admin user management: `admin`.
+  - Zmiany konfiguracji security:
+    - `DEMO_ADMIN_ENABLED=false` domyslnie,
+    - `DEMO_ADMIN_USERNAME/PASSWORD` bez wartosci domyslnych,
+    - `API_TEST_JOBS_ENABLED=false` domyslnie,
+    - fail-fast poza `development` gdy `API_TEST_JOBS_ENABLED=true`,
+    - fail-fast gdy demo auth wlaczone bez jawnych demo credentials.
+  - Zaktualizowano dokument podatnosci do stanu po naprawach:
+    - `Security_check.md` przepisany na status `FIXED` dla P0/P1/P2 + dowody testowe.
+  - Dodano testy CP-05:
+    - `tests/test_phase8_cp05.py`:
+      - parametryzowane `401` dla endpointow mutujacych,
+      - `403` dla ról nieuprawnionych i pozytywne przypadki dozwolonych ról,
+      - WS role enforcement,
+      - traversal reject (`../`, `..\\`, absolute, UNC),
+      - fail-fast config dla demo/test-jobs.
+- Walidacja wykonania:
+  - Testy CP-05:
+    - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true -e API_TEST_JOBS_ENABLED=true backend pytest -q tests/test_phase8_cp05.py` -> 11 passed.
+  - Pelny pakiet regresji:
+    - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true -e API_TEST_JOBS_ENABLED=true backend pytest -q` -> 119 passed.
+
+- [2026-05-03] Zaimplementowano CP-05 Fazy 8 (drugi update security hardening po raporcie podatnosci).
+  Cel: domknac wszystkie uwagi z `Security_check.md` i potwierdzic brak regresji pelnym testem Docker.
