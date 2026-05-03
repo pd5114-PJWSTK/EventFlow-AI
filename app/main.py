@@ -21,7 +21,9 @@ from app.services.auth_service import bootstrap_initial_admin, ensure_default_ro
 
 
 settings = get_settings()
-BUSINESS_ROLES = ["manager", "coordinator", "technician"]
+MANAGER_ROLES = ["manager"]
+PLANNING_ROLES = ["manager", "coordinator"]
+RUNTIME_ROLES = ["manager", "coordinator", "technician"]
 
 app = FastAPI(title=settings.app_name)
 
@@ -29,17 +31,17 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_users_router)
 if settings.api_test_jobs_enabled:
-    app.include_router(test_jobs_router)
-app.include_router(clients_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(locations_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(events_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(resources_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(planner_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(ai_agents_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(runtime_ops_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(ml_features_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(ml_models_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
-app.include_router(ml_predictions_router, dependencies=[Depends(require_role(BUSINESS_ROLES))])
+    app.include_router(test_jobs_router, dependencies=[Depends(require_role(MANAGER_ROLES))])
+app.include_router(clients_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
+app.include_router(locations_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
+app.include_router(events_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
+app.include_router(resources_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
+app.include_router(planner_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
+app.include_router(ai_agents_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
+app.include_router(runtime_ops_router, dependencies=[Depends(require_role(RUNTIME_ROLES))])
+app.include_router(ml_features_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
+app.include_router(ml_models_router, dependencies=[Depends(require_role(MANAGER_ROLES))])
+app.include_router(ml_predictions_router, dependencies=[Depends(require_role(PLANNING_ROLES))])
 
 
 @app.on_event("startup")
