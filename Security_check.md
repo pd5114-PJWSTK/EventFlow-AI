@@ -4,7 +4,7 @@ Data aktualizacji: 2026-05-03
 Zakres: repozytorium `C:\repos\Projekt`  
 Metoda: przeglad statyczny + testy automatyczne CP-04/CP-05 + regresja Docker
 
-## Podsumowanie
+## Executive summary
 
 Status podatnosci z raportu:
 
