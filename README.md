@@ -1,157 +1,147 @@
-# EventFlow AI
+﻿# EventFlow AI
 
 ![Status](https://img.shields.io/badge/status-active-success) ![Backend](https://img.shields.io/badge/backend-FastAPI-009688) ![DB](https://img.shields.io/badge/database-PostgreSQL-336791) ![Queue](https://img.shields.io/badge/queue-Celery%20%2B%20Redis-D32F2F) ![ML](https://img.shields.io/badge/ml-scikit--learn-F57C00)
 
-EventFlow AI to system backendowy do planowania i live replanningu eventow. Laczy deterministiczny planner zasob�w (ludzie/sprzet/pojazdy/czas), runtime operations i warstwe ML do oceny wariant�w planu.
+EventFlow AI to aplikacja webowa do planowania zasobów, obsługi incydentów live i zbierania danych po eventach. Backend dostarcza API planowania, runtime i ML, a frontend jest panelem operacyjnym dla administratora i zespołu eventowego.
 
-## Co ten program robi
-- Buduje plan operacyjny eventu (`generate-plan`).
-- Wykrywa luki i prowadzi operatora przez decyzje (`preview-gaps` -> `resolve-gaps`).
-- Obsluguje incidenty i live replanning bez gubienia zasob�w juz zuzytych.
-- Prowadzi audit trail wykonania (`ops.*`).
-- Trenuje i wykorzystuje modele ML do predykcji i rankingu plan�w.
+## Co robi system
+- Wprowadza event z opisu tekstowego i zamienia go na arkusz danych do zatwierdzenia.
+- Generuje i rekomenduje plany zasobów dla przyszłych eventów.
+- Obsługuje incydenty live i replanowanie.
+- Zapisuje logi po evencie i domyka dane do feedback loop ML.
+- Udostępnia podgląd danych biznesowych: eventy, lokalizacje, ludzie, sprzęt, pojazdy i umiejętności.
+- Obsługuje użytkowników, role i sesje.
 
-## Jak dziala (wysoki poziom)
-```mermaid
-flowchart LR
-    A["Event + Requirements"] --> B["Planner (OR-Tools/Fallback)"]
-    B --> C["Plan + Gap Analysis"]
-    C --> D["Operator Decision"]
-    D --> E["Resolve Gaps (augment/reschedule)"]
-    E --> F["Committed Assignments"]
-    F --> G["Runtime Logs / Incidents"]
-    G --> H["Live Replan"]
-    G --> I["ML Features + Outcomes"]
-    I --> J["Model Training / Retraining"]
-    J --> B
-```
-
-## Architektura komponent�w
+## Architektura
 ```mermaid
 flowchart TB
-    UI["Frontend/UI"] --> API["FastAPI API"]
-    API --> CORE["Core Services"]
-    API --> RUNTIME["Runtime Services"]
-    API --> ML["ML Services"]
-    CORE --> DB[("PostgreSQL: core/ops/ai")]
+    UI["Frontend React"] --> API["FastAPI API"]
+    API --> CORE["Core services"]
+    API --> RUNTIME["Runtime services"]
+    API --> ML["ML services"]
+    CORE --> DB[("PostgreSQL: core/ops/ai/auth")]
     RUNTIME --> DB
     ML --> DB
     API --> REDIS[("Redis")]
-    API --> CELERY["Celery Worker/Beat"]
+    API --> CELERY["Celery worker/beat"]
     CELERY --> REDIS
     CELERY --> DB
 ```
 
-## Kluczowe endpointy
-### Planner
-- `POST /api/planner/generate-plan`
-- `POST /api/planner/replan/{event_id}`
-- `POST /api/planner/recommend-best-plan`
-- `POST /api/planner/preview-gaps/{event_id}`
-- `POST /api/planner/resolve-gaps/{event_id}`
-
-### Runtime
-- `POST /api/runtime/events/{event_id}/start`
-- `POST /api/runtime/events/{event_id}/checkpoint`
-- `POST /api/runtime/events/{event_id}/incident`
-- `POST /api/runtime/events/{event_id}/complete`
-
-### ML
-- `POST /api/ml/features/events/{event_id}`
-- `POST /api/ml/models/train-baseline`
-- `POST /api/ml/models/harden-duration`
-- `POST /api/ml/models/train-plan-evaluator`
-- `POST /api/ml/predictions`
-
-## Konfiguracja ENV
-- `.env` - aktywny plik konfiguracyjny u�ywany przez aplikacj� i docker-compose.
-- `.env.example` - szablon dla �rodowiska development.
-- `.env.production.example` - szablon dla �rodowiska production/VPS.
-
 ## Quick start
-1. Skopiuj konfiguracje (DEV):
-```bash
-cp .env.example .env
+1. Uruchom backend i usługi:
+```powershell
+docker compose up --build -d
 ```
 
-2. Uruchom projekt:
-```bash
-docker compose up --build
-```
-
-3. Sprawdz API:
+2. Sprawdź API:
 - `http://localhost:8000/health`
 - `http://localhost:8000/ready`
-- `http://localhost:8000/docs` (tylko gdy `APP_ENV=development` oraz `API_DOCS_ENABLED=true`)
+- `http://localhost:8000/docs` tylko w development, gdy `API_DOCS_ENABLED=true`
 
-## Frontend (CP-01)
-Frontend znajduje sie w katalogu `frontend/` (React + TypeScript + MUI).
-
-1. Uruchom backend i uslugi:
-```bash
-docker compose up --build
-```
-
-2. W nowym terminalu uruchom frontend:
-```bash
+3. Uruchom frontend:
+```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
-3. Otworz panel:
+4. Otwórz panel:
 - `http://localhost:5173`
 
-4. Logowanie:
-- domyslnie (z .env development): `admin` / `Adm1nVPS_2026!Secure`
-- lub konto utworzone przez endpointy admina (`/admin/users`).
+5. Logowanie development:
+- login: `admin`
+- hasło: `Adm1nVPS_2026!Secure`
 
-## Produkcja (VPS)
-1. Przygotuj env dla produkcji:
-```bash
-cp .env.production.example .env
+## One-command local frontend test
+Z katalogu projektu:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-test-env.ps1
 ```
-2. Ustaw silne sekrety (`JWT_SECRET_KEY`, `POSTGRES_PASSWORD`, bootstrap admin).
-3. Skonfiguruj zaufane proxy IP w `AUTH_TRUSTED_PROXY_IPS` (bez `*`).
-4. Uruchom preflight:
-```bash
-python scripts/check_production_env.py
+
+Opcje:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-test-env.ps1 -SkipBuild
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local-test-env.ps1 -SkipNpmInstall
 ```
-5. Wystaw publicznie tylko API (bez publikowania portow Postgres/Redis).
+
+## LLM w środowisku lokalnym
+Domyślnie `.env` ma `AI_AZURE_LLM_ENABLED=false`, więc parser używa heurystyk albo trybu awaryjnego. Żeby frontend korzystał z LLM w flow `Nowy event`, `Replanowanie live` i `Post-event log`, ustaw w `.env`:
+
+```env
+AI_AZURE_LLM_ENABLED=true
+AZURE_OPENAI_ENDPOINT=https://<twoj-zasob>.openai.azure.com/
+AZURE_OPENAI_API_KEY=<klucz>
+OPENAI_API_VERSION=2024-08-01-preview
+AZURE_DEPLOYMENT_LLM=gpt-4.1-mini
+```
+
+Po zmianie `.env` przebuduj backend:
+```powershell
+docker compose up --build -d
+```
+
+Frontend pokazuje przy arkuszach status źródła: `Źródło: LLM`, `Źródło: parser deterministyczny` albo `Źródło: tryb awaryjny`.
+
+## Kluczowe endpointy
+### Auth
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `GET /auth/me`
+- `POST /auth/logout`
+- `POST /auth/logout-all`
+
+### Admin
+- `GET /admin/users`
+- `POST /admin/users`
+- `PATCH /admin/users/{user_id}`
+- `POST /admin/users/{user_id}/reset-password`
+
+### Intake, planner i runtime
+- `POST /api/ai-agents/ingest-event/preview`
+- `POST /api/ai-agents/ingest-event/commit`
+- `POST /api/planner/generate-plan`
+- `POST /api/planner/recommend-best-plan`
+- `POST /api/planner/replan/{event_id}`
+- `POST /api/runtime/events/{event_id}/incident/parse`
+- `POST /api/runtime/events/{event_id}/post-event/parse`
+- `POST /api/runtime/events/{event_id}/post-event/commit`
+
+### ML
+- `GET /api/ml/models`
+- `POST /api/ml/models/retrain-duration`
+- `POST /api/ml/models/train-baseline`
+- `POST /api/ml/models/harden-duration`
+- `POST /api/ml/models/train-plan-evaluator`
 
 ## Testy
-Pe�na regresja w kontenerze backend:
-```bash
-docker compose exec -e READY_CHECK_EXTERNALS=false backend pytest -q
+Backend:
+```powershell
+docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q
 ```
 
-Scenariusze E2E (w tym scenariusze opisane w `docs/reports/Test_programu.md`):
-```bash
-docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py
+Scenariusze E2E/regresyjne CP-03:
+```powershell
+docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_frontend_cp03.py
 ```
 
-Frontend quality checks:
-```bash
+Frontend:
+```powershell
 cd frontend
 npm run typecheck
+npm run lint
 npm run test
 npm run build
 ```
 
 ## Struktura projektu
-- `app/api/` - endpointy
+- `app/api/` - endpointy FastAPI
 - `app/services/` - logika biznesowa
 - `app/models/` - modele SQLAlchemy
 - `app/schemas/` - kontrakty API
-- `app/workers/` - zadania Celery
-- `docker/postgres/init/` - schema + seed dla nowych srodowisk
-- `scripts/sql/` - patche SQL dla istniej�cych instancji
+- `frontend/` - React + TypeScript + MUI
+- `docker/postgres/init/` - schema i seed dla nowych środowisk
+- `scripts/sql/` - patche SQL dla istniejących instancji
 - `tests/` - testy fazowe i regresyjne
 - `docs/` - dokumentacja techniczna i operacyjna
-
-## Dokumentacja dla os�b trzecich
-- Start od: `docs/README.md`
-- Architektura/plan: `docs/reference/Plan.md`
-- Baza danych: `docs/database/README.md`
-- Scenariusze testowe: `docs/reports/Test_programu.md`
-- Dziennik implementacji: `raport.txt`
+- `raport.txt` - dziennik checkpointów

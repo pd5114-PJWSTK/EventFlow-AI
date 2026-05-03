@@ -35,7 +35,7 @@ export class ApiClient {
     });
     const data = await response.json();
     if (!response.ok) {
-      throw new ApiError(data?.detail ?? "Blad logowania", response.status, data ?? null);
+      throw new ApiError(data?.detail ?? "Błąd logowania", response.status, data ?? null);
     }
     const tokens = { accessToken: data.access_token as string, refreshToken: data.refresh_token as string };
     this.onTokenUpdate(tokens);
@@ -73,7 +73,7 @@ export class ApiClient {
     if (tokens?.accessToken) {
       headers.Authorization = `Bearer ${tokens.accessToken}`;
     } else if (!allowUnauthenticated) {
-      throw new ApiError("Brak sesji uzytkownika", 401, null);
+      throw new ApiError("Brak sesji użytkownika", 401, null);
     }
 
     const response = await this.safeFetch(path, {
@@ -97,7 +97,7 @@ export class ApiClient {
     if (!response.ok) {
       const payload = (data as ApiErrorPayload | null) ?? null;
       throw new ApiError(
-        payload?.detail ?? payload?.message ?? `Blad API (${response.status})`,
+        payload?.detail ?? payload?.message ?? `Błąd API (${response.status})`,
         response.status,
         payload,
       );
@@ -141,12 +141,12 @@ export class ApiClient {
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new ApiError("Przekroczono czas oczekiwania na odpowiedz API.", 0, null);
+        throw new ApiError("Przekroczono czas oczekiwania na odpowiedź API.", 0, null);
       }
       if (error instanceof TypeError) {
         console.error(`[api][network] ${String(input)} (${durationMs}ms, request-id=${requestId})`);
         throw new ApiError(
-          "Brak polaczenia z API. Sprawdz, czy backend dziala i czy frontend ma poprawny adres API.",
+          "Brak połączenia z API. Sprawdź, czy backend działa i czy frontend ma poprawny adres API.",
           0,
           null,
         );

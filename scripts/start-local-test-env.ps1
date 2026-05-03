@@ -49,5 +49,6 @@ if (-not $SkipNpmInstall -or -not (Test-Path "node_modules")) {
 Write-Host "[ok] Backend gotowy: $healthUrl" -ForegroundColor Green
 Write-Host "[ok] Frontend dev: http://127.0.0.1:5173" -ForegroundColor Green
 Write-Host "[info] Logowanie domyslne: admin / Adm1nVPS_2026!Secure" -ForegroundColor Yellow
+Write-Host "[info] LLM lokalnie dziala tylko gdy AI_AZURE_LLM_ENABLED=true oraz Azure credentials sa ustawione w .env." -ForegroundColor Yellow
 
 npm run dev

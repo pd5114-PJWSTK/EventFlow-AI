@@ -1402,3 +1402,62 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-03] Zaimplementowano CP-02 FE Fazy 8 (hardening API klienta, rozszerzone testy workflow oraz skrypt one-command dla lokalnego testowania frontendu).
   Cel: domknac sekcje hardening/E2E z planu Fazy 8 i uproscic lokalny start srodowiska testowego.
+
+14.2) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-03)
+- Status checkpointu: `phase-8-frontend-cp-03-operational-polish-and-business-ux` -> ZREALIZOWANY (frontend operacyjny + endpoint listy uzytkownikow + testy).
+- Zakres wykonany:
+  - Przebudowano panel boczny do docelowych zakladek:
+    - Dashboard,
+    - Nowy event,
+    - Planowanie eventow,
+    - Replanowanie live,
+    - Post-event log,
+    - Dane,
+    - Uzytkownicy,
+    - Moje konto.
+  - Usunieto glowne widoki techniczne oparte o JSON i zastapiono je formularzami, arkuszami oraz tabelami biznesowymi.
+  - Dashboard:
+    - panel opisow zakladek,
+    - panel zblizajacych sie eventow z miejscem i liczba dni do startu.
+  - Nowy event:
+    - flow tekst -> arkusz -> walidacja -> dodanie/odrzucenie,
+    - status zrodla parsera: LLM / parser deterministyczny / tryb awaryjny.
+  - Planowanie eventow:
+    - wybor przyszlego eventu,
+    - animowany proces planowania i optymalizacji,
+    - opisowe kafelki planow,
+    - wybor i zatwierdzenie planu.
+  - Replanowanie live:
+    - flow tekst -> arkusz incydentu -> przyjecie -> replan -> akceptacja/odrzucenie.
+  - Post-event log:
+    - flow tekst -> arkusz -> walidacja -> zapis.
+  - Dane:
+    - read-only podzakladki z tabelami biznesowymi dla eventow, lokalizacji, ludzi, sprzetu, typow sprzetu, pojazdow i umiejetnosci.
+  - Uzytkownicy:
+    - formularz dodania uzytkownika,
+    - tabela uzytkownikow.
+  - Moje konto:
+    - karta zalogowanego uzytkownika,
+    - panel ML dla admina z ostatnim modelem i retrainingiem.
+  - Backend:
+    - dodano `GET /admin/users` z paginacja.
+  - Polskie znaki:
+    - przepisano kluczowe pliki frontendu i README w UTF-8,
+    - poprawiono komunikaty API i widoczne teksty UI.
+  - LLM:
+    - frontend nadal wysyla `prefer_llm=true` / `prefer_langgraph=true`,
+    - README i skrypt lokalny wskazuja, ze realny LLM wymaga `AI_AZURE_LLM_ENABLED=true` i Azure credentials.
+- Walidacja wykonania:
+  - Frontend:
+    - `npm run typecheck` -> passed.
+    - `npm run lint` -> passed (1 istniejacy warning w `auth.tsx`).
+    - `npm run test -- --run` -> 12 passed.
+    - `npm run build` -> passed.
+  - Backend:
+    - `python -m py_compile app/api/admin_users.py app/schemas/admin_users.py tests/test_phase8_frontend_cp03.py` -> passed.
+    - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase8_frontend_cp03.py tests/test_auth.py` -> 7 passed.
+  - E2E/regresja:
+    - `docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_frontend_cp03.py` -> 5 passed.
+
+- [2026-05-03] Zaimplementowano CP-03 FE Fazy 8 (operacyjny UX, arkusze biznesowe, tabele danych, panel ML admina, naprawa polskich znakow i status LLM/heurystyka).
+  Cel: usunac techniczne JSON-y z glownego UI i dostarczyc czytelny panel do testow operacyjnych.

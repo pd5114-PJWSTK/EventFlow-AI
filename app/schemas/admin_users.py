@@ -27,3 +27,10 @@ class AdminUserRead(BaseModel):
     is_active: bool
     is_superadmin: bool
 
+
+class AdminUserListResponse(BaseModel):
+    items: list[AdminUserRead] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+

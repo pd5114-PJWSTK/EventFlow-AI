@@ -1,4 +1,4 @@
-import { Link as RouterLink, Outlet, useLocation } from "react-router-dom";
+ï»¿import { Link as RouterLink, Outlet, useLocation } from "react-router-dom";
 import {
   AppBar,
   Box,
@@ -7,44 +7,37 @@ import {
   Drawer,
   List,
   ListItemButton,
+  ListItemIcon,
   ListItemText,
   Stack,
   Toolbar,
   Typography,
 } from "@mui/material";
 
+import { navItems } from "../app/navigation";
 import { useAuth } from "../lib/auth";
 
-const navItems = [
-  { label: "Dashboard", path: "/dashboard" },
-  { label: "Intake AI", path: "/intake" },
-  { label: "Planner Studio", path: "/planner" },
-  { label: "Runtime + Replan", path: "/runtime" },
-  { label: "Post-Event Log", path: "/post-event" },
-  { label: "Eventy", path: "/events" },
-  { label: "Zasoby", path: "/resources" },
-  { label: "AI Agents", path: "/ai" },
-  { label: "ML", path: "/ml" },
-  { label: "U¿ytkownicy", path: "/users" },
-  { label: "Moje konto", path: "/me" },
-];
-
-const drawerWidth = 270;
+const drawerWidth = 286;
 
 export function AppShell(): JSX.Element {
   const { me, logout } = useAuth();
   const location = useLocation();
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh" }}>
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
       <AppBar
         position="fixed"
         color="inherit"
         elevation={0}
-        sx={{ width: `calc(100% - ${drawerWidth}px)`, ml: `${drawerWidth}px`, borderBottom: "1px solid", borderColor: "divider" }}
+        sx={{
+          width: { xs: "100%", md: `calc(100% - ${drawerWidth}px)` },
+          ml: { xs: 0, md: `${drawerWidth}px` },
+          borderBottom: "1px solid",
+          borderColor: "divider",
+        }}
       >
-        <Toolbar sx={{ justifyContent: "space-between" }}>
-          <Typography variant="h6">EventFlow AI Admin Console</Typography>
+        <Toolbar sx={{ justifyContent: "space-between", gap: 2 }}>
+          <Typography variant="h6">EventFlow AI</Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             {me?.roles?.slice(0, 3).map((role) => (
               <Chip key={role} label={role} size="small" color="primary" variant="outlined" />
@@ -61,6 +54,7 @@ export function AppShell(): JSX.Element {
         sx={{
           width: drawerWidth,
           flexShrink: 0,
+          display: { xs: "none", md: "block" },
           [`& .MuiDrawer-paper`]: {
             width: drawerWidth,
             boxSizing: "border-box",
@@ -70,7 +64,7 @@ export function AppShell(): JSX.Element {
         }}
       >
         <Toolbar>
-          <Typography variant="h5">Console</Typography>
+          <Typography variant="h5">Panel</Typography>
         </Toolbar>
         <List sx={{ px: 1 }}>
           {navItems.map((item) => (
@@ -84,14 +78,25 @@ export function AppShell(): JSX.Element {
                 mb: 0.5,
                 color: "#ffffff",
                 "&.Mui-selected": { backgroundColor: "rgba(255,255,255,0.2)" },
+                "&.Mui-selected:hover": { backgroundColor: "rgba(255,255,255,0.26)" },
               }}
             >
-              <ListItemText primary={item.label} />
+              <ListItemIcon sx={{ color: "inherit", minWidth: 38 }}>{item.icon}</ListItemIcon>
+              <ListItemText primary={item.label} primaryTypographyProps={{ fontWeight: 700 }} />
             </ListItemButton>
           ))}
         </List>
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 9, ml: `${drawerWidth}px` }}>
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          p: { xs: 2, md: 3 },
+          mt: 9,
+          ml: { xs: 0, md: `${drawerWidth}px` },
+          maxWidth: "100%",
+        }}
+      >
         <Outlet />
       </Box>
     </Box>

@@ -1,99 +1,87 @@
-import { useState } from "react";
-import { Alert, Button, Grid, Stack, TextField, Typography } from "@mui/material";
+﻿import { useCallback, useEffect, useState } from "react";
+import { Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 
-import { ActionResult } from "../components/ActionResult";
-import { JsonEditor } from "../components/JsonEditor";
+import { BusinessTable } from "../components/BusinessTable";
+import { StatusBanner } from "../components/StatusBanner";
 import { useAuth } from "../lib/auth";
-import type { JsonObject } from "../types/api";
+import type { AdminUser, ListResponse } from "../types/api";
+
+const roleOptions = ["admin", "manager", "coordinator", "technician"];
 
 export function UsersPage(): JSX.Element {
   const { api } = useAuth();
-  const [userId, setUserId] = useState("");
-  const [createJson, setCreateJson] = useState(
-    JSON.stringify(
-      {
-        username: "operator-ui",
-        password: "StrongPass!234",
-        roles: ["manager"],
-        is_superadmin: false,
-      },
-      null,
-      2,
-    ),
-  );
-  const [updateJson, setUpdateJson] = useState(JSON.stringify({ roles: ["coordinator"], is_active: true }, null, 2));
-  const [resetPassword, setResetPassword] = useState("StrongNewPass!234");
-  const [result, setResult] = useState<unknown>(null);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [username, setUsername] = useState("operator-ui");
+  const [password, setPassword] = useState("StrongPass!234");
+  const [role, setRole] = useState("manager");
+  const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const loadUsers = useCallback(async (): Promise<void> => {
+    const data = await api.request<ListResponse<AdminUser>>("GET", "/admin/users?limit=100");
+    setUsers(data.items);
+  }, [api]);
+
+  useEffect(() => {
+    void loadUsers().catch((err) => setError(err instanceof Error ? err.message : "Nie udało się pobrać użytkowników."));
+  }, [loadUsers]);
 
   const createUser = async (): Promise<void> => {
     setError(null);
+    setSuccess(null);
+    setIsLoading(true);
     try {
-      const payload = JSON.parse(createJson) as JsonObject;
-      const data = await api.request<JsonObject>("POST", "/admin/users", payload);
-      setResult(data);
-      if (typeof (data as JsonObject).user_id === "string") {
-        setUserId((data as JsonObject).user_id as string);
-      }
+      await api.request<AdminUser>("POST", "/admin/users", {
+        username,
+        password,
+        roles: [role],
+        is_superadmin: role === "admin",
+      });
+      setSuccess(`Dodano użytkownika ${username}.`);
+      setUsername("");
+      setPassword("");
+      await loadUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "B��d tworzenia u�ytkownika.");
-    }
-  };
-
-  const updateUser = async (): Promise<void> => {
-    setError(null);
-    try {
-      const payload = JSON.parse(updateJson) as JsonObject;
-      setResult(await api.request<JsonObject>("PATCH", `/admin/users/${userId}`, payload));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "B��d aktualizacji u�ytkownika.");
-    }
-  };
-
-  const resetUser = async (): Promise<void> => {
-    setError(null);
-    try {
-      setResult(
-        await api.request<JsonObject>("POST", `/admin/users/${userId}/reset-password`, {
-          password: resetPassword,
-        }),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "B��d resetu has�a.");
+      setError(err instanceof Error ? err.message : "Nie udało się dodać użytkownika.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <Stack spacing={2}>
-      <Typography variant="h4">Administracja u�ytkownikami</Typography>
+    <Stack spacing={2.5}>
+      <Typography variant="h4">Użytkownicy</Typography>
+      {success && <StatusBanner severity="success" title="Użytkownik dodany" message={success} />}
       {error && <Alert severity="error">{error}</Alert>}
-      <TextField label="User ID" value={userId} onChange={(e) => setUserId(e.target.value)} />
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          <JsonEditor title="Create user payload" value={createJson} onChange={setCreateJson} minHeight={220} />
-          <Button sx={{ mt: 1 }} variant="contained" onClick={() => void createUser()}>
-            Utw�rz u�ytkownika
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>Nowy użytkownik</Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={4}><TextField label="Nazwa użytkownika" value={username} onChange={(event) => setUsername(event.target.value)} fullWidth /></Grid>
+          <Grid item xs={12} md={4}><TextField label="Hasło startowe" type="password" value={password} onChange={(event) => setPassword(event.target.value)} fullWidth /></Grid>
+          <Grid item xs={12} md={4}>
+            <TextField select label="Rola" value={role} onChange={(event) => setRole(event.target.value)} fullWidth>
+              {roleOptions.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
+            </TextField>
+          </Grid>
+        </Grid>
+        <Box sx={{ mt: 2 }}>
+          <Button variant="contained" disabled={isLoading || username.length < 3 || password.length < 12} onClick={() => void createUser()}>
+            Dodaj użytkownika
           </Button>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <JsonEditor title="Update user payload" value={updateJson} onChange={setUpdateJson} minHeight={220} />
-          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-            <Button variant="outlined" onClick={() => void updateUser()}>
-              Aktualizuj
-            </Button>
-            <TextField
-              label="Nowe has�o"
-              size="small"
-              value={resetPassword}
-              onChange={(e) => setResetPassword(e.target.value)}
-            />
-            <Button variant="outlined" color="secondary" onClick={() => void resetUser()}>
-              Reset has�a
-            </Button>
-          </Stack>
-        </Grid>
-      </Grid>
-      <ActionResult title="Wynik operacji" result={result ?? { info: "Brak wyniku" }} error={error} />
+        </Box>
+      </Paper>
+      <BusinessTable
+        title="Lista użytkowników"
+        rows={users}
+        columns={[
+          { key: "username", label: "Użytkownik", render: (item) => item.username },
+          { key: "roles", label: "Role", render: (item) => <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>{item.roles.map((userRole) => <Chip key={userRole} label={userRole} size="small" />)}</Stack> },
+          { key: "active", label: "Status", render: (item) => (item.is_active ? "Aktywny" : "Nieaktywny") },
+          { key: "admin", label: "Superadmin", render: (item) => (item.is_superadmin ? "Tak" : "Nie") },
+        ]}
+      />
     </Stack>
   );
 }
+

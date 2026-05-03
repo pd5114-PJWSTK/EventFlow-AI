@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -8,6 +8,7 @@ from app.middleware.rbac import require_role
 from app.models.auth import User
 from app.schemas.admin_users import (
     AdminUserCreateRequest,
+    AdminUserListResponse,
     AdminUserRead,
     AdminUserResetPasswordRequest,
     AdminUserUpdateRequest,
@@ -36,6 +37,18 @@ def _to_read(user: User) -> AdminUserRead:
         is_active=user.is_active,
         is_superadmin=user.is_superadmin,
     )
+
+
+@router.get("", response_model=AdminUserListResponse)
+def list_users_endpoint(
+    db: Session = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> AdminUserListResponse:
+    query = db.query(User).order_by(User.username.asc())
+    total = query.count()
+    users = query.offset(offset).limit(limit).all()
+    return AdminUserListResponse(items=[_to_read(user) for user in users], total=total, limit=limit, offset=offset)
 
 
 @router.post("", response_model=AdminUserRead, status_code=status.HTTP_201_CREATED)

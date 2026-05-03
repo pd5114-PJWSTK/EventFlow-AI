@@ -1,85 +1,176 @@
-import { useMemo, useState } from "react";
-import { Alert, Button, Grid, Stack, TextField, Typography } from "@mui/material";
+﻿import { useState } from "react";
+import { Alert, Box, Button, Chip, Grid, Paper, Stack, TextField, Typography } from "@mui/material";
 
-import { ActionResult } from "../components/ActionResult";
 import { AnimatedPipeline } from "../components/AnimatedPipeline";
-import { JsonEditor } from "../components/JsonEditor";
+import { StatusBanner } from "../components/StatusBanner";
 import { useAuth } from "../lib/auth";
-import type { JsonObject } from "../types/api";
+import { formatMoney, parserSourceLabel } from "../lib/format";
+import type { ReplanResponse, RuntimeIncidentParseResponse } from "../types/api";
 
-const runtimeSteps = ["Rejestracja incydentu", "Parse", "Analiza wp�ywu", "Replan", "Publikacja"];
+const replanSteps = ["Analiza zgłoszenia", "Replanowanie", "Porównanie wpływu", "Decyzja", "Akceptacja"];
+
+interface IncidentSheet {
+  incident_id?: string;
+  incident_type: string;
+  severity: string;
+  description: string;
+  root_cause: string;
+  reported_by: string;
+  cost_impact: string;
+  sla_impact: boolean;
+  parser_mode?: string;
+  parse_confidence?: number;
+}
 
 export function RuntimePage(): JSX.Element {
   const { api } = useAuth();
   const [eventId, setEventId] = useState("");
-  const [incidentText, setIncidentText] = useState("Sprz�t audio uleg� awarii, op�nienie 30 min, zg�osi�: Jan.");
-  const [replanJson, setReplanJson] = useState('{"incident_summary":"Awaria sprz�tu audio","commit_to_assignments":true}');
-  const [result, setResult] = useState<unknown>(null);
+  const [incidentText, setIncidentText] = useState("Awaria nagłośnienia na sali głównej, opóźnienie około 30 minut, zgłasza Jan.");
+  const [sheet, setSheet] = useState<IncidentSheet | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [replanResult, setReplanResult] = useState<ReplanResponse | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState(0);
+  const [isWorking, setIsWorking] = useState(false);
+
+  const validateSheet = (): boolean => {
+    const next: Record<string, string> = {};
+    if (!eventId.trim()) next.eventId = "Wybierz lub wpisz event.";
+    if (!sheet?.description?.trim()) next.description = "Opis incydentu jest wymagany.";
+    if (!sheet?.incident_type?.trim()) next.incident_type = "Typ incydentu jest wymagany.";
+    setFieldErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const parseIncident = async (): Promise<void> => {
     setError(null);
-    setActiveStep(1);
+    setSuccess(null);
+    setReplanResult(null);
+    setIsWorking(true);
     try {
-      const data = await api.request<JsonObject>("POST", `/api/runtime/events/${eventId}/incident/parse`, {
+      const data = await api.request<RuntimeIncidentParseResponse>("POST", `/api/runtime/events/${eventId}/incident/parse`, {
         raw_log: incidentText,
         prefer_llm: true,
-        idempotency_key: `inc-parse-${Date.now()}`,
+        idempotency_key: `incident-${Date.now()}`,
       });
-      setResult(data);
+      setSheet({
+        incident_id: data.incident_id,
+        incident_type: data.incident_type,
+        severity: data.severity,
+        description: data.description,
+        root_cause: data.root_cause || "",
+        reported_by: data.reported_by || "",
+        cost_impact: data.cost_impact ? String(data.cost_impact) : "",
+        sla_impact: data.sla_impact,
+        parser_mode: data.parser_mode,
+        parse_confidence: data.parse_confidence,
+      });
+      setFieldErrors({});
     } catch (err) {
-      setError(err instanceof Error ? err.message : "B��d parse incydentu.");
+      setError(err instanceof Error ? err.message : "Nie udało się przetworzyć incydentu.");
+    } finally {
+      setIsWorking(false);
     }
   };
 
-  const replan = async (): Promise<void> => {
+  const acceptIncidentAndReplan = async (): Promise<void> => {
+    if (!validateSheet() || !sheet) return;
     setError(null);
-    setActiveStep(3);
+    setSuccess("Zgłoszenie przyjęte. Uruchamiam replanowanie.");
+    setIsWorking(true);
     try {
-      const payload = JSON.parse(replanJson) as JsonObject;
-      const data = await api.request<JsonObject>("POST", `/api/planner/replan/${eventId}`, {
-        ...payload,
+      setActiveStep(1);
+      const data = await api.request<ReplanResponse>("POST", `/api/planner/replan/${eventId}`, {
+        incident_id: sheet.incident_id,
+        incident_summary: sheet.description,
+        commit_to_assignments: false,
         idempotency_key: `replan-${Date.now()}`,
       });
-      setResult(data);
-      setActiveStep(4);
+      setReplanResult(data);
+      setActiveStep(3);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "B��d replanowania.");
+      setError(err instanceof Error ? err.message : "Nie udało się wykonać replanowania.");
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const acceptReplan = async (): Promise<void> => {
+    if (!sheet) return;
+    setError(null);
+    setIsWorking(true);
+    try {
+      await api.request<ReplanResponse>("POST", `/api/planner/replan/${eventId}`, {
+        incident_id: sheet.incident_id,
+        incident_summary: sheet.description,
+        commit_to_assignments: true,
+        idempotency_key: `replan-accept-${Date.now()}`,
+      });
+      setActiveStep(4);
+      setSuccess("Replan został zaakceptowany i zapisany.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nie udało się zaakceptować replanu.");
+    } finally {
+      setIsWorking(false);
     }
   };
 
   return (
-    <Stack spacing={2}>
-      <Typography variant="h4">Modu� 3: Runtime + Replan</Typography>
-      <Typography color="text.secondary">Osobne okno incydentu live z animacj� procesu replanowania.</Typography>
+    <Stack spacing={2.5}>
+      <Typography variant="h4">Replanowanie live</Typography>
+      {success && <StatusBanner severity="success" title="Status" message={success} />}
       {error && <Alert severity="error">{error}</Alert>}
-      <TextField label="Event ID" value={eventId} onChange={(e) => setEventId(e.target.value)} />
-      <AnimatedPipeline title="Przep�yw incydentu i replanu" steps={runtimeSteps} activeStep={activeStep} />
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          <TextField
-            label="Opis incydentu"
-            multiline
-            minRows={6}
-            value={incidentText}
-            onChange={(e) => setIncidentText(e.target.value)}
-            fullWidth
-          />
-          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-            <Button variant="outlined" onClick={() => void parseIncident()}>
-              Parse incydentu (LLM)
-            </Button>
+      {!sheet && (
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+          <Stack spacing={2}>
+            <TextField label="Event ID" value={eventId} onChange={(event) => setEventId(event.target.value)} error={Boolean(fieldErrors.eventId)} helperText={fieldErrors.eventId} />
+            <TextField label="Opis incydentu" multiline minRows={7} value={incidentText} onChange={(event) => setIncidentText(event.target.value)} fullWidth />
+            <Box>
+              <Button variant="contained" disabled={!eventId || isWorking} onClick={() => void parseIncident()}>
+                Wprowadź
+              </Button>
+            </Box>
           </Stack>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <JsonEditor title="Payload replanu" value={replanJson} onChange={setReplanJson} minHeight={220} />
-          <Button variant="contained" sx={{ mt: 1 }} onClick={() => void replan()}>
-            Uruchom replan
-          </Button>
-        </Grid>
-      </Grid>
-      <ActionResult title="Wynik runtime" result={useMemo(() => result ?? { info: "Brak wyniku" }, [result])} error={error} />
+        </Paper>
+      )}
+      {sheet && !replanResult && (
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+          <Stack spacing={2}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="h6">Arkusz incydentu</Typography>
+              <Chip label={parserSourceLabel(sheet.parser_mode)} variant="outlined" color={sheet.parser_mode === "llm" ? "success" : "warning"} />
+            </Stack>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}><TextField label="Typ" value={sheet.incident_type} onChange={(event) => setSheet({ ...sheet, incident_type: event.target.value })} error={Boolean(fieldErrors.incident_type)} helperText={fieldErrors.incident_type} fullWidth /></Grid>
+              <Grid item xs={12} md={4}><TextField label="Waga" value={sheet.severity} onChange={(event) => setSheet({ ...sheet, severity: event.target.value })} fullWidth /></Grid>
+              <Grid item xs={12} md={4}><TextField label="Zgłaszający" value={sheet.reported_by} onChange={(event) => setSheet({ ...sheet, reported_by: event.target.value })} fullWidth /></Grid>
+              <Grid item xs={12}><TextField label="Opis" multiline minRows={4} value={sheet.description} onChange={(event) => setSheet({ ...sheet, description: event.target.value })} error={Boolean(fieldErrors.description)} helperText={fieldErrors.description} fullWidth /></Grid>
+              <Grid item xs={12} md={6}><TextField label="Przyczyna" value={sheet.root_cause} onChange={(event) => setSheet({ ...sheet, root_cause: event.target.value })} fullWidth /></Grid>
+              <Grid item xs={12} md={6}><TextField label="Wpływ kosztowy" value={sheet.cost_impact} onChange={(event) => setSheet({ ...sheet, cost_impact: event.target.value })} fullWidth /></Grid>
+            </Grid>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Button variant="outlined" onClick={validateSheet}>Sprawdź</Button>
+              <Button variant="contained" color="success" disabled={isWorking || Object.keys(fieldErrors).length > 0} onClick={() => void acceptIncidentAndReplan()}>Przyjmij zgłoszenie</Button>
+              <Button variant="text" color="warning" onClick={() => { setSheet(null); setFieldErrors({}); }}>Odrzuć</Button>
+            </Stack>
+          </Stack>
+        </Paper>
+      )}
+      {(isWorking || replanResult) && <AnimatedPipeline title={isWorking ? "Replanowanie w toku" : "Decyzja replanu"} steps={replanSteps} activeStep={activeStep} />}
+      {replanResult && (
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+          <Stack spacing={2}>
+            <Typography variant="h6">Rekomendacja replanu</Typography>
+            <Typography>{replanResult.comparison.decision_note}</Typography>
+            <Typography color="text.secondary">Nowy koszt: {formatMoney(replanResult.comparison.new_cost)}. Zmiana kosztu: {replanResult.comparison.cost_delta ?? "brak danych"}.</Typography>
+            <Stack direction="row" spacing={1}>
+              <Button variant="contained" color="success" disabled={isWorking} onClick={() => void acceptReplan()}>Akceptuj</Button>
+              <Button variant="outlined" color="warning" onClick={() => { setReplanResult(null); setSheet(null); setSuccess("Replan odrzucony przez użytkownika."); }}>Odrzuć</Button>
+            </Stack>
+          </Stack>
+        </Paper>
+      )}
     </Stack>
   );
 }

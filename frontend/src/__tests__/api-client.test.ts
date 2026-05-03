@@ -18,7 +18,7 @@ describe("ApiClient hardening", () => {
 
     await expect(client.login("admin", "bad-pass")).rejects.toMatchObject({
       status: 0,
-      message: "Brak polaczenia z API. Sprawdz, czy backend dziala i czy frontend ma poprawny adres API.",
+      message: "Brak połączenia z API. Sprawdź, czy backend działa i czy frontend ma poprawny adres API.",
     });
   });
 
@@ -42,7 +42,7 @@ describe("ApiClient hardening", () => {
 
     await expect(pending).rejects.toMatchObject({
       status: 0,
-      message: "Przekroczono czas oczekiwania na odpowiedz API.",
+      message: "Przekroczono czas oczekiwania na odpowiedź API.",
     });
   });
 });
