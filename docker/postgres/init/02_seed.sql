@@ -36,10 +36,10 @@ VALUES
     'Events',
     'medium',
     'standard',
-    'Piotr ZieliĹ„ski',
+    'Piotr Zieliński',
     'piotr.zielinski@cityevents.pl',
     '+48500200200',
-    'Klient organizujÄ…cy eventy miejskie'
+    'Klient organizujący eventy miejskie'
 ),
 (
     '33333333-3333-3333-3333-333333333333',
@@ -66,7 +66,7 @@ VALUES
     'aaaaaaa1-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
     'EXPO XXI Warszawa',
     'Warszawa',
-    'Ignacego PrÄ…dzyĹ„skiego 12/14',
+    'Ignacego Prądzyńskiego 12/14',
     '01-222',
     'PL',
     52.227000,
@@ -75,13 +75,13 @@ VALUES
     3,
     2,
     6,
-    'DuĹĽa przestrzeĹ„ eventowa'
+    'Duża przestrzeń eventowa'
 ),
 (
     'aaaaaaa2-aaaa-aaaa-aaaa-aaaaaaaaaaa2',
-    'Tauron Arena KrakĂłw',
-    'KrakĂłw',
-    'StanisĹ‚awa Lema 7',
+    'Tauron Arena Kraków',
+    'Kraków',
+    'Stanisława Lema 7',
     '31-571',
     'PL',
     50.068500,
@@ -90,7 +90,7 @@ VALUES
     4,
     3,
     8,
-    'DuĹĽa hala, skomplikowany setup'
+    'Duża hala, skomplikowany setup'
 ),
 (
     'aaaaaaa3-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
@@ -105,13 +105,13 @@ VALUES
     1,
     1,
     2,
-    'Baza sprzÄ™tu'
+    'Baza sprzętu'
 ),
 (
     'aaaaaaa4-aaaa-aaaa-aaaa-aaaaaaaaaaa4',
-    'Plac WolnoĹ›ci PoznaĹ„',
-    'PoznaĹ„',
-    'Plac WolnoĹ›ci',
+    'Plac Wolności Poznań',
+    'Poznań',
+    'Plac Wolności',
     '61-738',
     'PL',
     52.408300,
@@ -134,19 +134,19 @@ VALUES
     'bbbbbbb1-bbbb-bbbb-bbbb-bbbbbbbbbbb1',
     'Audio Setup',
     'technical',
-    'Konfiguracja i obsĹ‚uga audio'
+    'Konfiguracja i obsługa audio'
 ),
 (
     'bbbbbbb2-bbbb-bbbb-bbbb-bbbbbbbbbbb2',
     'Lighting Setup',
     'technical',
-    'Konfiguracja i obsĹ‚uga oĹ›wietlenia'
+    'Konfiguracja i obsługa oświetlenia'
 ),
 (
     'bbbbbbb3-bbbb-bbbb-bbbb-bbbbbbbbbbb3',
     'Video Setup',
     'technical',
-    'Konfiguracja ekranĂłw i video'
+    'Konfiguracja ekranów i video'
 ),
 (
     'bbbbbbb4-bbbb-bbbb-bbbb-bbbbbbbbbbb4',
@@ -175,12 +175,12 @@ VALUES
     10.0,
     50.0,
     70.00,
-    'DoĹ›wiadczony technik audio',
+    'Doświadczony technik audio',
     TRUE
 ),
 (
     'ccccccc2-cccc-cccc-cccc-ccccccccccc2',
-    'Marta WiĹ›niewska',
+    'Marta Wiśniewska',
     'technician_light',
     'employee',
     'aaaaaaa3-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
@@ -206,7 +206,7 @@ VALUES
 ),
 (
     'ccccccc4-cccc-cccc-cccc-ccccccccccc4',
-    'Ola DÄ…browska',
+    'Ola Dąbrowska',
     'technician_video',
     'freelancer',
     'aaaaaaa3-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
@@ -270,7 +270,7 @@ VALUES
     'ddddddd1-dddd-dddd-dddd-ddddddddddd1',
     'Audio Set Large',
     'audio',
-    'DuĹĽy zestaw audio na konferencje i koncerty',
+    'Duży zestaw audio na konferencje i koncerty',
     120,
     90
 ),
@@ -278,7 +278,7 @@ VALUES
     'ddddddd2-dddd-dddd-dddd-ddddddddddd2',
     'Lighting Rig Medium',
     'lighting',
-    'Ĺšredni zestaw oĹ›wietleniowy',
+    'Średni zestaw oświetleniowy',
     150,
     120
 ),
@@ -286,7 +286,7 @@ VALUES
     'ddddddd3-dddd-dddd-dddd-ddddddddddd3',
     'LED Screen Set',
     'video',
-    'Zestaw ekranĂłw LED',
+    'Zestaw ekranów LED',
     180,
     150
 );
@@ -311,7 +311,7 @@ VALUES
     TRUE,
     120.00,
     '2024-02-10',
-    'GĹ‚Ăłwny set audio',
+    'Główny set audio',
     TRUE
 ),
 (
@@ -325,7 +325,7 @@ VALUES
     TRUE,
     140.00,
     '2024-03-15',
-    'ĹšwiatĹ‚a scena',
+    'Światła scena',
     TRUE
 ),
 (
@@ -357,7 +357,7 @@ VALUES
     'Van 1',
     'van',
     'WX12345',
-    'SprzÄ™t audio/light',
+    'Sprzęt audio/light',
     'available',
     'aaaaaaa3-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
     1.80,
@@ -369,7 +369,7 @@ VALUES
     'Truck 1',
     'truck',
     'WX54321',
-    'DuĹĽy sprzÄ™t i LED',
+    'Duży sprzęt i LED',
     'available',
     'aaaaaaa3-aaaa-aaaa-aaaa-aaaaaaaaaaa3',
     3.20,
@@ -414,10 +414,10 @@ VALUES
     '99999992-9999-9999-9999-999999999992',
     '22222222-2222-2222-2222-222222222222',
     'aaaaaaa2-aaaa-aaaa-aaaa-aaaaaaaaaaa2',
-    'KrakĂłw Music Night',
+    'Kraków Music Night',
     'concert',
     'live_music',
-    'Wieczorny koncert z peĹ‚nÄ… oprawÄ… audio-light',
+    'Wieczorny koncert z pełną oprawą audio-light',
     3000,
     '2026-05-20 14:00:00+02',
     '2026-05-20 23:30:00+02',
@@ -429,7 +429,7 @@ VALUES
     TRUE,
     TRUE,
     TRUE,
-    'DuĹĽe ryzyko operacyjne, skomplikowana scena',
+    'Duże ryzyko operacyjne, skomplikowana scena',
     'demo_admin'
 ),
 (
@@ -477,7 +477,7 @@ VALUES
     TRUE,
     '2026-05-15 07:00:00+02',
     '2026-05-15 19:00:00+02',
-    'Koordynator prowadzÄ…cy'
+    'Koordynator prowadzący'
 ),
 (
     '12111111-0000-0000-0000-000000000002',
@@ -505,7 +505,7 @@ VALUES
     TRUE,
     '2026-05-15 06:00:00+02',
     '2026-05-15 19:00:00+02',
-    'DuĹĽy audio set'
+    'Duży audio set'
 ),
 (
     '12111111-0000-0000-0000-000000000004',
@@ -611,7 +611,7 @@ VALUES
     TRUE,
     '2026-05-20 08:00:00+02',
     '2026-05-21 01:00:00+02',
-    'Transport ciÄ™ĹĽki'
+    'Transport ciężki'
 );
 
 -- Event 3
@@ -726,7 +726,7 @@ VALUES
     'planned',
     '77777777-7777-7777-7777-777777777777',
     FALSE,
-    'Koordynacja caĹ‚oĹ›ci'
+    'Koordynacja całości'
 ),
 (
     '66666661-6666-6666-6666-666666666662',
@@ -741,7 +741,7 @@ VALUES
     'planned',
     '77777777-7777-7777-7777-777777777777',
     FALSE,
-    'ObsĹ‚uga audio'
+    'Obsługa audio'
 ),
 (
     '66666661-6666-6666-6666-666666666663',
@@ -873,7 +873,7 @@ VALUES
     'planned',
     '77777777-7777-7777-7777-777777777777',
     FALSE,
-    'Truck dla duĹĽego setupu'
+    'Truck dla dużego setupu'
 );
 
 -- =========================================================
@@ -915,7 +915,7 @@ VALUES
     'planned',
     '77777777-7777-7777-7777-777777777777',
     FALSE,
-    'ObsĹ‚uga LED i video'
+    'Obsługa LED i video'
 ),
 (
     '66666663-6666-6666-6666-666666666663',
@@ -969,7 +969,7 @@ VALUES
     '2026-05-15 06:10:00+02',
     18.00,
     40,
-    'Transport na konferencjÄ™'
+    'Transport na konferencję'
 ),
 (
     '88888882-8888-8888-8888-888888888882',
@@ -1024,7 +1024,7 @@ VALUES
 ),
 (
     '99999992-9999-9999-9999-999999999992',
-    'concert', 'live_music', 'KrakĂłw', 'stadium',
+    'concert', 'live_music', 'Kraków', 'stadium',
     3000, '1000_plus',
     8, 3, 4,
     'critical', 3, 5, 'spring',
@@ -1034,7 +1034,7 @@ VALUES
 ),
 (
     '99999993-9999-9999-9999-999999999993',
-    'brand_activation', 'outdoor_launch', 'PoznaĹ„', 'outdoor',
+    'brand_activation', 'outdoor_launch', 'Poznań', 'outdoor',
     800, '250_1000',
     7, 4, 4,
     'critical', 1, 5, 'spring',
@@ -1103,7 +1103,7 @@ VALUES
     660.0,
     '11h_total_operation',
     0.84,
-    'Konferencja w Warszawie zwykle wymaga dĹ‚uĹĽszego setupu niĹĽ plan bazowy.',
+    'Konferencja w Warszawie zwykle wymaga dłuższego setupu niż plan bazowy.',
     '{"city":"Warszawa","attendee_count":500,"event_type":"conference"}'::jsonb,
     NOW()
 ),
@@ -1116,7 +1116,7 @@ VALUES
     3.0,
     '3_people_recommended',
     0.78,
-    'AI rekomenduje dodatkowy zasĂłb wspierajÄ…cy przy setupie.',
+    'AI rekomenduje dodatkowy zasób wspierający przy setupie.',
     '{"event_type":"conference","complexity":6}'::jsonb,
     NOW()
 ),
@@ -1129,7 +1129,7 @@ VALUES
     0.72,
     'high_risk',
     0.81,
-    'DuĹĽy koncert, dĹ‚ugi transport i zĹ‚oĹĽony setup zwiÄ™kszajÄ… ryzyko opĂłĹşnienia.',
+    'Duży koncert, długi transport i złożony setup zwiększają ryzyko opóźnienia.',
     '{"event_type":"concert","distance_km":295,"complexity":8}'::jsonb,
     NOW()
 ),
@@ -1142,7 +1142,7 @@ VALUES
     0.68,
     'high_risk',
     0.76,
-    'Outdoor i centrum miasta zwiÄ™kszajÄ… niepewnoĹ›Ä‡ operacyjnÄ….',
+    'Outdoor i centrum miasta zwiększają niepewność operacyjną.',
     '{"event_type":"brand_activation","location_type":"outdoor"}'::jsonb,
     NOW()
 );
@@ -1166,7 +1166,7 @@ VALUES
     '2026-05-15 08:00:00+02',
     '2026-05-15 08:25:00+02',
     'late_loadin',
-    'OpĂłĹşnienie przy wnoszeniu sprzÄ™tu',
+    'Opóźnienie przy wnoszeniu sprzętu',
     NOW()
 ),
 (
@@ -1179,7 +1179,7 @@ VALUES
     '2026-05-20 14:00:00+02',
     '2026-05-20 14:40:00+02',
     'complex_stage',
-    'Scena wymagaĹ‚a dodatkowego czasu',
+    'Scena wymagała dodatkowego czasu',
     NOW()
 ),
 (
@@ -1192,7 +1192,7 @@ VALUES
     '2026-05-25 10:00:00+02',
     '2026-05-25 10:50:00+02',
     'weather_delay',
-    'Warunki pogodowe spowolniĹ‚y setup',
+    'Warunki pogodowe spowolniły setup',
     NOW()
 );
 
@@ -1214,8 +1214,8 @@ VALUES
     '2026-05-20 13:30:00+02',
     '2026-05-20 15:00:00+02',
     'Piotr Mazur',
-    'DĹ‚uĹĽszy setup sceny',
-    'OpĂłĹşnione rozpoczÄ™cie koncertu o 40 minut',
+    'Dłuższy setup sceny',
+    'Opóźnione rozpoczęcie koncertu o 40 minut',
     3500.00,
     TRUE,
     NOW()
@@ -1229,8 +1229,8 @@ VALUES
     '2026-05-25 09:45:00+02',
     '2026-05-25 11:00:00+02',
     'Piotr Mazur',
-    'Silny wiatr podczas montaĹĽu',
-    'KoniecznoĹ›Ä‡ dodatkowego zabezpieczenia LED',
+    'Silny wiatr podczas montażu',
+    'Konieczność dodatkowego zabezpieczenia LED',
     1200.00,
     FALSE,
     NOW()
@@ -1257,7 +1257,7 @@ VALUES
     8.8,
     8.2,
     7800.00,
-    'Konferencja wykonana poprawnie, niewielkie opĂłĹşnienie setupu.',
+    'Konferencja wykonana poprawnie, niewielkie opóźnienie setupu.',
     NOW(),
     NOW()
 ),
@@ -1272,7 +1272,7 @@ VALUES
     7.4,
     7.0,
     9500.00,
-    'Koncert z naruszeniem SLA przez opĂłĹşnienie startu.',
+    'Koncert z naruszeniem SLA przez opóźnienie startu.',
     NOW(),
     NOW()
 ),
@@ -1287,10 +1287,9 @@ VALUES
     8.1,
     7.8,
     6400.00,
-    'Outdoor launch opĂłĹşniony przez pogodÄ™.',
+    'Outdoor launch opóźniony przez pogodę.',
     NOW(),
     NOW()
 );
 
 COMMIT;
-

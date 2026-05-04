@@ -31,12 +31,24 @@ export interface EventItem {
   location_id: string;
   event_name: string;
   event_type: string;
+  event_subtype?: string | null;
+  description?: string | null;
   planned_start: string;
   planned_end: string;
   priority: string;
   status: string;
   attendee_count?: number | null;
   budget_estimate?: string | number | null;
+  currency_code?: string | null;
+  source_channel?: string | null;
+  requires_transport?: boolean;
+  requires_setup?: boolean;
+  requires_teardown?: boolean;
+  notes?: string | null;
+  created_by?: string | null;
+  created_by_user_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface LocationItem {
@@ -44,10 +56,16 @@ export interface LocationItem {
   name?: string | null;
   city: string;
   address_line?: string | null;
+  postal_code?: string | null;
+  country_code?: string | null;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
   location_type: string;
   parking_difficulty: number;
   access_difficulty: number;
   setup_complexity_score: number;
+  notes?: string | null;
+  created_at?: string | null;
 }
 
 export interface PersonItem {
@@ -55,11 +73,15 @@ export interface PersonItem {
   full_name: string;
   role: string;
   employment_type: string;
+  home_base_location_id?: string | null;
   availability_status: string;
   max_daily_hours: string | number;
   max_weekly_hours: string | number;
   cost_per_hour?: string | number | null;
+  reliability_notes?: string | null;
   active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface EquipmentItem {
@@ -68,15 +90,22 @@ export interface EquipmentItem {
   asset_tag?: string | null;
   serial_number?: string | null;
   status: string;
+  warehouse_location_id?: string | null;
+  transport_requirements?: string | null;
   replacement_available: boolean;
   hourly_cost_estimate?: string | number | null;
+  purchase_date?: string | null;
+  notes?: string | null;
   active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface EquipmentTypeItem {
   equipment_type_id: string;
   type_name: string;
   category?: string | null;
+  description?: string | null;
   default_setup_minutes?: number | null;
   default_teardown_minutes?: number | null;
 }
@@ -86,16 +115,21 @@ export interface VehicleItem {
   vehicle_name: string;
   vehicle_type: string;
   registration_number?: string | null;
+  capacity_notes?: string | null;
   status: string;
+  home_location_id?: string | null;
   cost_per_km?: string | number | null;
   cost_per_hour?: string | number | null;
   active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface SkillItem {
   skill_id: string;
   skill_name: string;
   skill_category?: string | null;
+  description?: string | null;
 }
 
 export interface AdminUser {
@@ -112,8 +146,21 @@ export interface ModelRegistryItem {
   model_version: string;
   prediction_type: string;
   status: string;
+  training_data_from?: string | null;
+  training_data_to?: string | null;
   metrics: Record<string, unknown>;
   created_at: string;
+}
+
+export interface LlmStatus {
+  enabled: boolean;
+  configured: boolean;
+  endpoint_configured: boolean;
+  api_key_configured: boolean;
+  deployment_configured: boolean;
+  deployment?: string | null;
+  mode: "llm" | "fallback";
+  message: string;
 }
 
 export interface ParsedRequirement {

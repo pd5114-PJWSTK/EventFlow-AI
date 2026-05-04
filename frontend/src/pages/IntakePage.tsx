@@ -4,6 +4,7 @@ import { Alert, Box, Button, Chip, Grid, Paper, Stack, TextField, Typography } f
 import { StatusBanner } from "../components/StatusBanner";
 import { useAuth } from "../lib/auth";
 import { formatDateInput, fromDateInput, parserSourceLabel } from "../lib/format";
+import { validateBusinessText, validateCity, validateNonNegativeNumber } from "../lib/validation";
 import type { EventDraft, IntakeCommitResponse, IntakePreviewResponse } from "../types/api";
 
 const EMPTY_TEXT = `Gala firmowa Q3 w Warszawie, 12 czerwca 2026 od 10:00 do 18:00. Około 250 osób, potrzebny koordynator i van transportowy.`;
@@ -48,6 +49,20 @@ export function IntakePage(): JSX.Element {
         nextErrors[field.key] = `Uzupełnij pole: ${field.label}.`;
       }
     }
+    const eventNameError = validateBusinessText(draft.event_name, "Nazwa eventu");
+    if (eventNameError) nextErrors.event_name = eventNameError;
+    const clientError = validateBusinessText(draft.client_name, "Klient");
+    if (clientError) nextErrors.client_name = clientError;
+    const locationError = validateBusinessText(draft.location_name, "Miejsce");
+    if (locationError) nextErrors.location_name = locationError;
+    const cityError = validateCity(draft.city);
+    if (cityError) nextErrors.city = cityError;
+    const eventTypeError = validateBusinessText(draft.event_type, "Typ eventu");
+    if (eventTypeError) nextErrors.event_type = eventTypeError;
+    const attendeeError = validateNonNegativeNumber(draft.attendee_count, "Liczba uczestników", true);
+    if (attendeeError) nextErrors.attendee_count = attendeeError;
+    const budgetError = validateNonNegativeNumber(draft.budget_estimate, "Budżet");
+    if (budgetError) nextErrors.budget_estimate = budgetError;
     if (draft.planned_start && draft.planned_end && new Date(draft.planned_end) <= new Date(draft.planned_start)) {
       nextErrors.planned_end = "Koniec musi być po starcie eventu.";
     }
@@ -194,6 +209,8 @@ export function IntakePage(): JSX.Element {
                   type="number"
                   value={draft.attendee_count}
                   onChange={(event) => updateDraft({ attendee_count: Number(event.target.value) })}
+                  error={Boolean(fieldErrors.attendee_count)}
+                  helperText={fieldErrors.attendee_count}
                   fullWidth
                 />
               </Grid>
@@ -203,6 +220,8 @@ export function IntakePage(): JSX.Element {
                   type="number"
                   value={draft.budget_estimate}
                   onChange={(event) => updateDraft({ budget_estimate: Number(event.target.value) })}
+                  error={Boolean(fieldErrors.budget_estimate)}
+                  helperText={fieldErrors.budget_estimate}
                   fullWidth
                 />
               </Grid>

@@ -2,32 +2,48 @@
 import { Alert, Box, Button, Chip, Grid, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 
 import { AnimatedPipeline } from "../components/AnimatedPipeline";
+import { BusinessTable } from "../components/BusinessTable";
 import { StatusBanner } from "../components/StatusBanner";
 import { useAuth } from "../lib/auth";
 import { formatDateTime } from "../lib/format";
-import type { ListResponse, ModelRegistryItem, UserMe } from "../types/api";
+import type { ListResponse, LlmStatus, ModelRegistryItem, UserMe } from "../types/api";
+
+function metricText(metrics: Record<string, unknown>): string {
+  const entries = Object.entries(metrics || {});
+  if (entries.length === 0) return "Brak metryk";
+  return entries.map(([key, value]) => `${key}: ${String(value)}`).join(", ");
+}
+
+function pickDisplayedModel(models: ModelRegistryItem[]): ModelRegistryItem | undefined {
+  const active = models.filter((model) => model.status === "active");
+  const pool = active.length > 0 ? active : models;
+  return [...pool].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+}
 
 export function MePage(): JSX.Element {
   const { api, me: contextMe } = useAuth();
   const [me, setMe] = useState<UserMe | null>(contextMe);
   const [models, setModels] = useState<ModelRegistryItem[]>([]);
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [activeTab, setActiveTab] = useState(0);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [training, setTraining] = useState(false);
 
   const isAdmin = me?.roles.includes("admin") || me?.is_superadmin;
-  const latestModel = useMemo(
-    () => [...models].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0],
-    [models],
-  );
+  const displayedModel = useMemo(() => pickDisplayedModel(models), [models]);
+  const activeModels = useMemo(() => models.filter((model) => model.status === "active"), [models]);
 
   const load = useCallback(async (): Promise<void> => {
     const meData = await api.request<UserMe>("GET", "/auth/me");
     setMe(meData);
     if (meData.roles.includes("admin") || meData.is_superadmin) {
-      const modelData = await api.request<ListResponse<ModelRegistryItem>>("GET", "/api/ml/models?limit=20");
+      const [modelData, llmData] = await Promise.all([
+        api.request<ListResponse<ModelRegistryItem>>("GET", "/api/ml/models?limit=100"),
+        api.request<LlmStatus>("GET", "/api/ai-agents/llm-status"),
+      ]);
       setModels(modelData.items);
+      setLlmStatus(llmData);
     }
   }, [api]);
 
@@ -41,7 +57,7 @@ export function MePage(): JSX.Element {
     setTraining(true);
     try {
       await api.request("POST", "/api/ml/models/retrain-duration", {
-        model_name: "event_duration_baseline",
+        model_name: displayedModel?.model_name || "event_duration_baseline",
       });
       await load();
       setSuccess("Model został przetrenowany, a dane modelu odświeżone.");
@@ -77,15 +93,23 @@ export function MePage(): JSX.Element {
       )}
       {activeTab === 1 && isAdmin && (
         <Stack spacing={2}>
+          {llmStatus && (
+            <StatusBanner
+              severity={llmStatus.mode === "llm" ? "success" : "warning"}
+              title={llmStatus.mode === "llm" ? "LLM aktywny" : "LLM w trybie awaryjnym"}
+              message={llmStatus.message}
+              source={llmStatus.deployment ? `Deployment: ${llmStatus.deployment}` : undefined}
+            />
+          )}
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6">Ostatni model</Typography>
-            {latestModel ? (
+            <Typography variant="h6">Model używany operacyjnie</Typography>
+            {displayedModel ? (
               <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                <Grid item xs={12} md={3}><Typography color="text.secondary">Nazwa</Typography><Typography fontWeight={800}>{latestModel.model_name}</Typography></Grid>
-                <Grid item xs={12} md={3}><Typography color="text.secondary">Wersja</Typography><Typography fontWeight={800}>{latestModel.model_version}</Typography></Grid>
-                <Grid item xs={12} md={3}><Typography color="text.secondary">Status</Typography><Typography fontWeight={800}>{latestModel.status}</Typography></Grid>
-                <Grid item xs={12} md={3}><Typography color="text.secondary">Trenowany</Typography><Typography fontWeight={800}>{formatDateTime(latestModel.created_at)}</Typography></Grid>
-                <Grid item xs={12}><Typography color="text.secondary">Wyniki</Typography><Typography>{Object.entries(latestModel.metrics || {}).map(([key, value]) => `${key}: ${String(value)}`).join(", ") || "Brak metryk"}</Typography></Grid>
+                <Grid item xs={12} md={3}><Typography color="text.secondary">Nazwa</Typography><Typography fontWeight={800}>{displayedModel.model_name}</Typography></Grid>
+                <Grid item xs={12} md={3}><Typography color="text.secondary">Wersja</Typography><Typography fontWeight={800}>{displayedModel.model_version}</Typography></Grid>
+                <Grid item xs={12} md={3}><Typography color="text.secondary">Status</Typography><Typography fontWeight={800}>{displayedModel.status}</Typography></Grid>
+                <Grid item xs={12} md={3}><Typography color="text.secondary">Trenowany</Typography><Typography fontWeight={800}>{formatDateTime(displayedModel.created_at)}</Typography></Grid>
+                <Grid item xs={12}><Typography color="text.secondary">Wyniki</Typography><Typography>{metricText(displayedModel.metrics)}</Typography></Grid>
               </Grid>
             ) : (
               <Typography color="text.secondary">Brak zarejestrowanego modelu.</Typography>
@@ -95,9 +119,22 @@ export function MePage(): JSX.Element {
             </Button>
           </Paper>
           {training && <AnimatedPipeline title="Trenowanie modelu" steps={["Pobranie logów", "Trening", "Testy", "Aktualizacja modelu"]} activeStep={1} />}
+          <BusinessTable
+            title="Aktywne modele"
+            rows={activeModels.length > 0 ? activeModels : models}
+            columns={[
+              { key: "name", label: "Model", render: (item) => item.model_name },
+              { key: "version", label: "Wersja", render: (item) => item.model_version },
+              { key: "type", label: "Typ predykcji", render: (item) => item.prediction_type },
+              { key: "status", label: "Status", render: (item) => item.status },
+              { key: "trained", label: "Trenowany", render: (item) => formatDateTime(item.created_at) },
+              { key: "from", label: "Dane od", render: (item) => item.training_data_from ? formatDateTime(item.training_data_from) : "Brak" },
+              { key: "to", label: "Dane do", render: (item) => item.training_data_to ? formatDateTime(item.training_data_to) : "Brak" },
+              { key: "metrics", label: "Metryki", render: (item) => metricText(item.metrics) },
+            ]}
+          />
         </Stack>
       )}
     </Stack>
   );
 }
-

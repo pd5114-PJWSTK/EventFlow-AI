@@ -55,6 +55,7 @@ describe("CP-03 business UI", () => {
       if (path.startsWith("/admin/users")) return Promise.resolve({ items: [{ user_id: "u1", username: "admin", roles: ["admin"], is_active: true, is_superadmin: true }], total: 1 });
       if (path.startsWith("/auth/me")) return Promise.resolve({ user_id: "u1", username: "admin", roles: ["admin"], is_superadmin: true });
       if (path.startsWith("/api/ml/models")) return Promise.resolve({ items: [], total: 0 });
+      if (path.startsWith("/api/ai-agents/llm-status")) return Promise.resolve({ enabled: false, configured: false, endpoint_configured: false, api_key_configured: false, deployment_configured: false, mode: "fallback", message: "LLM wyłączony." });
       return Promise.resolve({});
     });
   });

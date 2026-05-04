@@ -1,9 +1,11 @@
 ﻿import { useState } from "react";
 import { Alert, Box, Button, Chip, Grid, Paper, Stack, TextField, Typography } from "@mui/material";
 
+import { EventSelect } from "../components/EventSelect";
 import { StatusBanner } from "../components/StatusBanner";
 import { useAuth } from "../lib/auth";
 import { formatDateInput, fromDateInput, parserSourceLabel } from "../lib/format";
+import { validateNonNegativeNumber, validateScore } from "../lib/validation";
 import type { PostEventParseResponse } from "../types/api";
 
 interface CompletionSheet {
@@ -30,9 +32,19 @@ export function PostEventPage(): JSX.Element {
 
   const validateSheet = (): boolean => {
     const next: Record<string, string> = {};
-    if (!eventId.trim()) next.eventId = "Event jest wymagany.";
+    if (!eventId.trim()) next.eventId = "Wybierz event.";
     if (!sheet?.completed_at) next.completed_at = "Data zakończenia jest wymagana.";
     if (!sheet?.summary_notes?.trim()) next.summary_notes = "Podsumowanie jest wymagane.";
+    if (sheet) {
+      const delayError = validateNonNegativeNumber(sheet.total_delay_minutes, "Opóźnienie", true);
+      if (delayError) next.total_delay_minutes = delayError;
+      const costError = validateNonNegativeNumber(sheet.actual_cost, "Koszt rzeczywisty");
+      if (costError) next.actual_cost = costError;
+      const clientScoreError = validateScore(sheet.client_satisfaction_score, "Ocena klienta");
+      if (clientScoreError) next.client_satisfaction_score = clientScoreError;
+      const internalScoreError = validateScore(sheet.internal_quality_score, "Ocena wewnętrzna");
+      if (internalScoreError) next.internal_quality_score = internalScoreError;
+    }
     setFieldErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -40,6 +52,10 @@ export function PostEventPage(): JSX.Element {
   const parseSummary = async (): Promise<void> => {
     setError(null);
     setSuccess(null);
+    if (!eventId.trim()) {
+      setFieldErrors({ eventId: "Wybierz event." });
+      return;
+    }
     setIsLoading(true);
     try {
       const data = await api.request<PostEventParseResponse>("POST", `/api/runtime/events/${eventId}/post-event/parse`, {
@@ -106,7 +122,7 @@ export function PostEventPage(): JSX.Element {
       {!sheet && (
         <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
           <Stack spacing={2}>
-            <TextField label="Event ID" value={eventId} onChange={(event) => setEventId(event.target.value)} error={Boolean(fieldErrors.eventId)} helperText={fieldErrors.eventId} />
+            <EventSelect label="Event do zamknięcia" value={eventId} onChange={setEventId} scope="post-event" error={Boolean(fieldErrors.eventId)} helperText={fieldErrors.eventId} />
             <TextField label="Opis po evencie" multiline minRows={7} value={summaryText} onChange={(event) => setSummaryText(event.target.value)} fullWidth />
             <Box>
               <Button variant="contained" disabled={!eventId || isLoading} onClick={() => void parseSummary()}>
@@ -128,11 +144,11 @@ export function PostEventPage(): JSX.Element {
                 <TextField label="Zakończono" type="datetime-local" value={formatDateInput(sheet.completed_at)} onChange={(event) => setSheet({ ...sheet, completed_at: fromDateInput(event.target.value) })} error={Boolean(fieldErrors.completed_at)} helperText={fieldErrors.completed_at} fullWidth InputLabelProps={{ shrink: true }} />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField label="Opóźnienie (min)" type="number" value={sheet.total_delay_minutes} onChange={(event) => setSheet({ ...sheet, total_delay_minutes: Number(event.target.value) })} fullWidth />
+                <TextField label="Opóźnienie (min)" type="number" value={sheet.total_delay_minutes} onChange={(event) => setSheet({ ...sheet, total_delay_minutes: Number(event.target.value) })} error={Boolean(fieldErrors.total_delay_minutes)} helperText={fieldErrors.total_delay_minutes} fullWidth />
               </Grid>
-              <Grid item xs={12} md={4}><TextField label="Koszt rzeczywisty" value={sheet.actual_cost} onChange={(event) => setSheet({ ...sheet, actual_cost: event.target.value })} fullWidth /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Ocena klienta" value={sheet.client_satisfaction_score} onChange={(event) => setSheet({ ...sheet, client_satisfaction_score: event.target.value })} fullWidth /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Ocena wewnętrzna" value={sheet.internal_quality_score} onChange={(event) => setSheet({ ...sheet, internal_quality_score: event.target.value })} fullWidth /></Grid>
+              <Grid item xs={12} md={4}><TextField label="Koszt rzeczywisty" value={sheet.actual_cost} onChange={(event) => setSheet({ ...sheet, actual_cost: event.target.value })} error={Boolean(fieldErrors.actual_cost)} helperText={fieldErrors.actual_cost} fullWidth /></Grid>
+              <Grid item xs={12} md={4}><TextField label="Ocena klienta" value={sheet.client_satisfaction_score} onChange={(event) => setSheet({ ...sheet, client_satisfaction_score: event.target.value })} error={Boolean(fieldErrors.client_satisfaction_score)} helperText={fieldErrors.client_satisfaction_score} fullWidth /></Grid>
+              <Grid item xs={12} md={4}><TextField label="Ocena wewnętrzna" value={sheet.internal_quality_score} onChange={(event) => setSheet({ ...sheet, internal_quality_score: event.target.value })} error={Boolean(fieldErrors.internal_quality_score)} helperText={fieldErrors.internal_quality_score} fullWidth /></Grid>
               <Grid item xs={12}><TextField label="Podsumowanie" multiline minRows={4} value={sheet.summary_notes} onChange={(event) => setSheet({ ...sheet, summary_notes: event.target.value })} error={Boolean(fieldErrors.summary_notes)} helperText={fieldErrors.summary_notes} fullWidth /></Grid>
             </Grid>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>

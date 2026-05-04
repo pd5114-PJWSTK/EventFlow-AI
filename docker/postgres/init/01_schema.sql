@@ -465,6 +465,8 @@ CREATE TABLE core.assignments (
     status core.assignment_status NOT NULL DEFAULT 'proposed',
     planner_run_id UUID, -- reference added later after ai.planner_runs exists
     is_manual_override BOOLEAN NOT NULL DEFAULT FALSE,
+    is_consumed_in_execution BOOLEAN NOT NULL DEFAULT FALSE,
+    consumed_at TIMESTAMPTZ,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -624,6 +626,25 @@ CREATE TABLE ops.resource_checkpoints (
             AND vehicle_id IS NOT NULL
         )
     )
+);
+
+-- ---------------------------------------------------------
+-- Idempotency records for runtime/planner write endpoints
+-- ---------------------------------------------------------
+CREATE TABLE ops.idempotency_records (
+    idempotency_record_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scope TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    event_id UUID REFERENCES core.events(event_id) ON DELETE SET NULL,
+    request_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'processing',
+    response_payload JSONB,
+    error_code TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_idempotency_scope_key UNIQUE (scope, idempotency_key),
+    CONSTRAINT ck_idempotency_status CHECK (status IN ('processing', 'completed', 'failed'))
 );
 
 -- =========================================================
@@ -934,6 +955,8 @@ CREATE INDEX idx_incidents_type_severity ON ops.incidents(incident_type, severit
 CREATE INDEX idx_resource_checkpoints_event_id ON ops.resource_checkpoints(event_id);
 CREATE INDEX idx_resource_checkpoints_assignment_id ON ops.resource_checkpoints(assignment_id);
 CREATE INDEX idx_resource_checkpoints_time ON ops.resource_checkpoints(checkpoint_time);
+CREATE INDEX idx_idempotency_records_event_id ON ops.idempotency_records(event_id);
+CREATE INDEX idx_idempotency_records_status ON ops.idempotency_records(status);
 
 -- ai
 CREATE INDEX idx_models_prediction_type_status ON ai.models(prediction_type, status);

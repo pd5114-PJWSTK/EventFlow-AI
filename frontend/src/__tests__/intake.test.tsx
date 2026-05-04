@@ -53,4 +53,35 @@ describe("IntakePage", () => {
       expect(screen.getByText("Źródło: LLM")).toBeInTheDocument();
     });
   });
+
+  it("rejects numeric city before commit", async () => {
+    requestMock.mockResolvedValueOnce({
+      draft: {
+        event_name: "Gala Testowa",
+        client_name: "ACME",
+        location_name: "Centrum Kongresowe",
+        city: "12345",
+        event_type: "gala",
+        attendee_count: 200,
+        planned_start: "2026-06-12T10:00:00Z",
+        planned_end: "2026-06-12T18:00:00Z",
+        budget_estimate: 22000,
+        event_priority: "medium",
+        requirements: [],
+      },
+      assumptions: [],
+      parser_mode: "heuristic",
+      used_fallback: true,
+      gaps: [],
+    });
+
+    render(<IntakePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
+    await waitFor(() => expect(screen.getByDisplayValue("12345")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Sprawdź" }));
+
+    expect(screen.getByText("Miasto musi zawierać litery, nie same cyfry.")).toBeInTheDocument();
+    expect(requestMock).toHaveBeenCalledTimes(1);
+  });
 });

@@ -71,6 +71,7 @@ from app.services.ortools_service import (
     PlannerTimeoutError,
 )
 from app.services.planner_input_builder import PlannerInputError, load_planner_input
+from app.services.ml_feature_service import FeatureEngineeringError, generate_feature_snapshots
 from app.services.datetime_service import to_utc
 from app.services.observability_service import emit_event
 from app.services.runtime_notification_service import enqueue_runtime_notification
@@ -527,19 +528,38 @@ def recommend_best_plan_with_ml(
 
     event_feature = db.get(EventFeature, event_id)
     if event_feature is None:
-        raise PlanGenerationError(
-            "Event feature snapshot not found. Generate ML features before CP-07 recommendation."
-        )
+        try:
+            generated_features = generate_feature_snapshots(
+                db,
+                event_id=event_id,
+                include_event_feature=True,
+                include_resource_features=True,
+            )
+        except FeatureEngineeringError as exc:
+            raise PlanGenerationError(str(exc)) from exc
+        event_feature = generated_features.event_feature
+    if event_feature is None:
+        raise PlanGenerationError("Event feature snapshot could not be generated.")
 
     planner_input = load_planner_input(db, event_id)
     if not planner_input.requirements:
         raise PlanGenerationError("Planner input has no requirements to optimize.")
 
-    duration_artifact = _resolve_model_artifact(
-        db=db,
-        prediction_type=PredictionType.duration_estimate,
-        preferred_model_id=duration_model_id,
-    )
+    try:
+        duration_artifact = _resolve_model_artifact(
+            db=db,
+            prediction_type=PredictionType.duration_estimate,
+            preferred_model_id=duration_model_id,
+        )
+    except PlanGenerationError:
+        if not fallback_enabled:
+            raise
+        planned_minutes = max((event.planned_end - event.planned_start).total_seconds() / 60, 1)
+        duration_artifact = {
+            "kind": "mean_regressor",
+            "mean_value": planned_minutes,
+            "source": "runtime_fallback_missing_duration_artifact",
+        }
     plan_evaluator_artifact = _resolve_plan_evaluator_artifact(
         db=db,
         preferred_model_id=plan_evaluator_model_id,

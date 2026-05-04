@@ -1,12 +1,13 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useState } from "react";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import { Alert, Box, Button, Card, CardActionArea, CardContent, Chip, Grid, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardActionArea, CardContent, Chip, Grid, Stack, Typography } from "@mui/material";
 
 import { AnimatedPipeline } from "../components/AnimatedPipeline";
+import { EventSelect } from "../components/EventSelect";
 import { StatusBanner } from "../components/StatusBanner";
 import { useAuth } from "../lib/auth";
-import { formatDateTime, formatMoney } from "../lib/format";
-import type { EventItem, GeneratedPlanResponse, ListResponse, LocationItem, PlanCandidate, RecommendBestPlanResponse } from "../types/api";
+import { formatMoney } from "../lib/format";
+import type { GeneratedPlanResponse, PlanCandidate, RecommendBestPlanResponse } from "../types/api";
 
 const steps = ["Planowanie w toku", "Podgląd planów", "Optymalizacja", "Wybór planu", "Zatwierdzenie"];
 
@@ -16,8 +17,6 @@ function candidateTitle(candidate: PlanCandidate): string {
 
 export function PlannerPage(): JSX.Element {
   const { api } = useAuth();
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [locations, setLocations] = useState<LocationItem[]>([]);
   const [eventId, setEventId] = useState("");
   const [previewPlan, setPreviewPlan] = useState<GeneratedPlanResponse | null>(null);
   const [recommendation, setRecommendation] = useState<RecommendBestPlanResponse | null>(null);
@@ -26,24 +25,6 @@ export function PlannerPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [isWorking, setIsWorking] = useState(false);
-
-  useEffect(() => {
-    const load = async (): Promise<void> => {
-      const [eventData, locationData] = await Promise.all([
-        api.request<ListResponse<EventItem>>("GET", "/api/events?limit=100"),
-        api.request<ListResponse<LocationItem>>("GET", "/api/locations?limit=100"),
-      ]);
-      setEvents(eventData.items);
-      setLocations(locationData.items);
-    };
-    void load().catch((err) => setError(err instanceof Error ? err.message : "Nie udało się pobrać eventów."));
-  }, [api]);
-
-  const locationById = useMemo(() => new Map(locations.map((location) => [location.location_id, location])), [locations]);
-  const futureEvents = useMemo(
-    () => events.filter((event) => new Date(event.planned_start).getTime() >= Date.now() && event.status !== "completed"),
-    [events],
-  );
 
   const plan = async (): Promise<void> => {
     setError(null);
@@ -54,6 +35,9 @@ export function PlannerPage(): JSX.Element {
     setSelectedCandidate("");
     try {
       setActiveStep(0);
+      await api.request("POST", "/api/planner/validate-constraints", {
+        event_id: eventId,
+      });
       const generated = await api.request<GeneratedPlanResponse>("POST", "/api/planner/generate-plan", {
         event_id: eventId,
         commit_to_assignments: false,
@@ -62,6 +46,11 @@ export function PlannerPage(): JSX.Element {
       setActiveStep(1);
       await new Promise((resolve) => setTimeout(resolve, 250));
       setActiveStep(2);
+      await api.request("POST", "/api/ml/features/generate", {
+        event_id: eventId,
+        include_event_feature: true,
+        include_resource_features: true,
+      });
       const recommended = await api.request<RecommendBestPlanResponse>("POST", "/api/planner/recommend-best-plan", {
         event_id: eventId,
         commit_to_assignments: false,
@@ -70,7 +59,7 @@ export function PlannerPage(): JSX.Element {
       setSelectedCandidate(recommended.selected_candidate_name);
       setActiveStep(3);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nie udało się zaplanować eventu.");
+      setError(err instanceof Error ? err.message : "Nie udało się zaplanować eventu. Sprawdź kompletność zasobów i schemat bazy.");
     } finally {
       setIsWorking(false);
     }
@@ -98,22 +87,7 @@ export function PlannerPage(): JSX.Element {
       <Typography variant="h4">Planowanie eventów</Typography>
       {success && <StatusBanner severity="success" title="Plan zapisany" message={success} />}
       {error && <Alert severity="error">{error}</Alert>}
-      <TextField
-        select
-        label="Event do zaplanowania"
-        value={eventId}
-        onChange={(event) => setEventId(event.target.value)}
-        fullWidth
-      >
-        {futureEvents.map((event) => {
-          const location = locationById.get(event.location_id);
-          return (
-            <MenuItem key={event.event_id} value={event.event_id}>
-              {event.event_name} ({location?.name || location?.city || "miejsce nieuzupełnione"}, {formatDateTime(event.planned_start)})
-            </MenuItem>
-          );
-        })}
-      </TextField>
+      <EventSelect label="Event do zaplanowania" value={eventId} onChange={setEventId} scope="future" />
       <Box>
         <Button variant="contained" disabled={!eventId || isWorking} onClick={() => void plan()}>
           Zaplanuj

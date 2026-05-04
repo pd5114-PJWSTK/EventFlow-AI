@@ -7,6 +7,17 @@ import { RuntimePage } from "../pages/RuntimePage";
 
 const requestMock = vi.fn();
 
+
+vi.mock("../components/EventSelect", () => ({
+  EventSelect: ({ label, value, onChange }: { label: string; value: string; onChange: (eventId: string) => void }) => (
+    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+      <option value="">Wybierz event</option>
+      <option value="event-123">Gala Testowa</option>
+      <option value="evt-live">Gala Testowa live</option>
+      <option value="evt-post">Gala Testowa post</option>
+    </select>
+  ),
+}));
 vi.mock("../lib/auth", () => ({
   useAuth: () => ({
     api: {
@@ -68,8 +79,7 @@ describe("Phase 8 CP-03 operator flows", () => {
 
     render(<PlannerPage />);
 
-    fireEvent.mouseDown(await screen.findByLabelText("Event do zaplanowania"));
-    fireEvent.click(await screen.findByText(/Gala Testowa/));
+    fireEvent.change(await screen.findByLabelText("Event do zaplanowania"), { target: { value: "event-123" } });
     fireEvent.click(screen.getByRole("button", { name: "Zaplanuj" }));
 
     await waitFor(() => expect(screen.getByText("Najlepszy plan")).toBeInTheDocument());
@@ -81,13 +91,21 @@ describe("Phase 8 CP-03 operator flows", () => {
   });
 
   it("runs runtime parse and replan decision flow", async () => {
-    requestMock
-      .mockResolvedValueOnce({ event_id: "evt-live", incident_id: "inc-1", incident_type: "equipment_failure", severity: "medium", description: "Awaria nagłośnienia", root_cause: "sprzęt", sla_impact: false, cost_impact: null, reported_by: "Jan", parser_mode: "llm", parse_confidence: 0.9 })
-      .mockResolvedValueOnce({ event_id: "evt-live", comparison: { new_cost: 12000, cost_delta: 500, decision_note: "Zalecana wymiana sprzętu." }, generated_plan: { event_id: "evt-live", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 12000 } });
+    requestMock.mockImplementation((_method: string, path: string) => {
+      if (path.startsWith("/api/events")) return Promise.resolve({ ...eventList, items: [{ ...eventList.items[0], event_id: "evt-live", status: "planned" }] });
+      if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
+      if (path === "/api/runtime/events/evt-live/incident/parse") {
+        return Promise.resolve({ event_id: "evt-live", incident_id: "inc-1", incident_type: "equipment_failure", severity: "medium", description: "Awaria nagłośnienia", root_cause: "sprzęt", sla_impact: false, cost_impact: null, reported_by: "Jan", parser_mode: "llm", parse_confidence: 0.9 });
+      }
+      if (path === "/api/planner/replan/evt-live") {
+        return Promise.resolve({ event_id: "evt-live", comparison: { new_cost: 12000, cost_delta: 500, decision_note: "Zalecana wymiana sprzętu." }, generated_plan: { event_id: "evt-live", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 12000 } });
+      }
+      return Promise.resolve({});
+    });
 
     render(<RuntimePage />);
 
-    fireEvent.change(screen.getByLabelText("Event ID"), { target: { value: "evt-live" } });
+    fireEvent.change(await screen.findByLabelText("Event dla incydentu"), { target: { value: "evt-live" } });
     fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
 
     await waitFor(() => expect(screen.getByText("Arkusz incydentu")).toBeInTheDocument());
@@ -97,13 +115,19 @@ describe("Phase 8 CP-03 operator flows", () => {
   });
 
   it("runs post-event parse and commit flow", async () => {
-    requestMock
-      .mockResolvedValueOnce({ event_id: "evt-post", parser_mode: "llm", parse_confidence: 0.9, gaps: [], draft_complete: { completed_at: "2026-06-12T18:00:00Z", total_delay_minutes: 0, actual_cost: 22000, sla_breached: false, summary_notes: "Wszystko zakończone poprawnie." } })
-      .mockResolvedValueOnce({ committed_at: "2026-06-12T18:05:00Z" });
+    requestMock.mockImplementation((_method: string, path: string) => {
+      if (path.startsWith("/api/events")) return Promise.resolve({ ...eventList, items: [{ ...eventList.items[0], event_id: "evt-post", status: "planned" }] });
+      if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
+      if (path === "/api/runtime/events/evt-post/post-event/parse") {
+        return Promise.resolve({ event_id: "evt-post", parser_mode: "llm", parse_confidence: 0.9, gaps: [], draft_complete: { completed_at: "2026-06-12T18:00:00Z", total_delay_minutes: 0, actual_cost: 22000, sla_breached: false, summary_notes: "Wszystko zakończone poprawnie." } });
+      }
+      if (path === "/api/runtime/events/evt-post/post-event/commit") return Promise.resolve({ committed_at: "2026-06-12T18:05:00Z" });
+      return Promise.resolve({});
+    });
 
     render(<PostEventPage />);
 
-    fireEvent.change(screen.getByLabelText("Event ID"), { target: { value: "evt-post" } });
+    fireEvent.change(await screen.findByLabelText("Event do zamknięcia"), { target: { value: "evt-post" } });
     fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
 
     await waitFor(() => expect(screen.getByText("Arkusz podsumowania")).toBeInTheDocument());

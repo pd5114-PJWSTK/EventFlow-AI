@@ -93,8 +93,8 @@ export function AppShell(): JSX.Element {
           flexGrow: 1,
           p: { xs: 2, md: 3 },
           mt: 9,
-          ml: { xs: 0, md: `${drawerWidth}px` },
           maxWidth: "100%",
+          minWidth: 0,
         }}
       >
         <Outlet />

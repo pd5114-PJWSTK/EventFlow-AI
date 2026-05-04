@@ -3,9 +3,20 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.core import EventStatus, PriorityLevel
+
+
+def _validate_business_text(value: str | None, field_name: str) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(f"{field_name} must not be empty")
+    if not any(char.isalpha() for char in stripped):
+        raise ValueError(f"{field_name} must contain letters")
+    return stripped
 
 
 class EventCreate(BaseModel):
@@ -29,6 +40,14 @@ class EventCreate(BaseModel):
     notes: str | None = None
     created_by: str | None = None
     created_by_user_id: str | None = None
+
+    @field_validator("event_name", "event_type")
+    @classmethod
+    def validate_text_fields(cls, value: str, info) -> str:
+        result = _validate_business_text(value, info.field_name)
+        if result is None:
+            raise ValueError(f"{info.field_name} must not be empty")
+        return result
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "EventCreate":
@@ -58,6 +77,11 @@ class EventUpdate(BaseModel):
     notes: str | None = None
     created_by: str | None = None
     created_by_user_id: str | None = None
+
+    @field_validator("event_name", "event_type")
+    @classmethod
+    def validate_text_fields(cls, value: str | None, info) -> str | None:
+        return _validate_business_text(value, info.field_name)
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "EventUpdate":

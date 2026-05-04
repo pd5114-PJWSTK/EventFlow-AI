@@ -3,6 +3,12 @@
 
 BEGIN;
 
+ALTER TABLE core.assignments
+    ADD COLUMN IF NOT EXISTS is_consumed_in_execution BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE core.assignments
+    ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ;
+
 DO $$
 BEGIN
     IF NOT EXISTS (

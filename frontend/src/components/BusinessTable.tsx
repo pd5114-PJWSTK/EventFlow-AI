@@ -15,13 +15,13 @@ interface BusinessTableProps<T> {
 
 export function BusinessTable<T>({ title, columns, rows, emptyText = "Brak danych" }: BusinessTableProps<T>): JSX.Element {
   return (
-    <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+    <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxWidth: "100%", overflowX: "auto" }}>
       {title && (
         <Typography variant="h6" sx={{ px: 2, pt: 2 }}>
           {title}
         </Typography>
       )}
-      <Table size="small">
+      <Table size="small" sx={{ minWidth: Math.max(columns.length * 150, 720) }}>
         <TableHead>
           <TableRow>
             {columns.map((column) => (

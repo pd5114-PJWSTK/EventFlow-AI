@@ -3,9 +3,23 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.core import LocationType
+
+
+def _validate_city_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("city must not be empty")
+    if not any(char.isalpha() for char in stripped):
+        raise ValueError("city must contain letters")
+    allowed = set(" .'-")
+    if any(not (char.isalpha() or char in allowed) for char in stripped):
+        raise ValueError("city can contain only letters, spaces, apostrophe, dot and hyphen")
+    return stripped
 
 
 class LocationCreate(BaseModel):
@@ -22,6 +36,14 @@ class LocationCreate(BaseModel):
     setup_complexity_score: int = Field(default=1, ge=1, le=10)
     notes: str | None = None
 
+    @field_validator("city")
+    @classmethod
+    def validate_city(cls, value: str) -> str:
+        result = _validate_city_text(value)
+        if result is None:
+            raise ValueError("city must not be empty")
+        return result
+
 
 class LocationUpdate(BaseModel):
     name: str | None = None
@@ -36,6 +58,11 @@ class LocationUpdate(BaseModel):
     access_difficulty: int | None = Field(default=None, ge=1, le=5)
     setup_complexity_score: int | None = Field(default=None, ge=1, le=10)
     notes: str | None = None
+
+    @field_validator("city")
+    @classmethod
+    def validate_city(cls, value: str | None) -> str | None:
+        return _validate_city_text(value)
 
 
 class LocationRead(BaseModel):

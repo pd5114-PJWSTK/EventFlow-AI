@@ -39,6 +39,16 @@ if (-not $ready) {
   throw "Backend nie osiagnal statusu gotowosci pod $readyUrl."
 }
 
+$patchPath = Join-Path $repoRoot "scripts\sql\cp04_production_readiness.sql"
+if (Test-Path $patchPath) {
+  Write-Host "[start] Aplikacja idempotentnego patcha DB CP-04..." -ForegroundColor Cyan
+  $dbUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "eventflow" }
+  $dbName = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "eventflow" }
+  $containerPatchPath = "/tmp/cp04_production_readiness.sql"
+  docker cp $patchPath "eventflow-postgres:$containerPatchPath"
+  docker compose exec -T postgres psql -U $dbUser -d $dbName -v ON_ERROR_STOP=1 -f $containerPatchPath
+}
+
 Set-Location (Join-Path $repoRoot "frontend")
 
 if (-not $SkipNpmInstall -or -not (Test-Path "node_modules")) {

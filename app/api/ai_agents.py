@@ -21,9 +21,36 @@ from app.services.ai_orchestration_service import (
     run_ai_optimization,
     run_ai_orchestration,
 )
+from app.config import get_settings
 
 
 router = APIRouter(prefix="/api/ai-agents", tags=["ai-agents"])
+
+
+@router.get("/llm-status")
+def llm_status_endpoint() -> dict[str, str | bool | None]:
+    settings = get_settings()
+    endpoint_configured = bool(settings.azure_openai_endpoint)
+    api_key_configured = bool(settings.azure_openai_api_key)
+    deployment_configured = bool(settings.azure_deployment_llm)
+    configured = endpoint_configured and api_key_configured and deployment_configured
+    llm_ready = settings.ai_azure_llm_enabled and configured
+    if llm_ready:
+        message = "LLM jest włączony i skonfigurowany."
+    elif not settings.ai_azure_llm_enabled:
+        message = "LLM jest wyłączony przez AI_AZURE_LLM_ENABLED=false; parser używa trybu awaryjnego."
+    else:
+        message = "LLM jest włączony, ale brakuje pełnej konfiguracji Azure OpenAI."
+    return {
+        "enabled": settings.ai_azure_llm_enabled,
+        "configured": configured,
+        "endpoint_configured": endpoint_configured,
+        "api_key_configured": api_key_configured,
+        "deployment_configured": deployment_configured,
+        "deployment": settings.azure_deployment_llm,
+        "mode": "llm" if llm_ready else "fallback",
+        "message": message,
+    }
 
 
 @router.post("/optimize", response_model=AIAgentsOptimizeResponse)
