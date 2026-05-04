@@ -41,7 +41,8 @@ if (-not $ready) {
 
 $patches = @(
   "scripts\sql\cp04_production_readiness.sql",
-  "scripts\sql\cp05_operational_training_seed.sql"
+  "scripts\sql\cp05_operational_training_seed.sql",
+  "scripts\sql\cp06_operational_company_seed.sql"
 )
 foreach ($relativePatch in $patches) {
   $patchPath = Join-Path $repoRoot $relativePatch

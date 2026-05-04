@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Box, Button, Chip, Grid, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, Grid, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 
 import { AnimatedPipeline } from "../components/AnimatedPipeline";
 import { BusinessTable } from "../components/BusinessTable";
@@ -55,12 +55,12 @@ export function MePage(): JSX.Element {
   const [models, setModels] = useState<ModelRegistryItem[]>([]);
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [training, setTraining] = useState(false);
+  const [metricsDialogModel, setMetricsDialogModel] = useState<ModelRegistryItem | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isAdmin = Boolean(me?.roles.includes("admin") || me?.is_superadmin);
   const displayedModel = useMemo(() => pickDisplayedModel(models), [models]);
-  const activeModels = useMemo(() => models.filter((model) => model.status === "active"), [models]);
 
   const load = useCallback(async (): Promise<void> => {
     const meData = await api.request<UserMe>("GET", "/auth/me");
@@ -145,52 +145,48 @@ export function MePage(): JSX.Element {
           )}
 
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6">Operational model</Typography>
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="h6">Operational model</Typography>
+                <Typography color="text.secondary">Current duration model used by planning and retraining decisions.</Typography>
+              </Box>
             {displayedModel ? (
-              <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                <Grid item xs={12} md={3}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={4}>
                   <Typography color="text.secondary">Name</Typography>
                   <Typography fontWeight={800}>{displayedModel.model_name}</Typography>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={12} md={2}>
                   <Typography color="text.secondary">Version</Typography>
                   <Typography fontWeight={800}>{displayedModel.model_version}</Typography>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={12} md={2}>
                   <Typography color="text.secondary">Status</Typography>
                   <Typography fontWeight={800}>{displayedModel.status}</Typography>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid item xs={12} md={4}>
                   <Typography color="text.secondary">Trained at</Typography>
                   <Typography fontWeight={800}>{formatDateTime(displayedModel.created_at)}</Typography>
                 </Grid>
-                <Grid item xs={12}>
-                  <Typography color="text.secondary" sx={{ mb: 1 }}>Results</Typography>
-                  <Grid container spacing={1.5}>
-                    {metricRows(displayedModel.metrics).map((metric) => (
-                      <Grid item xs={12} md={4} key={metric.label}>
-                        <Paper variant="outlined" sx={{ p: 1.5 }}>
-                          <Typography variant="caption" color="text.secondary">{metric.label}</Typography>
-                          <Typography fontWeight={800}>{metric.value}</Typography>
-                        </Paper>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Grid>
+                {metricRows(displayedModel.metrics).slice(0, 3).map((metric) => <Grid item xs={12} md={4} key={metric.label}><Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="caption" color="text.secondary">{metric.label}</Typography><Typography fontWeight={800}>{metric.value}</Typography></Paper></Grid>)}
               </Grid>
             ) : (
               <Typography color="text.secondary">No registered model.</Typography>
             )}
-            <Button sx={{ mt: 3 }} variant="contained" disabled={training} onClick={() => void trainModel()}>
+            <Stack direction="row" spacing={1}>
+            <Button variant="contained" disabled={training} onClick={() => void trainModel()}>
               Train model
             </Button>
+            {displayedModel && <Button variant="outlined" onClick={() => setMetricsDialogModel(displayedModel)}>View metrics</Button>}
+            </Stack>
+            </Stack>
           </Paper>
 
           {training && <AnimatedPipeline title="Model training" steps={["Load logs", "Train", "Test", "Update model"]} activeStep={1} />}
 
           <BusinessTable
             title="Active models"
-            rows={activeModels.length > 0 ? activeModels : models}
+            rows={models}
             columns={[
               { key: "name", label: "Model", render: (item) => item.model_name },
               { key: "version", label: "Version", render: (item) => item.model_version },
@@ -202,18 +198,25 @@ export function MePage(): JSX.Element {
               {
                 key: "metrics",
                 label: "Metrics",
-                render: (item) => (
-                  <Stack spacing={0.5}>
-                    {metricRows(item.metrics).map((metric) => (
-                      <Typography key={metric.label} variant="body2">
-                        <strong>{metric.label}:</strong> {metric.value}
-                      </Typography>
-                    ))}
-                  </Stack>
-                ),
+                render: (item) => <Button size="small" variant="outlined" onClick={() => setMetricsDialogModel(item)}>View details</Button>,
               },
             ]}
           />
+          <Dialog open={Boolean(metricsDialogModel)} onClose={() => setMetricsDialogModel(null)} maxWidth="md" fullWidth>
+            <DialogTitle>{metricsDialogModel ? `${metricsDialogModel.model_name} metrics` : "Model metrics"}</DialogTitle>
+            <DialogContent>
+              <Grid container spacing={1.5} sx={{ pt: 1 }}>
+                {metricsDialogModel && metricRows(metricsDialogModel.metrics).map((metric) => (
+                  <Grid item xs={12} md={4} key={metric.label}>
+                    <Paper variant="outlined" sx={{ p: 1.5, height: "100%" }}>
+                      <Typography variant="caption" color="text.secondary">{metric.label}</Typography>
+                      <Typography fontWeight={800}>{metric.value}</Typography>
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+            </DialogContent>
+          </Dialog>
         </Stack>
       )}
     </Stack>

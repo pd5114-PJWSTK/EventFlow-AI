@@ -32,7 +32,7 @@ describe("IntakePage", () => {
         planned_end: "2026-06-12T18:00:00Z",
         budget_estimate: 22000,
         event_priority: "medium",
-        requirements: [],
+        requirements: [{ requirement_type: "person_role", role_required: "coordinator", quantity: 2, mandatory: true }],
       },
       assumptions: [],
       parser_mode: "llm",
@@ -52,7 +52,11 @@ describe("IntakePage", () => {
       );
       expect(screen.getByDisplayValue("Executive Summit")).toBeInTheDocument();
       expect(screen.getByText("Source: LLM")).toBeInTheDocument();
+      expect(screen.getByText("Requirements")).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
+    expect(screen.getByRole("button", { name: "Add" })).not.toBeDisabled();
   });
 
   it("rejects numeric city before commit", async () => {

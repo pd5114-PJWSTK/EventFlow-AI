@@ -230,9 +230,16 @@ export interface PlanCandidate {
   candidate_name: string;
   solver: string;
   estimated_cost: string | number;
+  predicted_transport_duration_minutes?: string | number;
+  predicted_setup_duration_minutes?: string | number;
+  predicted_teardown_duration_minutes?: string | number;
   estimated_duration_minutes: string | number;
   predicted_delay_risk: string | number;
+  predicted_incident_risk?: string | number;
+  predicted_sla_breach_risk?: string | number;
   coverage_ratio: string | number;
+  unassigned_count?: number;
+  confidence_score?: string | number;
   plan_score: string | number;
   selection_explanation: string;
 }

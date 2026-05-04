@@ -1553,3 +1553,60 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-04] Zakonczono CP-05 FE Fazy 8 (realny LLM intake, English UI, reset/persistencja flow, czytelne metryki, naprawa post-event 500 i seed 60 realnych przykladow).
   Cel: usunac live bledy operatora i przygotowac panel do dalszych testow na danych spojnych z treningiem ML.
+
+14.5) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-06)
+- Status checkpointu: `phase-8-frontend-cp-06-operational-data-and-replan-ux` -> ZREALIZOWANY (dane operacyjne, UX wymagan, gating walidacji, planner/replan/ML polish, security report path).
+- Zakres wykonany:
+  - Dane operacyjne i utrzymanie stanu DB:
+    - dodano `scripts/sql/cp06_operational_company_seed.sql` jako idempotentny patch bez resetowania wolumenu PostgreSQL,
+    - CP-06 porzadkuje dane z CP-05 z nazw `TRAIN-*` na operacyjne `OP-*`, wypelnia pola eventow i zostawia czytelne business references,
+    - dodano zasoby firmy: 48 osob, 60 sztuk sprzetu, 16 pojazdow, 8 typow sprzetu, 8 umiejetnosci oraz dostepnosci zasobow,
+    - utrzymano spojnosc statusow: 20 eventow historycznych `completed`, 40 eventow przyszlych `planned`, outcome/timing tylko dla zakonczonych eventow,
+    - `scripts/start-local-test-env.ps1` aplikuje CP-04, CP-05 i CP-06 bez ladowania bazy od zera.
+  - Security check path:
+    - przeniesiono raport security z root `Security_check.md` do `docs/reports/Security_check.md`.
+  - Nowy event / wymagania:
+    - arkusz intake pozwala edytowac wymagania eventu: role osob, typ sprzetu, typ pojazdu, umiejetnosci, ilosc i notatki,
+    - walidacja blokuje brak wymaganych danych wymagan przed dodaniem eventu,
+    - przycisk `Add` wlacza sie dopiero po `Check` zakonczonym bez bledow.
+  - Nawigacja procesow:
+    - dodano wspolny komponent strzalki powrotu w prawym gornym rogu arkuszy i widokow decyzyjnych,
+    - kontynuacja procesow w Nowy event, Replanowanie live i Post-event log jest blokowana do momentu poprawnej walidacji `Check`.
+  - Planowanie:
+    - karty planow maja uklad 2x2 na desktopie,
+    - usunieto surowe nazwy zmiennych z dolnych metryk i zastapiono je czytelnymi business cards,
+    - rekomendowany plan jest osobnym komponentem biznesowym z opisem kosztu, pokrycia i przypisanych zasobow,
+    - kazdy plan pokazuje opis wykorzystania zasobow zamiast technicznych struktur.
+  - Replanowanie live:
+    - po przyjeciu incydentu UI pokazuje operator action plan z tym, co jest juz wykonane i co zostalo do zmiany,
+    - dla incydentow audio UI proponuje wymiane zestawu audio i przypisanie technika audio,
+    - operator moze edytowac, dodawac, usuwac i oznaczac akcje jako done/pending przed zatwierdzeniem replanowania.
+  - Post-event log:
+    - brak delay, client score albo internal quality score blokuje `Save`, dopoki operator nie uzupelni danych i nie przejdzie `Check`.
+  - My account / ML model:
+    - uproszczono layout aktywnego modelu,
+    - tabela modeli pokazuje wszystkie modele, wiec nowy model po retrainingu jest widoczny po odswiezeniu listy,
+    - metryki w tabeli sa dostepne przez przycisk `View details` i modal z czytelnym formatowaniem.
+- Walidacja wykonania:
+  - Frontend:
+    - `npm run typecheck` -> passed.
+    - `npm run lint` -> 0 errors, 1 existing warning `react-refresh/only-export-components` w `frontend/src/lib/auth.tsx`.
+    - `npx vitest run --reporter dot` -> 5 files passed, 13 tests passed.
+    - `npm run build` -> passed; Vite ostrzega tylko o chunku 634.87 kB.
+  - Backend / regresja:
+    - `python -m py_compile tests/test_phase8_frontend_cp06.py` -> passed.
+    - `docker exec -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true eventflow-backend pytest -q tests/test_phase8_frontend_cp06.py tests/test_phase8_frontend_cp05.py tests/test_phase8_frontend_cp04.py` -> 9 passed.
+    - `docker exec -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true eventflow-backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_cp01.py tests/test_phase8_cp02.py` -> 15 passed.
+  - Live smoke lokalny Docker/API:
+    - `/ready` -> ok,
+    - Vite proxy `http://127.0.0.1:5173/auth/login` -> login admin OK,
+    - Vite proxy `http://127.0.0.1:5173/api/events` -> API przez frontend OK,
+    - `planner/validate-constraints`, `planner/generate-plan`, `planner/recommend-best-plan` dla OP-021 -> OK bez 500,
+    - `post-event/commit` dla OP-060 -> OK bez 500,
+    - `incident/parse` + `planner/replan` dla OP-021 -> OK bez 500,
+    - DB seed check: `events=60`, `people=48`, `equipment=60`, `vehicles=16`, statusy `completed=20`, `planned=40`.
+  - Browser plugin:
+    - plugin browser-use nie mogl zostac uzyty w tej sesji, bo Node REPL wskazuje Node v18.12.1, a wymaga >= v22.22.0; wykonano fallback smoke przez Vite proxy/API oraz testy Vitest UI.
+
+- [2026-05-04] Zakonczono CP-06 FE Fazy 8 (operacyjne dane firmy bez resetu DB, edytowalne wymagania eventu, check-gating, planner/replan business UX, ML layout, security report path i regresja live).
+  Cel: doprowadzic panel do spójnego testowania na danych firmy i usunac pozostale ryzyka UI/DB przed przygotowaniem wdrozenia VPS.

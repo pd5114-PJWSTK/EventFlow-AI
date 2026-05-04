@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Alert, Box, Button, Chip, Grid, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 
+import { BackCornerButton } from "../components/BackCornerButton";
 import { StatusBanner } from "../components/StatusBanner";
 import { useAuth } from "../lib/auth";
 import { formatDateInput, fromDateInput, parserSourceLabel } from "../lib/format";
@@ -20,6 +21,37 @@ const requiredFields: Array<{ key: keyof EventDraft; label: string }> = [
   { key: "planned_end", label: "End" },
 ];
 
+const requirementTypes = [
+  { value: "person_role", label: "Person role" },
+  { value: "equipment_type", label: "Equipment type" },
+  { value: "vehicle_type", label: "Vehicle type" },
+  { value: "person_skill", label: "Person skill" },
+  { value: "other", label: "Other" },
+];
+
+const personRoles = [
+  "technician_audio",
+  "technician_light",
+  "technician_video",
+  "stage_manager",
+  "coordinator",
+  "driver",
+  "warehouse_operator",
+  "project_manager",
+  "freelancer",
+  "other",
+];
+
+const vehicleTypes = ["van", "truck", "car", "trailer", "other"];
+
+function cleanEquipmentName(value?: string | null): string {
+  return String(value || "").replace("__AUTO_EQUIPMENT_TYPE__::", "").replace(/_/g, " ");
+}
+
+function humanize(value?: string | null): string {
+  return String(value || "Not selected").replace(/_/g, " ");
+}
+
 export function IntakePage(): JSX.Element {
   const { api } = useAuth();
   const [rawInput, setRawInput] = useSessionState("cp05.intake.rawInput", EMPTY_TEXT);
@@ -27,23 +59,55 @@ export function IntakePage(): JSX.Element {
   const [source, setSource] = useSessionState<string | null>("cp05.intake.source", null);
   const [assumptions, setAssumptions] = useSessionState<string[]>("cp05.intake.assumptions", []);
   const [fieldErrors, setFieldErrors] = useSessionState<Record<string, string>>("cp05.intake.errors", {});
+  const [checked, setChecked] = useSessionState("cp06.intake.checked", false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const hasDraft = Boolean(draft);
-  const canAdd = hasDraft && Object.keys(fieldErrors).length === 0;
+  const canAdd = hasDraft && checked && Object.keys(fieldErrors).length === 0;
 
   const resetFlow = (message?: string): void => {
     setDraft(null);
     setRawInput(EMPTY_TEXT);
     setFieldErrors({});
+    setChecked(false);
     setAssumptions([]);
     setSource(null);
     if (message) setSuccess(message);
   };
 
-  const updateDraft = (patch: Partial<EventDraft>): void => setDraft((current) => (current ? { ...current, ...patch } : current));
+  const updateDraft = (patch: Partial<EventDraft>): void => {
+    setChecked(false);
+    setDraft((current) => (current ? { ...current, ...patch } : current));
+  };
+
+  const updateRequirement = (index: number, patch: Partial<EventDraft["requirements"][number]>): void => {
+    setChecked(false);
+    setDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        requirements: current.requirements.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item),
+      };
+    });
+  };
+
+  const addRequirement = (): void => {
+    setChecked(false);
+    setDraft((current) => current ? {
+      ...current,
+      requirements: [
+        ...current.requirements,
+        { requirement_type: "person_role", role_required: "coordinator", quantity: 1, mandatory: true, notes: "" },
+      ],
+    } : current);
+  };
+
+  const removeRequirement = (index: number): void => {
+    setChecked(false);
+    setDraft((current) => current ? { ...current, requirements: current.requirements.filter((_item, itemIndex) => itemIndex !== index) } : current);
+  };
 
   const validateDraft = (): boolean => {
     if (!draft) {
@@ -66,8 +130,20 @@ export function IntakePage(): JSX.Element {
     ] as const;
     for (const [key, validationError] of checks) if (validationError) nextErrors[key] = validationError;
     if (draft.planned_start && draft.planned_end && new Date(draft.planned_end) <= new Date(draft.planned_start)) nextErrors.planned_end = "End must be after event start.";
+    if (draft.requirements.length === 0) nextErrors.requirements = "Add at least one requirement.";
+    draft.requirements.forEach((requirement, index) => {
+      const prefix = `requirements.${index}`;
+      const quantityError = validateNonNegativeNumber(requirement.quantity, `Requirement ${index + 1} quantity`, true);
+      if (quantityError || Number(requirement.quantity) <= 0) nextErrors[`${prefix}.quantity`] = quantityError || "Quantity must be greater than zero.";
+      if (requirement.requirement_type === "person_role" && !requirement.role_required) nextErrors[`${prefix}.role_required`] = "Select a person role.";
+      if (requirement.requirement_type === "equipment_type" && !cleanEquipmentName(requirement.equipment_type_id).trim()) nextErrors[`${prefix}.equipment_type_id`] = "Enter equipment type.";
+      if (requirement.requirement_type === "vehicle_type" && !requirement.vehicle_type_required) nextErrors[`${prefix}.vehicle_type_required`] = "Select a vehicle type.";
+      if (requirement.requirement_type === "person_skill" && !requirement.skill_id) nextErrors[`${prefix}.skill_id`] = "Enter skill identifier or switch to person role.";
+    });
     setFieldErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    const isValid = Object.keys(nextErrors).length === 0;
+    setChecked(isValid);
+    return isValid;
   };
 
   const preview = async (): Promise<void> => {
@@ -80,6 +156,7 @@ export function IntakePage(): JSX.Element {
       setAssumptions(data.assumptions);
       setSource(parserSourceLabel(data.parser_mode, data.used_fallback));
       setFieldErrors(Object.fromEntries(data.gaps.filter((gap) => gap.severity === "critical").map((gap) => [gap.field, gap.message])));
+      setChecked(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not prepare the event sheet.");
     } finally {
@@ -122,8 +199,9 @@ export function IntakePage(): JSX.Element {
         </Paper>
       )}
       {draft && (
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, position: "relative" }}>
           <Stack spacing={2.5}>
+            <BackCornerButton onClick={() => setDraft(null)} />
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }}>
               <Typography variant="h6">Event sheet</Typography>
               {source && <Chip label={source} color={source.includes("LLM") ? "success" : "warning"} variant="outlined" />}
@@ -141,16 +219,107 @@ export function IntakePage(): JSX.Element {
               <Grid item xs={12} md={6}><TextField label="Start" type="datetime-local" value={formatDateInput(draft.planned_start)} onChange={(event) => updateDraft({ planned_start: fromDateInput(event.target.value) })} error={Boolean(fieldErrors.planned_start)} helperText={fieldErrors.planned_start} fullWidth InputLabelProps={{ shrink: true }} /></Grid>
               <Grid item xs={12} md={6}><TextField label="End" type="datetime-local" value={formatDateInput(draft.planned_end)} onChange={(event) => updateDraft({ planned_end: fromDateInput(event.target.value) })} error={Boolean(fieldErrors.planned_end)} helperText={fieldErrors.planned_end} fullWidth InputLabelProps={{ shrink: true }} /></Grid>
             </Grid>
-            {draft.requirements.length > 0 && (
-              <Stack spacing={1}>
-                <Typography fontWeight={800}>Requirements detected from the description</Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>{draft.requirements.map((requirement, index) => <Chip key={index} label={`${requirement.requirement_type.replace(/_/g, " ")}: ${requirement.quantity}`} variant="outlined" />)}</Stack>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Box>
+                  <Typography fontWeight={800}>Requirements</Typography>
+                  <Typography variant="body2" color="text.secondary">Review what the LLM understood: roles, equipment, vehicles, quantities and notes.</Typography>
+                </Box>
+                <Button variant="outlined" onClick={addRequirement}>Add requirement</Button>
               </Stack>
-            )}
+              {fieldErrors.requirements && <Alert severity="warning">{fieldErrors.requirements}</Alert>}
+              {draft.requirements.map((requirement, index) => (
+                <Paper key={index} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={3}>
+                      <TextField
+                        select
+                        label="Requirement"
+                        value={requirement.requirement_type}
+                        onChange={(event) => updateRequirement(index, { requirement_type: event.target.value, role_required: null, equipment_type_id: null, vehicle_type_required: null })}
+                        fullWidth
+                      >
+                        {requirementTypes.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
+                      </TextField>
+                    </Grid>
+                    {requirement.requirement_type === "person_role" && (
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          select
+                          label="Role"
+                          value={requirement.role_required || ""}
+                          onChange={(event) => updateRequirement(index, { role_required: event.target.value })}
+                          error={Boolean(fieldErrors[`requirements.${index}.role_required`])}
+                          helperText={fieldErrors[`requirements.${index}.role_required`]}
+                          fullWidth
+                        >
+                          {personRoles.map((role) => <MenuItem key={role} value={role}>{humanize(role)}</MenuItem>)}
+                        </TextField>
+                      </Grid>
+                    )}
+                    {requirement.requirement_type === "equipment_type" && (
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          label="Equipment type"
+                          value={cleanEquipmentName(requirement.equipment_type_id)}
+                          onChange={(event) => updateRequirement(index, { equipment_type_id: `__AUTO_EQUIPMENT_TYPE__::${event.target.value.trim().toLowerCase().replace(/\s+/g, "_")}` })}
+                          error={Boolean(fieldErrors[`requirements.${index}.equipment_type_id`])}
+                          helperText={fieldErrors[`requirements.${index}.equipment_type_id`]}
+                          fullWidth
+                        />
+                      </Grid>
+                    )}
+                    {requirement.requirement_type === "vehicle_type" && (
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          select
+                          label="Vehicle"
+                          value={requirement.vehicle_type_required || ""}
+                          onChange={(event) => updateRequirement(index, { vehicle_type_required: event.target.value })}
+                          error={Boolean(fieldErrors[`requirements.${index}.vehicle_type_required`])}
+                          helperText={fieldErrors[`requirements.${index}.vehicle_type_required`]}
+                          fullWidth
+                        >
+                          {vehicleTypes.map((vehicle) => <MenuItem key={vehicle} value={vehicle}>{humanize(vehicle)}</MenuItem>)}
+                        </TextField>
+                      </Grid>
+                    )}
+                    {requirement.requirement_type === "person_skill" && (
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          label="Skill reference"
+                          value={requirement.skill_id || ""}
+                          onChange={(event) => updateRequirement(index, { skill_id: event.target.value })}
+                          error={Boolean(fieldErrors[`requirements.${index}.skill_id`])}
+                          helperText={fieldErrors[`requirements.${index}.skill_id`] || "Use a skill ID or change the requirement type."}
+                          fullWidth
+                        />
+                      </Grid>
+                    )}
+                    <Grid item xs={12} md={2}>
+                      <TextField
+                        label="Quantity"
+                        type="number"
+                        value={requirement.quantity}
+                        onChange={(event) => updateRequirement(index, { quantity: Number(event.target.value) })}
+                        error={Boolean(fieldErrors[`requirements.${index}.quantity`])}
+                        helperText={fieldErrors[`requirements.${index}.quantity`]}
+                        fullWidth
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField label="Notes" value={requirement.notes || ""} onChange={(event) => updateRequirement(index, { notes: event.target.value })} fullWidth />
+                    </Grid>
+                    <Grid item xs={12} md={requirement.requirement_type === "other" ? 3 : 12}>
+                      <Button color="warning" onClick={() => removeRequirement(index)}>Remove</Button>
+                    </Grid>
+                  </Grid>
+                </Paper>
+              ))}
+            </Stack>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Button variant="outlined" onClick={validateDraft}>Check</Button>
               <Button variant="contained" color="success" disabled={!canAdd || isLoading} onClick={() => void commit()}>Add</Button>
-              <Button variant="outlined" onClick={() => setDraft(null)}>Back</Button>
               <Button variant="text" color="warning" onClick={() => resetFlow()}>Reject</Button>
             </Stack>
           </Stack>

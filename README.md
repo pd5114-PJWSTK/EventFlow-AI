@@ -59,7 +59,9 @@ Z katalogu projektu:
 powershell -ExecutionPolicy Bypass -File .\scripts\start-local-test-env.ps1
 ```
 
-Skrypt uruchamia Docker Compose, czeka na `/ready`, aplikuje idempotentne patche `scripts/sql/cp04_production_readiness.sql` oraz `scripts/sql/cp05_operational_training_seed.sql`, a potem odpala Vite na `http://127.0.0.1:5173`.
+Skrypt uruchamia Docker Compose, czeka na `/ready`, aplikuje idempotentne patche `scripts/sql/cp04_production_readiness.sql`, `scripts/sql/cp05_operational_training_seed.sql` oraz `scripts/sql/cp06_operational_company_seed.sql`, a potem odpala Vite na `http://127.0.0.1:5173`.
+
+CP-06 nie resetuje wolumenu PostgreSQL. Patch porządkuje istniejące dane operacyjne i utrzymuje stan bazy: dodaje zasoby firmy, uzupełnia pola eventów, zostawia 20 eventów historycznych jako `completed` i 40 przyszłych jako `planned`. Jeżeli chcesz zachować lokalną bazę, nie używaj `docker compose down -v`.
 
 Opcje:
 ```powershell
@@ -131,7 +133,7 @@ docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=tr
 
 Scenariusze E2E/regresyjne Fazy 8:
 ```powershell
-docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_frontend_cp03.py tests/test_phase8_frontend_cp04.py tests/test_phase8_frontend_cp05.py
+docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_frontend_cp03.py tests/test_phase8_frontend_cp04.py tests/test_phase8_frontend_cp05.py tests/test_phase8_frontend_cp06.py
 ```
 
 Frontend:
@@ -170,6 +172,8 @@ docker cp .\scripts\sql\cp04_production_readiness.sql projekt-postgres-1:/tmp/cp
 docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp04_production_readiness.sql
 docker cp .\scripts\sql\cp05_operational_training_seed.sql projekt-postgres-1:/tmp/cp05_operational_training_seed.sql
 docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp05_operational_training_seed.sql
+docker cp .\scripts\sql\cp06_operational_company_seed.sql projekt-postgres-1:/tmp/cp06_operational_company_seed.sql
+docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp06_operational_company_seed.sql
 ```
 
 Używaj wariantu `docker cp` + `psql -f`, żeby PowerShell nie przekodował polskich znaków w SQL. Produkcja nie powinna kopiować `non_production/`, lokalnych cache, POC ani starego buildu frontendu. Te ścieżki są wykluczone w `.dockerignore`, a frontend ma osobny `frontend/.dockerignore`.
