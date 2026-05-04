@@ -1404,8 +1404,8 @@ def _build_gap_resolution_guidance(
                 resource_type=resource_type,
                 missing_count=assignment.unassigned_count,
                 message=(
-                    f"Brakuje {assignment.unassigned_count} zasobu(ow) typu "
-                    f"{resource_type} dla requirement {assignment.requirement_id}."
+                    f"Missing {assignment.unassigned_count} resource(s) of type "
+                    f"{resource_type} for requirement {assignment.requirement_id}."
                 ),
             )
         )
@@ -1415,15 +1415,15 @@ def _build_gap_resolution_guidance(
 
     augment_option = GapResolutionOption(
         option_type="augment_resources",
-        title="Uzupelnij luki zasobami",
+        title="Fill resource gaps",
         description=(
-            "Dodaj brakujacy personel/sprzet/pojazdy lub ich dostepnosc w bazie, "
-            "a nastepnie uruchom planner ponownie."
+            "Add missing people, equipment, vehicles or their availability in the database, "
+            "then run the planner again."
         ),
         steps=[
-            "Dodaj brakujace zasoby (np. wynajem sprzetu lub tymczasowe zatrudnienie).",
-            "Dodaj okna availability dla nowych zasobow.",
-            "Uruchom ponownie planowanie dla eventu.",
+            "Add missing resources, for example rented equipment or temporary staff.",
+            "Add availability windows for the new resources.",
+            "Run event planning again.",
         ],
         endpoints=[
             "/api/resources/people",

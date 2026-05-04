@@ -39,12 +39,19 @@ if (-not $ready) {
   throw "Backend nie osiagnal statusu gotowosci pod $readyUrl."
 }
 
-$patchPath = Join-Path $repoRoot "scripts\sql\cp04_production_readiness.sql"
-if (Test-Path $patchPath) {
-  Write-Host "[start] Aplikacja idempotentnego patcha DB CP-04..." -ForegroundColor Cyan
+$patches = @(
+  "scripts\sql\cp04_production_readiness.sql",
+  "scripts\sql\cp05_operational_training_seed.sql"
+)
+foreach ($relativePatch in $patches) {
+  $patchPath = Join-Path $repoRoot $relativePatch
+  if (-not (Test-Path $patchPath)) {
+    continue
+  }
+  Write-Host "[start] Aplikacja patcha DB: $relativePatch" -ForegroundColor Cyan
   $dbUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "eventflow" }
   $dbName = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "eventflow" }
-  $containerPatchPath = "/tmp/cp04_production_readiness.sql"
+  $containerPatchPath = "/tmp/" + (Split-Path -Leaf $patchPath)
   docker cp $patchPath "eventflow-postgres:$containerPatchPath"
   docker compose exec -T postgres psql -U $dbUser -d $dbName -v ON_ERROR_STOP=1 -f $containerPatchPath
 }

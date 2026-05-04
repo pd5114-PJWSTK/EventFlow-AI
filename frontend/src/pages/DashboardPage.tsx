@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import { Box, Grid, Paper, Stack, Typography } from "@mui/material";
 
@@ -8,14 +8,14 @@ import { daysUntil, formatDateTime } from "../lib/format";
 import type { EventItem, ListResponse, LocationItem } from "../types/api";
 
 const descriptions: Record<string, string> = {
-  Dashboard: "Szybki przegląd modułów i najbliższych realizacji.",
-  "Nowy event": "Wprowadzenie eventu z tekstu przez LLM, korekta arkusza i zapis do bazy.",
-  "Planowanie eventów": "Generowanie wariantów planu, optymalizacja i akceptacja wybranego planu.",
-  "Replanowanie live": "Obsługa incydentów w trakcie realizacji i decyzja o zmianie planu.",
-  "Post-event log": "Podsumowanie po evencie, walidacja danych i finalizacja realizacji.",
-  Dane: "Podgląd eventów, lokalizacji i zasobów w tabelach biznesowych.",
-  Użytkownicy: "Dodawanie kont i przegląd użytkowników systemu.",
-  "Moje konto": "Dane sesji, role oraz administracyjne trenowanie modelu.",
+  Dashboard: "A quick overview of modules and upcoming operations.",
+  "New event": "Turn event notes into an AI-assisted sheet, review gaps, and save to the database.",
+  "Event planning": "Generate plan variants, optimize them, choose the best option, and approve the plan.",
+  "Live replanning": "Log a live incident, run replanning, and approve or reject the recommended change.",
+  "Post-event log": "Parse the post-event summary, review the sheet, and close the event with validated data.",
+  Data: "Read-only operational tables for events, venues, people, equipment, vehicles, and skills.",
+  Users: "Create user accounts and review system users.",
+  "My account": "Review your session, roles, LLM status, and admin model retraining tools.",
 };
 
 export function DashboardPage(): JSX.Element {
@@ -51,18 +51,14 @@ export function DashboardPage(): JSX.Element {
       <Grid container spacing={3} alignItems="stretch">
         <Grid item xs={12} lg={6}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Zakładki panelu
-            </Typography>
+            <Typography variant="h6" sx={{ mb: 2 }}>Console modules</Typography>
             <Stack spacing={1.5}>
               {navItems.map((item) => (
                 <Box key={item.path} sx={{ display: "grid", gridTemplateColumns: "34px 1fr", gap: 1.5 }}>
                   <Box sx={{ color: "primary.main", pt: 0.25 }}>{item.icon}</Box>
                   <Box>
                     <Typography fontWeight={800}>{item.label}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {descriptions[item.label]}
-                    </Typography>
+                    <Typography variant="body2" color="text.secondary">{descriptions[item.label]}</Typography>
                   </Box>
                 </Box>
               ))}
@@ -71,37 +67,24 @@ export function DashboardPage(): JSX.Element {
         </Grid>
         <Grid item xs={12} lg={6}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Zbliżające się eventy
-            </Typography>
+            <Typography variant="h6" sx={{ mb: 2 }}>Upcoming events</Typography>
             <Stack spacing={1.5}>
               {upcoming.length === 0 ? (
-                <Typography color="text.secondary">Brak zaplanowanych przyszłych eventów.</Typography>
+                <Typography color="text.secondary">No upcoming planned events.</Typography>
               ) : (
                 upcoming.map((event) => {
                   const location = locationById.get(event.location_id);
                   return (
-                    <Box
-                      key={event.event_id}
-                      sx={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr auto",
-                        gap: 2,
-                        alignItems: "center",
-                        borderBottom: "1px solid",
-                        borderColor: "divider",
-                        pb: 1.5,
-                      }}
-                    >
+                    <Box key={event.event_id} sx={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 2, alignItems: "center", borderBottom: "1px solid", borderColor: "divider", pb: 1.5 }}>
                       <Box>
                         <Typography fontWeight={800}>{event.event_name}</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          {(location?.name || location?.city || "Miejsce nieuzupełnione") + " · " + formatDateTime(event.planned_start)}
+                          {(location?.name || location?.city || "Venue missing") + " ? " + formatDateTime(event.planned_start)}
                         </Typography>
                       </Box>
                       <Stack direction="row" spacing={0.75} alignItems="center" color="primary.main">
                         <AccessTimeIcon fontSize="small" />
-                        <Typography fontWeight={800}>{daysUntil(event.planned_start)} dni</Typography>
+                        <Typography fontWeight={800}>{daysUntil(event.planned_start)} days</Typography>
                       </Stack>
                     </Box>
                   );

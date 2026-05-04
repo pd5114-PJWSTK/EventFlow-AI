@@ -13,7 +13,7 @@ interface BusinessTableProps<T> {
   emptyText?: string;
 }
 
-export function BusinessTable<T>({ title, columns, rows, emptyText = "Brak danych" }: BusinessTableProps<T>): JSX.Element {
+export function BusinessTable<T>({ title, columns, rows, emptyText = "No data" }: BusinessTableProps<T>): JSX.Element {
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxWidth: "100%", overflowX: "auto" }}>
       {title && (

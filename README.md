@@ -59,7 +59,7 @@ Z katalogu projektu:
 powershell -ExecutionPolicy Bypass -File .\scripts\start-local-test-env.ps1
 ```
 
-Skrypt uruchamia Docker Compose, czeka na `/ready`, aplikuje idempotentny patch `scripts/sql/cp04_production_readiness.sql`, a potem odpala Vite na `http://127.0.0.1:5173`.
+Skrypt uruchamia Docker Compose, czeka na `/ready`, aplikuje idempotentne patche `scripts/sql/cp04_production_readiness.sql` oraz `scripts/sql/cp05_operational_training_seed.sql`, a potem odpala Vite na `http://127.0.0.1:5173`.
 
 Opcje:
 ```powershell
@@ -83,7 +83,7 @@ Po zmianie `.env` przebuduj backend:
 docker compose up --build -d
 ```
 
-Frontend pokazuje przy arkuszach status źródła: `Źródło: LLM`, `Źródło: parser deterministyczny` albo `Źródło: tryb awaryjny`.
+Frontend pokazuje przy arkuszach status źródła po angielsku: `Source: LLM`, `Source: deterministic parser` albo `Source: fallback mode`.
 
 Status konfiguracji LLM jest też widoczny w `Moje konto -> Model ML` i dostępny przez:
 ```powershell
@@ -129,9 +129,9 @@ Backend:
 docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q
 ```
 
-Scenariusze E2E/regresyjne CP-03:
+Scenariusze E2E/regresyjne Fazy 8:
 ```powershell
-docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_frontend_cp03.py tests/test_phase8_frontend_cp04.py
+docker compose run --rm -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_frontend_cp03.py tests/test_phase8_frontend_cp04.py tests/test_phase8_frontend_cp05.py
 ```
 
 Frontend:
@@ -164,10 +164,12 @@ npm run build
 ```powershell
 docker compose -f docker-compose.vps.yml up --build -d
 ```
-5. Po aktualizacji istniejącej bazy zastosuj patch:
+5. Po aktualizacji istniejącej bazy zastosuj patche:
 ```powershell
 docker cp .\scripts\sql\cp04_production_readiness.sql projekt-postgres-1:/tmp/cp04_production_readiness.sql
 docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp04_production_readiness.sql
+docker cp .\scripts\sql\cp05_operational_training_seed.sql projekt-postgres-1:/tmp/cp05_operational_training_seed.sql
+docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp05_operational_training_seed.sql
 ```
 
 Używaj wariantu `docker cp` + `psql -f`, żeby PowerShell nie przekodował polskich znaków w SQL. Produkcja nie powinna kopiować `non_production/`, lokalnych cache, POC ani starego buildu frontendu. Te ścieżki są wykluczone w `.dockerignore`, a frontend ma osobny `frontend/.dockerignore`.

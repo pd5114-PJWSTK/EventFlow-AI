@@ -1506,3 +1506,50 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   Cel: przejsc przez funkcje panelu, usunac bledy API/UI i przygotowac projekt do bezpiecznego uruchomienia live.
 - [2026-05-04] Zakonczono CP-04 FE Fazy 8 (stabilizacja produkcyjna, naprawa API 500, kodowanie UTF-8, walidacje, selektory eventow, porzadki repo i artefakty VPS).
   Cel: przygotowac panel operacyjny do lokalnych testow i wdrozenia na VPS bez starych artefaktow produkcyjnych.
+
+14.4) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-05)
+- Status checkpointu: `phase-8-frontend-cp-05-live-llm-and-english-ops-polish` -> ZREALIZOWANY (LLM live, English UI, post-event 500 fix, seed danych i regresja live).
+- Zakres wykonany:
+  - LLM intake:
+    - dodano dedykowany prompt i parser JSON dla `POST /api/ai-agents/ingest-event/preview`,
+    - frontend wysyla `prefer_langgraph=true`, a backend realnie probuje Azure LLM przed fallbackiem,
+    - UI pokazuje `Source: LLM` albo fallback bez sugerowania heurystyki, gdy LLM zadzialal.
+  - Post-event 500:
+    - naprawiono mapowanie ORM `ops.actual_timings.delay_minutes` jako kolumny generated i usunieto reczna aktualizacje tej kolumny, zeby SQLAlchemy nie wysylal jej w INSERT/UPDATE,
+    - live `post-event/commit` konczy event statusem `completed` bez bledu 500.
+  - Frontend operacyjny:
+    - cala aplikacja widoczna dla operatora zostala przepisana na angielski: login, dashboard, sidebar, flow intake/planner/replan/post-event, dane, users, my account,
+    - flow koncowe resetuja widok po sukcesie i zostawiaja czytelny komunikat,
+    - stan zakladek jest przechowywany w `sessionStorage`, wiec przejscie miedzy panelami nie kasuje procesu,
+    - dodano przyciski `Back` obok `Reject` w flow arkuszy i planowania,
+    - plany, rekomendacje replanowania i metryki modelu sa formatowane jako czytelne pola biznesowe, bez surowych JSON-ow.
+  - Walidacja i formatowanie:
+    - walidacja miasta/nazw uzywa Unicode letters i blokuje same cyfry,
+    - kwoty, czas, procenty i score sa formatowane czytelnie (`PLN`, `h/min`, `%`, zaokraglenia).
+  - Dane testowe/ML:
+    - dodano `scripts/sql/cp05_operational_training_seed.sql` z 60 spojnymi przypadkami `TRAIN-001`..`TRAIN-060`,
+    - ID techniczne pozostaja UUID dla integralnosci FK, ale seed i UI dodaja czytelne biznesowe referencje `TRAIN-*`, `EVT-*`, `LOC-*`, itd.,
+    - `scripts/start-local-test-env.ps1` aplikuje CP-04 i CP-05 patche automatycznie.
+  - Komunikaty API:
+    - `GET /api/ai-agents/llm-status` zwraca angielskie komunikaty,
+    - gap messages dla intake/post-event i planner guidance zostaly przepisane na angielski.
+- Walidacja wykonania:
+  - Frontend:
+    - `npm run typecheck` -> passed.
+    - `npm run lint` -> 0 errors, 1 existing warning `react-refresh/only-export-components` w `frontend/src/lib/auth.tsx`.
+    - `npx vitest run --reporter dot` -> 5 files passed, 13 tests passed.
+    - `npm run build` -> passed; Vite ostrzega tylko o chunku 579.72 kB.
+  - Backend:
+    - `python -m py_compile app/models/ops.py app/services/ai_event_ingest_service.py app/services/ai_prompt_templates.py app/api/ai_agents.py app/services/runtime_post_event_parser.py tests/test_phase8_frontend_cp05.py` -> passed.
+    - `docker exec -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true eventflow-backend pytest -q tests/test_phase7_cp08.py tests/test_phase8_frontend_cp01.py tests/test_phase8_frontend_cp03.py tests/test_phase8_frontend_cp04.py tests/test_phase8_frontend_cp05.py` -> 12 passed.
+  - Live smoke lokalny Docker:
+    - `/ready` -> ok,
+    - `/api/ai-agents/llm-status` -> `mode=llm`,
+    - `ingest-event/preview` -> `parser_mode=llm`, `used_fallback=false`, city `Gdansk`,
+    - `ingest-event/commit` -> OK,
+    - `planner/generate-plan` -> OK bez 500,
+    - `post-event/parse` + `post-event/commit` -> OK, event `completed`,
+    - DB seed check: `select count(*) from core.events where source_channel='training_seed_cp05';` -> 60.
+
+- [2026-05-04] Zakonczono CP-05 FE Fazy 8 (realny LLM intake, English UI, reset/persistencja flow, czytelne metryki, naprawa post-event 500 i seed 60 realnych przykladow).
+  Cel: usunac live bledy operatora i przygotowac panel do dalszych testow na danych spojnych z treningiem ML.

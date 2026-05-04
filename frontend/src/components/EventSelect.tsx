@@ -17,29 +17,16 @@ interface EventSelectProps {
 }
 
 const CLOSED_STATUSES = new Set(["completed", "cancelled"]);
-const POST_EVENT_STATUSES = new Set(["planned", "confirmed", "in_progress"]);
+const POST_EVENT_STATUSES = new Set(["planned", "confirmed", "in_progress", "draft"]);
 
 function canUseEvent(event: EventItem, scope: EventScope): boolean {
-  if (CLOSED_STATUSES.has(event.status)) {
-    return false;
-  }
-  if (scope === "post-event") {
-    return POST_EVENT_STATUSES.has(event.status);
-  }
-  if (scope === "runtime") {
-    return new Date(event.planned_end).getTime() >= Date.now() - 86_400_000;
-  }
+  if (CLOSED_STATUSES.has(event.status)) return false;
+  if (scope === "post-event") return POST_EVENT_STATUSES.has(event.status);
+  if (scope === "runtime") return new Date(event.planned_end).getTime() >= Date.now() - 86_400_000;
   return new Date(event.planned_start).getTime() >= Date.now();
 }
 
-export function EventSelect({
-  value,
-  onChange,
-  label,
-  scope = "future",
-  error,
-  helperText,
-}: EventSelectProps): JSX.Element {
+export function EventSelect({ value, onChange, label, scope = "future", error, helperText }: EventSelectProps): JSX.Element {
   const { api } = useAuth();
   const [events, setEvents] = useState<EventItem[]>([]);
   const [locations, setLocations] = useState<LocationItem[]>([]);
@@ -58,7 +45,7 @@ export function EventSelect({
         setEvents(eventData.items);
         setLocations(locationData.items);
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Nie udało się pobrać listy eventów.");
+        setLoadError(err instanceof Error ? err.message : "Could not load the event list.");
       } finally {
         setIsLoading(false);
       }
@@ -68,10 +55,7 @@ export function EventSelect({
 
   const locationById = useMemo(() => new Map(locations.map((location) => [location.location_id, location])), [locations]);
   const selectableEvents = useMemo(
-    () =>
-      events
-        .filter((event) => canUseEvent(event, scope))
-        .sort((a, b) => new Date(a.planned_start).getTime() - new Date(b.planned_start).getTime()),
+    () => events.filter((event) => canUseEvent(event, scope)).sort((a, b) => new Date(a.planned_start).getTime() - new Date(b.planned_start).getTime()),
     [events, scope],
   );
 
@@ -85,24 +69,14 @@ export function EventSelect({
         onChange={(event) => onChange(event.target.value)}
         fullWidth
         error={error}
-        helperText={helperText || (isLoading ? "Ładowanie eventów..." : undefined)}
-        InputProps={{
-          endAdornment: isLoading ? <CircularProgress size={18} sx={{ mr: 2 }} /> : undefined,
-        }}
+        helperText={helperText || (isLoading ? "Loading events..." : undefined)}
+        InputProps={{ endAdornment: isLoading ? <CircularProgress size={18} sx={{ mr: 2 }} /> : undefined }}
       >
-        {selectableEvents.length === 0 && (
-          <MenuItem disabled value="">
-            Brak eventów spełniających warunki
-          </MenuItem>
-        )}
+        {selectableEvents.length === 0 && <MenuItem disabled value="">No matching events</MenuItem>}
         {selectableEvents.map((event) => {
           const location = locationById.get(event.location_id);
-          const place = location?.name || location?.city || "miejsce nieuzupełnione";
-          return (
-            <MenuItem key={event.event_id} value={event.event_id}>
-              {event.event_name} ({place}, {formatDateTime(event.planned_start)})
-            </MenuItem>
-          );
+          const place = location?.name || location?.city || "venue missing";
+          return <MenuItem key={event.event_id} value={event.event_id}>{event.event_name} ({place}, {formatDateTime(event.planned_start)})</MenuItem>;
         })}
       </TextField>
     </Stack>

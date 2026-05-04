@@ -191,13 +191,13 @@ def _extract_money(text: str, keywords: list[str]) -> Decimal | None:
 def _detect_gaps(completion: RuntimeCompleteRequest) -> list[str]:
     gaps: list[str] = []
     if completion.finished_on_time is None:
-        gaps.append("Brak informacji czy event zakonczyl sie na czas.")
+        gaps.append("Missing information whether the event finished on time.")
     if completion.total_delay_minutes is None:
-        gaps.append("Brak informacji o opoznieniu (minuty).")
+        gaps.append("Missing delay information in minutes.")
     if completion.actual_cost is None:
-        gaps.append("Brak rzeczywistego kosztu eventu.")
+        gaps.append("Missing actual event cost.")
     if completion.client_satisfaction_score is None:
-        gaps.append("Brak oceny satysfakcji klienta.")
+        gaps.append("Missing client satisfaction score.")
     if completion.internal_quality_score is None:
-        gaps.append("Brak wewnetrznej oceny jakosci.")
+        gaps.append("Missing internal quality score.")
     return gaps

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 
 import { BusinessTable } from "../components/BusinessTable";
@@ -15,16 +15,21 @@ import type {
   VehicleItem,
 } from "../types/api";
 
-const tabs = ["Eventy", "Lokalizacje", "Ludzie", "Sprzęt", "Typy sprzętu", "Pojazdy", "Umiejętności"];
+const tabs = ["Events", "Locations", "People", "Equipment", "Equipment types", "Vehicles", "Skills"];
 
 function text(value: unknown): string {
-  if (value === undefined || value === null || value === "") return "Brak";
-  if (typeof value === "boolean") return value ? "Tak" : "Nie";
+  if (value === undefined || value === null || value === "") return "None";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
   return String(value);
 }
 
 function date(value?: string | null): string {
-  return value ? formatDateTime(value) : "Brak";
+  return value ? formatDateTime(value) : "None";
+}
+
+function ref(prefix: string, value?: string | null): string {
+  if (!value) return "None";
+  return `${prefix}-${value.slice(0, 8).toUpperCase()} (${value})`;
 }
 
 export function DataPage(): JSX.Element {
@@ -61,7 +66,7 @@ export function DataPage(): JSX.Element {
         setVehicles(vehiclesData.items);
         setSkills(skillsData.items);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Nie udało się pobrać danych.");
+        setError(err instanceof Error ? err.message : "Could not load data.");
       }
     };
     void load();
@@ -69,7 +74,7 @@ export function DataPage(): JSX.Element {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">Dane</Typography>
+      <Typography variant="h4">Data</Typography>
       {error && <Alert severity="error">{error}</Alert>}
       <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
         <Tabs value={activeTab} onChange={(_event, value: number) => setActiveTab(value)} variant="scrollable">
@@ -82,29 +87,29 @@ export function DataPage(): JSX.Element {
         <BusinessTable
           rows={events}
           columns={[
-            { key: "event_id", label: "ID eventu", render: (item) => item.event_id },
-            { key: "client_id", label: "ID klienta", render: (item) => item.client_id },
-            { key: "location_id", label: "ID lokalizacji", render: (item) => item.location_id },
-            { key: "name", label: "Nazwa", render: (item) => item.event_name },
-            { key: "type", label: "Typ", render: (item) => item.event_type },
-            { key: "subtype", label: "Podtyp", render: (item) => text(item.event_subtype) },
-            { key: "description", label: "Opis", render: (item) => text(item.description) },
-            { key: "attendees", label: "Uczestnicy", render: (item) => text(item.attendee_count) },
+            { key: "event_id", label: "Event ID", render: (item) => ref("EVT", item.event_id) },
+            { key: "client_id", label: "Client ID", render: (item) => ref("CLI", item.client_id) },
+            { key: "location_id", label: "Location ID", render: (item) => ref("LOC", item.location_id) },
+            { key: "name", label: "Name", render: (item) => item.event_name },
+            { key: "type", label: "Type", render: (item) => item.event_type },
+            { key: "subtype", label: "Subtype", render: (item) => text(item.event_subtype) },
+            { key: "description", label: "Description", render: (item) => text(item.description) },
+            { key: "attendees", label: "Attendees", render: (item) => text(item.attendee_count) },
             { key: "start", label: "Start", render: (item) => formatDateTime(item.planned_start) },
-            { key: "end", label: "Koniec", render: (item) => formatDateTime(item.planned_end) },
-            { key: "priority", label: "Priorytet", render: (item) => translateStatus(item.priority) },
+            { key: "end", label: "End", render: (item) => formatDateTime(item.planned_end) },
+            { key: "priority", label: "Priority", render: (item) => translateStatus(item.priority) },
             { key: "status", label: "Status", render: (item) => translateStatus(item.status) },
-            { key: "budget", label: "Budżet", render: (item) => formatMoney(item.budget_estimate) },
-            { key: "currency", label: "Waluta", render: (item) => text(item.currency_code) },
-            { key: "source", label: "Źródło", render: (item) => text(item.source_channel) },
+            { key: "budget", label: "Budget", render: (item) => formatMoney(item.budget_estimate) },
+            { key: "currency", label: "Currency", render: (item) => text(item.currency_code) },
+            { key: "source", label: "Source", render: (item) => text(item.source_channel) },
             { key: "transport", label: "Transport", render: (item) => text(item.requires_transport) },
             { key: "setup", label: "Setup", render: (item) => text(item.requires_setup) },
-            { key: "teardown", label: "Demontaż", render: (item) => text(item.requires_teardown) },
-            { key: "notes", label: "Notatki", render: (item) => text(item.notes) },
-            { key: "created_by", label: "Utworzył", render: (item) => text(item.created_by) },
-            { key: "created_by_user", label: "ID autora", render: (item) => text(item.created_by_user_id) },
-            { key: "created", label: "Utworzono", render: (item) => date(item.created_at) },
-            { key: "updated", label: "Zaktualizowano", render: (item) => date(item.updated_at) },
+            { key: "teardown", label: "Teardown", render: (item) => text(item.requires_teardown) },
+            { key: "notes", label: "Notes", render: (item) => text(item.notes) },
+            { key: "created_by", label: "Created by", render: (item) => text(item.created_by) },
+            { key: "created_by_user", label: "Author ID", render: (item) => ref("USR", item.created_by_user_id) },
+            { key: "created", label: "Created", render: (item) => date(item.created_at) },
+            { key: "updated", label: "Updated", render: (item) => date(item.updated_at) },
           ]}
         />
       )}
@@ -112,20 +117,20 @@ export function DataPage(): JSX.Element {
         <BusinessTable
           rows={locations}
           columns={[
-            { key: "location_id", label: "ID lokalizacji", render: (item) => item.location_id },
-            { key: "name", label: "Miejsce", render: (item) => item.name || item.city },
-            { key: "city", label: "Miasto", render: (item) => item.city },
-            { key: "address", label: "Adres", render: (item) => text(item.address_line) },
-            { key: "postal", label: "Kod pocztowy", render: (item) => text(item.postal_code) },
-            { key: "country", label: "Kraj", render: (item) => text(item.country_code) },
-            { key: "lat", label: "Szerokość", render: (item) => text(item.latitude) },
-            { key: "lon", label: "Długość", render: (item) => text(item.longitude) },
-            { key: "type", label: "Typ", render: (item) => item.location_type },
+            { key: "location_id", label: "Location ID", render: (item) => ref("LOC", item.location_id) },
+            { key: "name", label: "Venue", render: (item) => item.name || item.city },
+            { key: "city", label: "City", render: (item) => item.city },
+            { key: "address", label: "Address", render: (item) => text(item.address_line) },
+            { key: "postal", label: "Postal code", render: (item) => text(item.postal_code) },
+            { key: "country", label: "Country", render: (item) => text(item.country_code) },
+            { key: "lat", label: "Latitude", render: (item) => text(item.latitude) },
+            { key: "lon", label: "Longitude", render: (item) => text(item.longitude) },
+            { key: "type", label: "Type", render: (item) => item.location_type },
             { key: "parking", label: "Parking", render: (item) => item.parking_difficulty },
-            { key: "access", label: "Dostęp", render: (item) => item.access_difficulty },
-            { key: "setup", label: "Złożoność setupu", render: (item) => item.setup_complexity_score },
-            { key: "notes", label: "Notatki", render: (item) => text(item.notes) },
-            { key: "created", label: "Utworzono", render: (item) => date(item.created_at) },
+            { key: "access", label: "Access", render: (item) => item.access_difficulty },
+            { key: "setup", label: "Setup complexity", render: (item) => item.setup_complexity_score },
+            { key: "notes", label: "Notes", render: (item) => text(item.notes) },
+            { key: "created", label: "Created", render: (item) => date(item.created_at) },
           ]}
         />
       )}
@@ -133,19 +138,19 @@ export function DataPage(): JSX.Element {
         <BusinessTable
           rows={people}
           columns={[
-            { key: "person_id", label: "ID osoby", render: (item) => item.person_id },
-            { key: "name", label: "Imię i nazwisko", render: (item) => item.full_name },
-            { key: "role", label: "Rola", render: (item) => item.role },
-            { key: "employment", label: "Forma współpracy", render: (item) => item.employment_type },
-            { key: "home", label: "Baza", render: (item) => text(item.home_base_location_id) },
-            { key: "status", label: "Dostępność", render: (item) => translateStatus(item.availability_status) },
-            { key: "day", label: "Limit dzienny", render: (item) => `${item.max_daily_hours} h` },
-            { key: "week", label: "Limit tygodniowy", render: (item) => `${item.max_weekly_hours} h` },
-            { key: "cost", label: "Koszt/h", render: (item) => formatMoney(item.cost_per_hour) },
-            { key: "notes", label: "Notatki niezawodności", render: (item) => text(item.reliability_notes) },
-            { key: "active", label: "Aktywny", render: (item) => text(item.active) },
-            { key: "created", label: "Utworzono", render: (item) => date(item.created_at) },
-            { key: "updated", label: "Zaktualizowano", render: (item) => date(item.updated_at) },
+            { key: "person_id", label: "Person ID", render: (item) => ref("PER", item.person_id) },
+            { key: "name", label: "Full name", render: (item) => item.full_name },
+            { key: "role", label: "Role", render: (item) => item.role },
+            { key: "employment", label: "Employment type", render: (item) => item.employment_type },
+            { key: "home", label: "Base", render: (item) => ref("LOC", item.home_base_location_id) },
+            { key: "status", label: "Availability", render: (item) => translateStatus(item.availability_status) },
+            { key: "day", label: "Daily limit", render: (item) => `${item.max_daily_hours} h` },
+            { key: "week", label: "Weekly limit", render: (item) => `${item.max_weekly_hours} h` },
+            { key: "cost", label: "Cost/h", render: (item) => formatMoney(item.cost_per_hour) },
+            { key: "notes", label: "Notes reliability", render: (item) => text(item.reliability_notes) },
+            { key: "active", label: "Active", render: (item) => text(item.active) },
+            { key: "created", label: "Created", render: (item) => date(item.created_at) },
+            { key: "updated", label: "Updated", render: (item) => date(item.updated_at) },
           ]}
         />
       )}
@@ -153,20 +158,20 @@ export function DataPage(): JSX.Element {
         <BusinessTable
           rows={equipment}
           columns={[
-            { key: "equipment_id", label: "ID sprzętu", render: (item) => item.equipment_id },
-            { key: "type_id", label: "ID typu", render: (item) => item.equipment_type_id },
-            { key: "tag", label: "Oznaczenie", render: (item) => text(item.asset_tag) },
-            { key: "serial", label: "Numer seryjny", render: (item) => text(item.serial_number) },
+            { key: "equipment_id", label: "Equipment ID", render: (item) => ref("EQP", item.equipment_id) },
+            { key: "type_id", label: "Type ID", render: (item) => ref("ETY", item.equipment_type_id) },
+            { key: "tag", label: "Asset tag", render: (item) => text(item.asset_tag) },
+            { key: "serial", label: "Serial number", render: (item) => text(item.serial_number) },
             { key: "status", label: "Status", render: (item) => translateStatus(item.status) },
-            { key: "warehouse", label: "Magazyn", render: (item) => text(item.warehouse_location_id) },
-            { key: "transport", label: "Wymagania transportu", render: (item) => text(item.transport_requirements) },
-            { key: "replacement", label: "Zastępstwo", render: (item) => text(item.replacement_available) },
-            { key: "cost", label: "Koszt/h", render: (item) => formatMoney(item.hourly_cost_estimate) },
-            { key: "purchase", label: "Data zakupu", render: (item) => text(item.purchase_date) },
-            { key: "notes", label: "Notatki", render: (item) => text(item.notes) },
-            { key: "active", label: "Aktywny", render: (item) => text(item.active) },
-            { key: "created", label: "Utworzono", render: (item) => date(item.created_at) },
-            { key: "updated", label: "Zaktualizowano", render: (item) => date(item.updated_at) },
+            { key: "warehouse", label: "Warehouse", render: (item) => ref("LOC", item.warehouse_location_id) },
+            { key: "transport", label: "Transport requirements", render: (item) => text(item.transport_requirements) },
+            { key: "replacement", label: "Replacement", render: (item) => text(item.replacement_available) },
+            { key: "cost", label: "Cost/h", render: (item) => formatMoney(item.hourly_cost_estimate) },
+            { key: "purchase", label: "Purchase date", render: (item) => text(item.purchase_date) },
+            { key: "notes", label: "Notes", render: (item) => text(item.notes) },
+            { key: "active", label: "Active", render: (item) => text(item.active) },
+            { key: "created", label: "Created", render: (item) => date(item.created_at) },
+            { key: "updated", label: "Updated", render: (item) => date(item.updated_at) },
           ]}
         />
       )}
@@ -174,12 +179,12 @@ export function DataPage(): JSX.Element {
         <BusinessTable
           rows={equipmentTypes}
           columns={[
-            { key: "type_id", label: "ID typu", render: (item) => item.equipment_type_id },
-            { key: "name", label: "Typ", render: (item) => item.type_name },
-            { key: "category", label: "Kategoria", render: (item) => text(item.category) },
-            { key: "description", label: "Opis", render: (item) => text(item.description) },
+            { key: "type_id", label: "Type ID", render: (item) => ref("ETY", item.equipment_type_id) },
+            { key: "name", label: "Type", render: (item) => item.type_name },
+            { key: "category", label: "Category", render: (item) => text(item.category) },
+            { key: "description", label: "Description", render: (item) => text(item.description) },
             { key: "setup", label: "Setup", render: (item) => `${item.default_setup_minutes ?? 0} min` },
-            { key: "teardown", label: "Demontaż", render: (item) => `${item.default_teardown_minutes ?? 0} min` },
+            { key: "teardown", label: "Teardown", render: (item) => `${item.default_teardown_minutes ?? 0} min` },
           ]}
         />
       )}
@@ -187,18 +192,18 @@ export function DataPage(): JSX.Element {
         <BusinessTable
           rows={vehicles}
           columns={[
-            { key: "vehicle_id", label: "ID pojazdu", render: (item) => item.vehicle_id },
-            { key: "name", label: "Pojazd", render: (item) => item.vehicle_name },
-            { key: "type", label: "Typ", render: (item) => item.vehicle_type },
-            { key: "registration", label: "Rejestracja", render: (item) => text(item.registration_number) },
-            { key: "capacity", label: "Ładowność / opis", render: (item) => text(item.capacity_notes) },
+            { key: "vehicle_id", label: "Vehicle ID", render: (item) => ref("VEH", item.vehicle_id) },
+            { key: "name", label: "Vehicle", render: (item) => item.vehicle_name },
+            { key: "type", label: "Type", render: (item) => item.vehicle_type },
+            { key: "registration", label: "Registration", render: (item) => text(item.registration_number) },
+            { key: "capacity", label: "Capacity / notes", render: (item) => text(item.capacity_notes) },
             { key: "status", label: "Status", render: (item) => translateStatus(item.status) },
-            { key: "home", label: "Baza", render: (item) => text(item.home_location_id) },
-            { key: "km", label: "Koszt/km", render: (item) => formatMoney(item.cost_per_km) },
-            { key: "hour", label: "Koszt/h", render: (item) => formatMoney(item.cost_per_hour) },
-            { key: "active", label: "Aktywny", render: (item) => text(item.active) },
-            { key: "created", label: "Utworzono", render: (item) => date(item.created_at) },
-            { key: "updated", label: "Zaktualizowano", render: (item) => date(item.updated_at) },
+            { key: "home", label: "Base", render: (item) => ref("LOC", item.home_location_id) },
+            { key: "km", label: "Cost/km", render: (item) => formatMoney(item.cost_per_km) },
+            { key: "hour", label: "Cost/h", render: (item) => formatMoney(item.cost_per_hour) },
+            { key: "active", label: "Active", render: (item) => text(item.active) },
+            { key: "created", label: "Created", render: (item) => date(item.created_at) },
+            { key: "updated", label: "Updated", render: (item) => date(item.updated_at) },
           ]}
         />
       )}
@@ -206,10 +211,10 @@ export function DataPage(): JSX.Element {
         <BusinessTable
           rows={skills}
           columns={[
-            { key: "skill_id", label: "ID umiejętności", render: (item) => item.skill_id },
-            { key: "name", label: "Umiejętność", render: (item) => item.skill_name },
-            { key: "category", label: "Kategoria", render: (item) => text(item.skill_category) },
-            { key: "description", label: "Opis", render: (item) => text(item.description) },
+            { key: "skill_id", label: "Skill ID", render: (item) => ref("SKL", item.skill_id) },
+            { key: "name", label: "Skill", render: (item) => item.skill_name },
+            { key: "category", label: "Category", render: (item) => text(item.skill_category) },
+            { key: "description", label: "Description", render: (item) => text(item.description) },
           ]}
         />
       )}

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+﻿from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -36,11 +36,11 @@ def llm_status_endpoint() -> dict[str, str | bool | None]:
     configured = endpoint_configured and api_key_configured and deployment_configured
     llm_ready = settings.ai_azure_llm_enabled and configured
     if llm_ready:
-        message = "LLM jest włączony i skonfigurowany."
+        message = "LLM is enabled and configured."
     elif not settings.ai_azure_llm_enabled:
-        message = "LLM jest wyłączony przez AI_AZURE_LLM_ENABLED=false; parser używa trybu awaryjnego."
+        message = "LLM is disabled by AI_AZURE_LLM_ENABLED=false; parsers use fallback mode."
     else:
-        message = "LLM jest włączony, ale brakuje pełnej konfiguracji Azure OpenAI."
+        message = "LLM is enabled, but Azure OpenAI configuration is incomplete."
     return {
         "enabled": settings.ai_azure_llm_enabled,
         "configured": configured,

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from app.models.core import Client, EquipmentType, Location, LocationType, PersonRole, PriorityLevel, RequirementType, VehicleType
@@ -16,13 +19,53 @@ from app.schemas.ai_agents import (
 )
 from app.schemas.events import EventCreate
 from app.schemas.requirements import EventRequirementCreate
+from app.services.ai_prompt_templates import build_event_intake_prompt
 from app.services.ai_orchestration_service import run_ai_optimization
+from app.services.azure_openai_service import AzureOpenAIClient
 from app.services.event_service import create_event
 from app.services.requirement_service import create_requirement
 
 
 class AIEventIngestError(ValueError):
     pass
+
+
+class _LLMIntakeRequirement(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    requirement_type: str | None = None
+    role_required: str | None = None
+    equipment_type_name: str | None = None
+    vehicle_type_required: str | None = None
+    quantity: int | None = Field(default=1, ge=0)
+    mandatory: bool = True
+    notes: str | None = None
+
+
+class _LLMIntakePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    client_name: str | None = None
+    client_priority: str | None = None
+    location_name: str | None = None
+    city: str | None = None
+    location_type: str | None = None
+    setup_complexity_score: int | None = None
+    access_difficulty: int | None = None
+    parking_difficulty: int | None = None
+    event_name: str | None = None
+    event_type: str | None = None
+    event_subtype: str | None = None
+    attendee_count: int | None = None
+    planned_start: str | None = None
+    planned_end: str | None = None
+    event_priority: str | None = None
+    budget_estimate: Decimal | None = None
+    requires_transport: bool | None = None
+    requires_setup: bool | None = None
+    requires_teardown: bool | None = None
+    assumptions: list[str] = Field(default_factory=list)
+    requirements: list[_LLMIntakeRequirement] = Field(default_factory=list)
 
 
 def preview_ingest_event_from_text(
@@ -32,28 +75,35 @@ def preview_ingest_event_from_text(
     prefer_langgraph: bool,
 ) -> AIAgentsIngestEventPreviewResponse:
     try:
-        parsed = _parse_structured_lines(raw_input)
-        assumptions = list(parsed["assumptions"])
+        deterministic = _parse_structured_lines(raw_input)
+        parsed = deterministic
         parser_mode = "deterministic"
         used_fallback = False
 
+        if prefer_langgraph:
+            try:
+                llm_payload = _parse_event_intake_with_llm(raw_input)
+                parsed = _merge_intake_payload(deterministic, llm_payload)
+                parser_mode = "llm"
+            except Exception:
+                parser_mode = "deterministic_fallback"
+                used_fallback = True
+                try:
+                    llm_result = run_ai_optimization(
+                        raw_input=raw_input,
+                        planner_snapshot="",
+                        prefer_langgraph=prefer_langgraph,
+                    )
+                    parsed["assumptions"].extend(llm_result.parsed_input.assumptions)
+                    parsed["requirements"] = _merge_requirements(
+                        deterministic_requirements=list(parsed["requirements"]),
+                        llm_requirements=llm_result.parsed_input.requirements,
+                    )
+                except Exception:
+                    pass
+
+        assumptions = list(parsed["assumptions"])
         requirements = list(parsed["requirements"])
-        try:
-            llm_result = run_ai_optimization(
-                raw_input=raw_input,
-                planner_snapshot="",
-                prefer_langgraph=prefer_langgraph,
-            )
-            assumptions.extend(llm_result.parsed_input.assumptions)
-            requirements = _merge_requirements(
-                deterministic_requirements=requirements,
-                llm_requirements=llm_result.parsed_input.requirements,
-            )
-            parser_mode = "hybrid_llm"
-            used_fallback = bool(llm_result.used_fallback)
-        except Exception:
-            parser_mode = "deterministic_fallback"
-            used_fallback = True
 
         draft = AIAgentsIngestEventDraftPayload(
             client_name=str(parsed["client_name"]),
@@ -83,7 +133,7 @@ def preview_ingest_event_from_text(
             gaps.append(
                 AIAgentsIngestEventDraftGap(
                     field="requirements",
-                    message="Brak wymagan eventu. Dodaj co najmniej jeden requirement.",
+                    message="Missing event requirements. Add at least one requirement.",
                     severity="critical",
                 )
             )
@@ -97,6 +147,109 @@ def preview_ingest_event_from_text(
         )
     except Exception as exc:
         raise AIEventIngestError(str(exc)) from exc
+
+
+def _parse_event_intake_with_llm(raw_input: str) -> _LLMIntakePayload:
+    client: AzureOpenAIClient | None = None
+    try:
+        client = AzureOpenAIClient()
+        completion = client.chat_completion(
+            build_event_intake_prompt(raw_input),
+            temperature=0.0,
+            max_output_tokens=500,
+        )
+        content = completion.content.strip()
+        if content.startswith("```"):
+            content = content.removeprefix("```json").removeprefix("```").strip()
+            if content.endswith("```"):
+                content = content[:-3].strip()
+        return _LLMIntakePayload.model_validate(json.loads(content))
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise AIEventIngestError("LLM intake parser returned invalid event JSON.") from exc
+    finally:
+        if client is not None:
+            client.close()
+
+
+def _merge_intake_payload(deterministic: dict[str, Any], llm: _LLMIntakePayload) -> dict[str, Any]:
+    parsed = dict(deterministic)
+    scalar_map = {
+        "client_name": llm.client_name,
+        "client_priority": llm.client_priority,
+        "location_name": llm.location_name,
+        "city": llm.city,
+        "location_type": llm.location_type,
+        "setup_complexity": llm.setup_complexity_score,
+        "access_difficulty": llm.access_difficulty,
+        "parking_difficulty": llm.parking_difficulty,
+        "event_name": llm.event_name,
+        "event_type": llm.event_type,
+        "event_subtype": llm.event_subtype,
+        "attendee_count": llm.attendee_count,
+        "event_priority": llm.event_priority,
+        "budget_estimate": llm.budget_estimate,
+        "requires_transport": llm.requires_transport,
+        "requires_setup": llm.requires_setup,
+        "requires_teardown": llm.requires_teardown,
+    }
+    for key, value in scalar_map.items():
+        if value is not None and str(value).strip() != "":
+            parsed[key] = value
+
+    planned_start = _parse_datetime(llm.planned_start)
+    planned_end = _parse_datetime(llm.planned_end)
+    if planned_start is not None:
+        parsed["planned_start"] = planned_start
+    if planned_end is not None:
+        parsed["planned_end"] = planned_end
+    if parsed["planned_end"] <= parsed["planned_start"]:
+        parsed["planned_end"] = parsed["planned_start"] + timedelta(hours=6)
+
+    requirements = _requirements_from_llm(llm.requirements)
+    if requirements:
+        parsed["requirements"] = requirements
+    assumptions = [item.strip() for item in llm.assumptions if item.strip()]
+    if assumptions:
+        parsed["assumptions"] = assumptions
+    return parsed
+
+
+def _requirements_from_llm(requirements: list[_LLMIntakeRequirement]) -> list[dict]:
+    normalized: list[dict] = []
+    for requirement in requirements:
+        quantity = Decimal(str(max(int(requirement.quantity or 1), 1)))
+        rtype = (requirement.requirement_type or "").strip().lower()
+        if rtype == "person_role" or requirement.role_required:
+            normalized.append(
+                {
+                    "requirement_type": RequirementType.person_role,
+                    "role_required": _person_role(requirement.role_required or "coordinator"),
+                    "quantity": quantity,
+                    "mandatory": requirement.mandatory,
+                    "notes": requirement.notes,
+                }
+            )
+        elif rtype == "vehicle_type" or requirement.vehicle_type_required:
+            normalized.append(
+                {
+                    "requirement_type": RequirementType.vehicle_type,
+                    "vehicle_type_required": _vehicle_type(requirement.vehicle_type_required or "van"),
+                    "quantity": quantity,
+                    "mandatory": requirement.mandatory,
+                    "notes": requirement.notes,
+                }
+            )
+        elif rtype == "equipment_type" or requirement.equipment_type_name:
+            normalized.append(
+                {
+                    "requirement_type": RequirementType.equipment_type,
+                    "equipment_type_id": _ensure_equipment_type_id(requirement.equipment_type_name or "generic"),
+                    "quantity": quantity,
+                    "mandatory": requirement.mandatory,
+                    "notes": requirement.notes,
+                }
+            )
+    return normalized
 
 
 def commit_ingest_event_draft(

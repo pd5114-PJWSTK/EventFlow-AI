@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
+    FetchedValue,
     ForeignKey,
     Index,
     Integer,
@@ -191,7 +192,11 @@ class ActualTiming(Base):
     actual_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     planned_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     actual_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    delay_minutes: Mapped[int | None] = mapped_column(Integer)
+    delay_minutes: Mapped[int | None] = mapped_column(
+        Integer,
+        server_default=FetchedValue(),
+        server_onupdate=FetchedValue(),
+    )
     delay_reason_code: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

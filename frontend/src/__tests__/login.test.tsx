@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+ï»¿import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 
@@ -25,9 +25,9 @@ describe("LoginPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.change(screen.getByLabelText("Nazwa u¿ytkownika"), { target: { value: "user" } });
-    fireEvent.change(screen.getByLabelText("Has³o"), { target: { value: "pass" } });
-    fireEvent.click(screen.getByRole("button", { name: "Zaloguj" }));
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "user" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pass" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(loginMock).toHaveBeenCalledWith("user", "pass");
   });

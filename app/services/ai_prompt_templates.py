@@ -23,6 +23,29 @@ def build_parsing_prompt(raw_input: str) -> PromptTemplate:
     )
 
 
+def build_event_intake_prompt(raw_input: str) -> PromptTemplate:
+    return PromptTemplate(
+        system=(
+            "You convert event intake notes into one strict JSON object for an operations database. "
+            "Return valid JSON only, no markdown. Use null when unknown. Use ISO 8601 datetimes. "
+            "Do not invent exact values when the text is ambiguous; leave them null so the operator can complete the sheet."
+        ),
+        user=(
+            "Extract these keys: client_name, client_priority (low|medium|high|critical), "
+            "location_name, city, location_type (conference_center|warehouse|office|outdoor|hotel|arena|other), "
+            "setup_complexity_score (1-10), access_difficulty (1-5), parking_difficulty (1-5), "
+            "event_name, event_type, event_subtype, attendee_count, planned_start, planned_end, "
+            "event_priority (low|medium|high|critical), budget_estimate, requires_transport, "
+            "requires_setup, requires_teardown, assumptions (array of strings), requirements (array). "
+            "Each requirement item must contain requirement_type (person_role|equipment_type|vehicle_type), "
+            "role_required (coordinator|driver|stage_manager|technician_audio|technician_light|technician_video|null), "
+            "equipment_type_name (string|null), vehicle_type_required (van|truck|car|trailer|null), "
+            "quantity (integer), mandatory (boolean), notes (string|null).\n\n"
+            f"INPUT:\n{raw_input}"
+        ),
+    )
+
+
 def build_optimization_prompt(planner_snapshot: str) -> PromptTemplate:
     return PromptTemplate(
         system=(

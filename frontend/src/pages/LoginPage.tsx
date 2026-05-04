@@ -22,7 +22,7 @@ export function LoginPage(): JSX.Element {
       await login(username, password);
       navigate(redirectTo, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nie uda³o siê zalogowaæ.");
+      setError(err instanceof Error ? err.message : "Sign-in failed.");
     } finally {
       setIsLoading(false);
     }
@@ -39,18 +39,13 @@ export function LoginPage(): JSX.Element {
     >
       <Paper sx={{ p: 4, width: "min(440px, 92vw)", borderRadius: 4 }} elevation={4}>
         <Stack spacing={2}>
-          <Typography variant="h4">Logowanie u¿ytkownika</Typography>
-          <Typography color="text.secondary">Zaloguj siê do panelu operacyjnego EventFlow AI.</Typography>
+          <Typography variant="h4">User sign-in</Typography>
+          <Typography color="text.secondary">Sign in to the EventFlow AI operations console.</Typography>
           {error && <Alert severity="error">{error}</Alert>}
-          <TextField label="Nazwa u¿ytkownika" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <TextField
-            label="Has³o"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <TextField label="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+          <TextField label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <Button variant="contained" size="large" onClick={() => void onSubmit()} disabled={isLoading}>
-            {isLoading ? "Logowanie..." : "Zaloguj"}
+            {isLoading ? "Signing in..." : "Sign in"}
           </Button>
         </Stack>
       </Paper>

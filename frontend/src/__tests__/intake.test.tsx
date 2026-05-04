@@ -16,15 +16,16 @@ vi.mock("../lib/auth", () => ({
 describe("IntakePage", () => {
   beforeEach(() => {
     requestMock.mockReset();
+    sessionStorage.clear();
   });
 
   it("fills business sheet from preview", async () => {
     requestMock.mockResolvedValueOnce({
       draft: {
-        event_name: "Gala Testowa",
+        event_name: "Executive Summit",
         client_name: "ACME",
-        location_name: "Centrum Kongresowe",
-        city: "Warszawa",
+        location_name: "Congress Centre",
+        city: "Warsaw",
         event_type: "gala",
         attendee_count: 200,
         planned_start: "2026-06-12T10:00:00Z",
@@ -34,14 +35,14 @@ describe("IntakePage", () => {
         requirements: [],
       },
       assumptions: [],
-      parser_mode: "hybrid_llm",
+      parser_mode: "llm",
       used_fallback: false,
       gaps: [],
     });
 
     render(<IntakePage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
 
     await waitFor(() => {
       expect(requestMock).toHaveBeenCalledWith(
@@ -49,17 +50,17 @@ describe("IntakePage", () => {
         "/api/ai-agents/ingest-event/preview",
         expect.objectContaining({ prefer_langgraph: true }),
       );
-      expect(screen.getByDisplayValue("Gala Testowa")).toBeInTheDocument();
-      expect(screen.getByText("Źródło: LLM")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("Executive Summit")).toBeInTheDocument();
+      expect(screen.getByText("Source: LLM")).toBeInTheDocument();
     });
   });
 
   it("rejects numeric city before commit", async () => {
     requestMock.mockResolvedValueOnce({
       draft: {
-        event_name: "Gala Testowa",
+        event_name: "Executive Summit",
         client_name: "ACME",
-        location_name: "Centrum Kongresowe",
+        location_name: "Congress Centre",
         city: "12345",
         event_type: "gala",
         attendee_count: 200,
@@ -77,11 +78,11 @@ describe("IntakePage", () => {
 
     render(<IntakePage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
     await waitFor(() => expect(screen.getByDisplayValue("12345")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Sprawdź" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
 
-    expect(screen.getByText("Miasto musi zawierać litery, nie same cyfry.")).toBeInTheDocument();
+    expect(screen.getByText("City must contain letters, not only digits.")).toBeInTheDocument();
     expect(requestMock).toHaveBeenCalledTimes(1);
   });
 });

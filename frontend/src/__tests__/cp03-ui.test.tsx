@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+﻿import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { vi } from "vitest";
 
@@ -24,7 +24,7 @@ const eventList = {
       event_id: "event-1",
       client_id: "client-1",
       location_id: "loc-1",
-      event_name: "Konferencja Polska",
+      event_name: "Poland Conference",
       event_type: "conference",
       planned_start: "2026-06-12T10:00:00Z",
       planned_end: "2026-06-12T18:00:00Z",
@@ -37,13 +37,14 @@ const eventList = {
 };
 
 const locationList = {
-  items: [{ location_id: "loc-1", name: "Centrum", city: "Warszawa", location_type: "conference_center", parking_difficulty: 2, access_difficulty: 2, setup_complexity_score: 4 }],
+  items: [{ location_id: "loc-1", name: "Congress Centre", city: "Warsaw", location_type: "conference_center", parking_difficulty: 2, access_difficulty: 2, setup_complexity_score: 4 }],
   total: 1,
 };
 
-describe("CP-03 business UI", () => {
+describe("CP-05 business UI", () => {
   beforeEach(() => {
     requestMock.mockReset();
+    sessionStorage.clear();
     requestMock.mockImplementation((_method: string, path: string) => {
       if (path.startsWith("/api/events")) return Promise.resolve(eventList);
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
@@ -55,7 +56,7 @@ describe("CP-03 business UI", () => {
       if (path.startsWith("/admin/users")) return Promise.resolve({ items: [{ user_id: "u1", username: "admin", roles: ["admin"], is_active: true, is_superadmin: true }], total: 1 });
       if (path.startsWith("/auth/me")) return Promise.resolve({ user_id: "u1", username: "admin", roles: ["admin"], is_superadmin: true });
       if (path.startsWith("/api/ml/models")) return Promise.resolve({ items: [], total: 0 });
-      if (path.startsWith("/api/ai-agents/llm-status")) return Promise.resolve({ enabled: false, configured: false, endpoint_configured: false, api_key_configured: false, deployment_configured: false, mode: "fallback", message: "LLM wyłączony." });
+      if (path.startsWith("/api/ai-agents/llm-status")) return Promise.resolve({ enabled: false, configured: false, endpoint_configured: false, api_key_configured: false, deployment_configured: false, mode: "fallback", message: "LLM disabled." });
       return Promise.resolve({});
     });
   });
@@ -71,37 +72,37 @@ describe("CP-03 business UI", () => {
       </MemoryRouter>,
     );
 
-    for (const label of ["Dashboard", "Nowy event", "Planowanie eventów", "Replanowanie live", "Post-event log", "Dane", "Użytkownicy", "Moje konto"]) {
+    for (const label of ["Dashboard", "New event", "Event planning", "Live replanning", "Post-event log", "Data", "Users", "My account"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
   });
 
-  it("renders dashboard descriptions and upcoming events with Polish text", async () => {
+  it("renders dashboard descriptions and upcoming events with English text", async () => {
     render(<DashboardPage />);
 
-    expect(screen.getByText("Zakładki panelu")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Konferencja Polska")).toBeInTheDocument());
-    expect(screen.getByText(/Zbliżające się eventy/)).toBeInTheDocument();
+    expect(screen.getByText("Console modules")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Poland Conference")).toBeInTheDocument());
+    expect(screen.getByText(/Upcoming events/)).toBeInTheDocument();
   });
 
   it("renders read-only business data tables", async () => {
     render(<DataPage />);
 
-    await waitFor(() => expect(screen.getByText("Konferencja Polska")).toBeInTheDocument());
-    expect(screen.getByText("Budżet")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Poland Conference")).toBeInTheDocument());
+    expect(screen.getByText("Budget")).toBeInTheDocument();
   });
 
   it("renders users as a form and table", async () => {
     render(<UsersPage />);
 
-    expect(screen.getByLabelText("Nazwa użytkownika")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText("Lista użytkowników")).toBeInTheDocument());
+    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("User list")).toBeInTheDocument());
   });
 
   it("renders account details and admin model tab", async () => {
     render(<MePage />);
 
-    await waitFor(() => expect(screen.getByText("Użytkownik")).toBeInTheDocument());
-    expect(screen.getByText("Model ML")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("User")).toBeInTheDocument());
+    expect(screen.getByText("ML model")).toBeInTheDocument();
   });
 });

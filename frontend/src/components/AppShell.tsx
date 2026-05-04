@@ -43,7 +43,7 @@ export function AppShell(): JSX.Element {
               <Chip key={role} label={role} size="small" color="primary" variant="outlined" />
             ))}
             <Button variant="contained" onClick={() => void logout()}>
-              Wyloguj
+              Log out
             </Button>
           </Stack>
         </Toolbar>
@@ -64,7 +64,7 @@ export function AppShell(): JSX.Element {
         }}
       >
         <Toolbar>
-          <Typography variant="h5">Panel</Typography>
+          <Typography variant="h5">Console</Typography>
         </Toolbar>
         <List sx={{ px: 1 }}>
           {navItems.map((item) => (

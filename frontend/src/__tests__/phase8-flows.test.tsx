@@ -7,14 +7,13 @@ import { RuntimePage } from "../pages/RuntimePage";
 
 const requestMock = vi.fn();
 
-
 vi.mock("../components/EventSelect", () => ({
   EventSelect: ({ label, value, onChange }: { label: string; value: string; onChange: (eventId: string) => void }) => (
     <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
-      <option value="">Wybierz event</option>
-      <option value="event-123">Gala Testowa</option>
-      <option value="evt-live">Gala Testowa live</option>
-      <option value="evt-post">Gala Testowa post</option>
+      <option value="">Select event</option>
+      <option value="event-123">Executive Summit</option>
+      <option value="evt-live">Executive Summit live</option>
+      <option value="evt-post">Executive Summit post</option>
     </select>
   ),
 }));
@@ -32,7 +31,7 @@ const eventList = {
       event_id: "event-123",
       client_id: "client-1",
       location_id: "loc-1",
-      event_name: "Gala Testowa",
+      event_name: "Executive Summit",
       event_type: "gala",
       planned_start: "2026-06-12T10:00:00Z",
       planned_end: "2026-06-12T18:00:00Z",
@@ -44,13 +43,14 @@ const eventList = {
 };
 
 const locationList = {
-  items: [{ location_id: "loc-1", name: "Centrum", city: "Warszawa", location_type: "conference_center", parking_difficulty: 2, access_difficulty: 2, setup_complexity_score: 4 }],
+  items: [{ location_id: "loc-1", name: "Congress Centre", city: "Warsaw", location_type: "conference_center", parking_difficulty: 2, access_difficulty: 2, setup_complexity_score: 4 }],
   total: 1,
 };
 
-describe("Phase 8 CP-03 operator flows", () => {
+describe("Phase 8 CP-05 operator flows", () => {
   beforeEach(() => {
     requestMock.mockReset();
+    sessionStorage.clear();
     requestMock.mockImplementation((_method: string, path: string) => {
       if (path.startsWith("/api/events")) return Promise.resolve(eventList);
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
@@ -69,9 +69,9 @@ describe("Phase 8 CP-03 operator flows", () => {
         return Promise.resolve({
           event_id: "event-123",
           selected_candidate_name: "balanced",
-          selected_explanation: "Najniższy koszt przy pełnym pokryciu wymagań.",
+          selected_explanation: "Lowest cost with full requirement coverage.",
           selected_plan: { event_id: "event-123", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 10000 },
-          candidates: [{ candidate_name: "balanced", solver: "fallback", estimated_cost: 10000, estimated_duration_minutes: 480, predicted_delay_risk: 0.1, coverage_ratio: 1, plan_score: 90, selection_explanation: "Najlepszy bilans kosztów i ryzyka." }],
+          candidates: [{ candidate_name: "balanced", solver: "fallback", estimated_cost: 10000, estimated_duration_minutes: 480, predicted_delay_risk: 0.1, coverage_ratio: 1, plan_score: 90, selection_explanation: "Best cost and risk balance." }],
         });
       }
       return Promise.resolve({ method, path, body });
@@ -79,11 +79,11 @@ describe("Phase 8 CP-03 operator flows", () => {
 
     render(<PlannerPage />);
 
-    fireEvent.change(await screen.findByLabelText("Event do zaplanowania"), { target: { value: "event-123" } });
-    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj" }));
+    fireEvent.change(await screen.findByLabelText("Event to plan"), { target: { value: "event-123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Plan event" }));
 
-    await waitFor(() => expect(screen.getByText("Najlepszy plan")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Wybierz" }));
+    await waitFor(() => expect(screen.getByText("Recommended plan")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Select plan" }));
 
     await waitFor(() => {
       expect(requestMock).toHaveBeenCalledWith("POST", "/api/planner/recommend-best-plan", expect.objectContaining({ commit_to_assignments: true }));
@@ -95,23 +95,23 @@ describe("Phase 8 CP-03 operator flows", () => {
       if (path.startsWith("/api/events")) return Promise.resolve({ ...eventList, items: [{ ...eventList.items[0], event_id: "evt-live", status: "planned" }] });
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
       if (path === "/api/runtime/events/evt-live/incident/parse") {
-        return Promise.resolve({ event_id: "evt-live", incident_id: "inc-1", incident_type: "equipment_failure", severity: "medium", description: "Awaria nagłośnienia", root_cause: "sprzęt", sla_impact: false, cost_impact: null, reported_by: "Jan", parser_mode: "llm", parse_confidence: 0.9 });
+        return Promise.resolve({ event_id: "evt-live", incident_id: "inc-1", incident_type: "equipment_failure", severity: "medium", description: "Sound system failure", root_cause: "equipment", sla_impact: false, cost_impact: null, reported_by: "Jane", parser_mode: "llm", parse_confidence: 0.9 });
       }
       if (path === "/api/planner/replan/evt-live") {
-        return Promise.resolve({ event_id: "evt-live", comparison: { new_cost: 12000, cost_delta: 500, decision_note: "Zalecana wymiana sprzętu." }, generated_plan: { event_id: "evt-live", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 12000 } });
+        return Promise.resolve({ event_id: "evt-live", comparison: { new_cost: 12000, cost_delta: 500, decision_note: "Recommended equipment replacement." }, generated_plan: { event_id: "evt-live", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 12000 } });
       }
       return Promise.resolve({});
     });
 
     render(<RuntimePage />);
 
-    fireEvent.change(await screen.findByLabelText("Event dla incydentu"), { target: { value: "evt-live" } });
-    fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
+    fireEvent.change(await screen.findByLabelText("Event for incident"), { target: { value: "evt-live" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
 
-    await waitFor(() => expect(screen.getByText("Arkusz incydentu")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Przyjmij zgłoszenie" }));
+    await waitFor(() => expect(screen.getByText("Incident sheet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Accept incident" }));
 
-    await waitFor(() => expect(screen.getByText("Rekomendacja replanu")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Replan recommendation")).toBeInTheDocument());
   });
 
   it("runs post-event parse and commit flow", async () => {
@@ -119,7 +119,7 @@ describe("Phase 8 CP-03 operator flows", () => {
       if (path.startsWith("/api/events")) return Promise.resolve({ ...eventList, items: [{ ...eventList.items[0], event_id: "evt-post", status: "planned" }] });
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
       if (path === "/api/runtime/events/evt-post/post-event/parse") {
-        return Promise.resolve({ event_id: "evt-post", parser_mode: "llm", parse_confidence: 0.9, gaps: [], draft_complete: { completed_at: "2026-06-12T18:00:00Z", total_delay_minutes: 0, actual_cost: 22000, sla_breached: false, summary_notes: "Wszystko zakończone poprawnie." } });
+        return Promise.resolve({ event_id: "evt-post", parser_mode: "llm", parse_confidence: 0.9, gaps: [], draft_complete: { completed_at: "2026-06-12T18:00:00Z", total_delay_minutes: 0, actual_cost: 22000, sla_breached: false, summary_notes: "Everything completed correctly." } });
       }
       if (path === "/api/runtime/events/evt-post/post-event/commit") return Promise.resolve({ committed_at: "2026-06-12T18:05:00Z" });
       return Promise.resolve({});
@@ -127,11 +127,11 @@ describe("Phase 8 CP-03 operator flows", () => {
 
     render(<PostEventPage />);
 
-    fireEvent.change(await screen.findByLabelText("Event do zamknięcia"), { target: { value: "evt-post" } });
-    fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
+    fireEvent.change(await screen.findByLabelText("Event to close"), { target: { value: "evt-post" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
 
-    await waitFor(() => expect(screen.getByText("Arkusz podsumowania")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Wprowadź" }));
+    await waitFor(() => expect(screen.getByText("Completion sheet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(requestMock).toHaveBeenCalledWith("POST", "/api/runtime/events/evt-post/post-event/commit", expect.objectContaining({ source_mode: "sheet_review" }));

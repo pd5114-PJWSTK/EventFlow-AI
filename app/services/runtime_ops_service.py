@@ -25,7 +25,7 @@ from app.schemas.runtime_ops import (
 )
 from app.services.runtime_notification_service import enqueue_runtime_notification
 from app.services.planner_generation_service import attach_plan_outcome_feedback
-from app.services.datetime_service import minutes_between_utc, to_utc
+from app.services.datetime_service import to_utc
 from app.services.observability_service import emit_event
 
 
@@ -321,10 +321,6 @@ def complete_event_execution(
         timing.delay_reason_code = payload.delay_reason_code
         if payload.summary_notes:
             timing.notes = payload.summary_notes
-        if timing.planned_end is not None and timing.actual_end is not None:
-            timing.delay_minutes = minutes_between_utc(
-                timing.actual_end, timing.planned_end
-            )
 
     db.commit()
     db.refresh(outcome)
