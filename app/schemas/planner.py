@@ -170,6 +170,12 @@ class PlanCandidateEvaluation(BaseModel):
     profile_weights: dict[str, Decimal] = Field(default_factory=dict)
 
 
+class AssignmentOverride(BaseModel):
+    requirement_id: str
+    resource_type: Literal["person", "equipment", "vehicle"]
+    resource_ids: list[str] = Field(default_factory=list)
+
+
 class RecommendBestPlanRequest(BaseModel):
     event_id: str
     initiated_by: str | None = None
@@ -178,6 +184,7 @@ class RecommendBestPlanRequest(BaseModel):
     fallback_enabled: bool = True
     duration_model_id: str | None = None
     plan_evaluator_model_id: str | None = None
+    assignment_overrides: list[AssignmentOverride] = Field(default_factory=list)
 
 
 class RecommendBestPlanResponse(BaseModel):

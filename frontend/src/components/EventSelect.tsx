@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, CircularProgress, MenuItem, Stack, TextField } from "@mui/material";
+import { Alert, Chip, CircularProgress, ListSubheader, MenuItem, Stack, TextField } from "@mui/material";
 
 import { useAuth } from "../lib/auth";
 import { formatDateTime } from "../lib/format";
@@ -16,14 +16,27 @@ interface EventSelectProps {
   helperText?: string;
 }
 
-const CLOSED_STATUSES = new Set(["completed", "cancelled"]);
-const POST_EVENT_STATUSES = new Set(["planned", "confirmed", "in_progress", "draft"]);
+const LIVE_STATUSES = new Set(["confirmed", "in_progress"]);
+const FUTURE_STATUSES = new Set(["draft", "submitted", "validated", "planned"]);
+const POST_EVENT_STATUSES = new Set(["completed"]);
 
 function canUseEvent(event: EventItem, scope: EventScope): boolean {
-  if (CLOSED_STATUSES.has(event.status)) return false;
   if (scope === "post-event") return POST_EVENT_STATUSES.has(event.status);
-  if (scope === "runtime") return new Date(event.planned_end).getTime() >= Date.now() - 86_400_000;
-  return new Date(event.planned_start).getTime() >= Date.now();
+  if (scope === "runtime") return LIVE_STATUSES.has(event.status) || (FUTURE_STATUSES.has(event.status) && new Date(event.planned_end).getTime() >= Date.now());
+  return FUTURE_STATUSES.has(event.status) && new Date(event.planned_start).getTime() >= Date.now();
+}
+
+function sectionFor(event: EventItem, scope: EventScope): string {
+  if (scope === "post-event") return "Completed events";
+  if (scope === "runtime" && LIVE_STATUSES.has(event.status)) return "Live now";
+  if (scope === "runtime") return "Upcoming incidents";
+  return "Future events";
+}
+
+function chipColor(status: string): "success" | "primary" | "default" {
+  if (status === "in_progress" || status === "confirmed") return "success";
+  if (status === "completed") return "default";
+  return "primary";
 }
 
 export function EventSelect({ value, onChange, label, scope = "future", error, helperText }: EventSelectProps): JSX.Element {
@@ -58,6 +71,14 @@ export function EventSelect({ value, onChange, label, scope = "future", error, h
     () => events.filter((event) => canUseEvent(event, scope)).sort((a, b) => new Date(a.planned_start).getTime() - new Date(b.planned_start).getTime()),
     [events, scope],
   );
+  const groupedEvents = useMemo(() => {
+    const groups = new Map<string, EventItem[]>();
+    selectableEvents.forEach((event) => {
+      const section = sectionFor(event, scope);
+      groups.set(section, [...(groups.get(section) || []), event]);
+    });
+    return Array.from(groups.entries());
+  }, [scope, selectableEvents]);
 
   return (
     <Stack spacing={1}>
@@ -73,11 +94,21 @@ export function EventSelect({ value, onChange, label, scope = "future", error, h
         InputProps={{ endAdornment: isLoading ? <CircularProgress size={18} sx={{ mr: 2 }} /> : undefined }}
       >
         {selectableEvents.length === 0 && <MenuItem disabled value="">No matching events</MenuItem>}
-        {selectableEvents.map((event) => {
-          const location = locationById.get(event.location_id);
-          const place = location?.name || location?.city || "venue missing";
-          return <MenuItem key={event.event_id} value={event.event_id}>{event.event_name} ({place}, {formatDateTime(event.planned_start)})</MenuItem>;
-        })}
+        {groupedEvents.flatMap(([section, sectionEvents]) => [
+          <ListSubheader key={section}>{section}</ListSubheader>,
+          ...sectionEvents.map((event) => {
+            const location = locationById.get(event.location_id);
+            const place = location?.name || location?.city || "venue missing";
+            return (
+              <MenuItem key={event.event_id} value={event.event_id}>
+                <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ width: "100%" }}>
+                  <span>{event.event_name} ({place}, {formatDateTime(event.planned_start)})</span>
+                  <Chip size="small" label={event.status.replace(/_/g, " ")} color={chipColor(event.status)} variant="outlined" />
+                </Stack>
+              </MenuItem>
+            );
+          }),
+        ])}
       </TextField>
     </Stack>
   );

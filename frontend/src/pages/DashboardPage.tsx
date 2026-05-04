@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
-import { Box, Grid, Paper, Stack, Typography } from "@mui/material";
+import { Box, Chip, Grid, Paper, Stack, Typography } from "@mui/material";
 
 import { navItems } from "../app/navigation";
 import { useAuth } from "../lib/auth";
@@ -36,10 +36,18 @@ export function DashboardPage(): JSX.Element {
   }, [api]);
 
   const locationById = useMemo(() => new Map(locations.map((location) => [location.location_id, location])), [locations]);
+  const live = useMemo(
+    () =>
+      events
+        .filter((event) => event.status === "in_progress" || event.status === "confirmed")
+        .sort((a, b) => new Date(a.planned_end).getTime() - new Date(b.planned_end).getTime())
+        .slice(0, 6),
+    [events],
+  );
   const upcoming = useMemo(
     () =>
       events
-        .filter((event) => new Date(event.planned_start).getTime() >= Date.now())
+        .filter((event) => ["draft", "submitted", "validated", "planned"].includes(event.status) && new Date(event.planned_start).getTime() >= Date.now())
         .sort((a, b) => new Date(a.planned_start).getTime() - new Date(b.planned_start).getTime())
         .slice(0, 8),
     [events],
@@ -49,7 +57,7 @@ export function DashboardPage(): JSX.Element {
     <Stack spacing={3}>
       <Typography variant="h4">Dashboard</Typography>
       <Grid container spacing={3} alignItems="stretch">
-        <Grid item xs={12} lg={6}>
+        <Grid item xs={12} lg={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
             <Typography variant="h6" sx={{ mb: 2 }}>Console modules</Typography>
             <Stack spacing={1.5}>
@@ -65,7 +73,34 @@ export function DashboardPage(): JSX.Element {
             </Stack>
           </Paper>
         </Grid>
-        <Grid item xs={12} lg={6}>
+        <Grid item xs={12} lg={4}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>Live events</Typography>
+            <Stack spacing={1.5}>
+              {live.length === 0 ? (
+                <Typography color="text.secondary">No event is currently live or confirmed for execution.</Typography>
+              ) : (
+                live.map((event) => {
+                  const location = locationById.get(event.location_id);
+                  return (
+                    <Box key={event.event_id} sx={{ borderBottom: "1px solid", borderColor: "divider", pb: 1.5 }}>
+                      <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                        <Box>
+                          <Typography fontWeight={800}>{event.event_name}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {(location?.name || location?.city || "Venue missing") + " • ends " + formatDateTime(event.planned_end)}
+                          </Typography>
+                        </Box>
+                        <Chip label={event.status.replace(/_/g, " ")} color="success" variant="outlined" />
+                      </Stack>
+                    </Box>
+                  );
+                })
+              )}
+            </Stack>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} lg={4}>
           <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
             <Typography variant="h6" sx={{ mb: 2 }}>Upcoming events</Typography>
             <Stack spacing={1.5}>
@@ -79,7 +114,7 @@ export function DashboardPage(): JSX.Element {
                       <Box>
                         <Typography fontWeight={800}>{event.event_name}</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          {(location?.name || location?.city || "Venue missing") + " ? " + formatDateTime(event.planned_start)}
+                          {(location?.name || location?.city || "Venue missing") + " • " + formatDateTime(event.planned_start)}
                         </Typography>
                       </Box>
                       <Stack direction="row" spacing={0.75} alignItems="center" color="primary.main">

@@ -1610,3 +1610,58 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-04] Zakonczono CP-06 FE Fazy 8 (operacyjne dane firmy bez resetu DB, edytowalne wymagania eventu, check-gating, planner/replan business UX, ML layout, security report path i regresja live).
   Cel: doprowadzic panel do spójnego testowania na danych firmy i usunac pozostale ryzyka UI/DB przed przygotowaniem wdrozenia VPS.
+
+14.6) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-07)
+- Status checkpointu: `phase-8-frontend-cp-07-live-events-and-assignment-review` -> ZREALIZOWANY (live dashboard, cleanup DB, event context, planner assignment review, runtime/post-event/ML UX polish).
+- Zakres wykonany:
+  - Dashboard:
+    - rozdzielono widok na 3 komponenty: opisy modulow, live events oraz przyszle eventy,
+    - live events pokazuja eventy `confirmed` / `in_progress` z miejscem, koncem i statusem.
+  - Baza danych:
+    - dodano `scripts/sql/cp07_operational_cleanup_and_live_events.sql` jako idempotentny patch bez resetu DB,
+    - usunieto puste smoke/checkpoint eventy z brakujacymi polami biznesowymi,
+    - CP-07 ustawia operacyjny miks statusow dla danych OP: `completed`, `in_progress`, `planned`,
+    - `scripts/start-local-test-env.ps1` aplikuje CP-07 po CP-04/CP-05/CP-06.
+  - Nowy event:
+    - w arkuszu review nad formularzem widoczny jest oryginalny tekst wpisany przez operatora,
+    - placeholdery i helper texty zostaly rozwiniete do instrukcji biznesowych.
+  - Planowanie eventu:
+    - po wyborze eventu wyswietla sie opis eventu i wymagania z `GET /api/events/{event_id}/requirements`,
+    - plan preview pokazuje takze podstawowy opis przypisania zasobow,
+    - recommended plan ma dodatkowe biznesowe uzasadnienie wyboru,
+    - 4 warianty planow nie pokazuja juz technicznego tekstu `plan_score=...`, tylko opis roznic biznesowych,
+    - po wybraniu planu dodano krok review assignmentow z lista dostepnych osob/sprzetu/pojazdow i procentem rekomendacji, a backend przyjmuje `assignment_overrides` przy finalnym zatwierdzeniu.
+  - Live replanning:
+    - lista eventow rozdziela live/upcoming przez statusy i kolor statusu,
+    - po wyborze eventu widoczny jest opis eventu i wymagania,
+    - pola stale typu incident type i severity sa listami wybieralnymi,
+    - rekomendacja replanowania tlumaczy brak baseline w jezyku operatora,
+    - dodano czytelny status przebiegu eventu: transport, setup, live execution, teardown, return logistics,
+    - operator action plan pozwala dodac/podmienic zasob albo wskazac zmiane czasu przed akceptacja.
+  - Post-event log:
+    - lista wybiera tylko eventy zakonczone,
+    - po wyborze eventu widoczny jest opis eventu,
+    - oceny sa listami 1-5, a parserowe wartosci dziesietne sa normalizowane do skali operatora.
+  - My account / ML model:
+    - status `deprecated` jest opisany jako archiwalny model porownawczy,
+    - etykiety `backend`, `dataset`, status i zakres danych przepisano na jasny jezyk biznesowy,
+    - dialog metrics ma druga zakladke `Feature names` z opisem roli cech,
+    - komunikat treningu opisuje zakres danych, split train/test, wynik i algorytm na podstawie metryk modelu.
+- Walidacja wykonania:
+  - Frontend:
+    - `npm run typecheck` -> passed.
+    - `npm run lint` -> 0 errors, 1 existing warning `react-refresh/only-export-components` w `frontend/src/lib/auth.tsx`.
+    - `npx vitest run --reporter dot` -> 5 files passed, 13 tests passed.
+    - `npm run build` -> passed; Vite ostrzega tylko o chunku 652.80 kB.
+  - Backend:
+    - `python -m py_compile tests/test_phase8_frontend_cp07.py` -> passed.
+    - `docker exec -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true eventflow-backend pytest -q tests/test_phase8_frontend_cp07.py tests/test_phase8_frontend_cp06.py tests/test_phase8_frontend_cp05.py` -> 8 passed.
+  - Live smoke lokalny Docker/API:
+    - `/ready` -> ok,
+    - login admin -> OK,
+    - API eventow przez backend -> OK,
+    - po CP-07 DB ma live/planned/completed eventy i brak eventow z pustym opisem/goscmi/budzetem w lokalnym smoke,
+    - przykladowy planned event ma wymagania zwracane przez `/api/events/{event_id}/requirements`, a `recommend-best-plan` respektuje `assignment_overrides` w odpowiedzi preview.
+
+- [2026-05-04] Zakonczono CP-07 FE Fazy 8 (live events, cleanup DB, event context, assignment review, runtime/post-event/ML business polish).
+  Cel: doprowadzic glowne panele do bardziej operacyjnego workflow i uporzadkowac lokalne dane testowe bez resetowania bazy.

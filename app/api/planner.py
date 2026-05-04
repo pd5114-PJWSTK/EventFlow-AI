@@ -207,6 +207,9 @@ def recommend_best_plan_endpoint(
             fallback_enabled=payload.fallback_enabled,
             duration_model_id=payload.duration_model_id,
             plan_evaluator_model_id=payload.plan_evaluator_model_id,
+            assignment_overrides=[
+                item.model_dump(mode="python") for item in payload.assignment_overrides
+            ],
         )
         response.headers["X-Operation-Status"] = "success"
         return result

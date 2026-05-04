@@ -51,6 +51,22 @@ export interface EventItem {
   updated_at?: string | null;
 }
 
+export interface EventRequirementItem {
+  requirement_id: string;
+  event_id: string;
+  requirement_type: string;
+  role_required?: string | null;
+  skill_id?: string | null;
+  equipment_type_id?: string | null;
+  vehicle_type_required?: string | null;
+  quantity: string | number;
+  mandatory: boolean;
+  required_start?: string | null;
+  required_end?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+}
+
 export interface LocationItem {
   location_id: string;
   name?: string | null;

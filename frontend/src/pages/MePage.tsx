@@ -15,8 +15,23 @@ const metricLabels: Record<string, string> = {
   samples: "Training samples",
   train_samples: "Train samples",
   test_samples: "Test samples",
-  backend: "Backend",
+  backend: "Model engine",
   algorithm: "Algorithm",
+  dataset: "Training data set",
+  test_ratio: "Test share",
+  train_ratio: "Training share",
+};
+
+const featureDescriptions: Record<string, string> = {
+  attendee_count: "Expected number of guests. Used to estimate setup workload and execution complexity.",
+  setup_complexity_score: "Venue setup difficulty. Higher values usually increase staffing and setup time.",
+  access_difficulty: "How difficult it is to access the venue with crew and equipment.",
+  parking_difficulty: "Parking and unloading complexity for vehicles and logistics.",
+  budget_estimate: "Expected budget. Helps compare plan cost against business tolerance.",
+  requires_transport: "Whether the event needs transport planning.",
+  requires_setup: "Whether setup work must be planned before the event.",
+  requires_teardown: "Whether teardown work must be planned after the event.",
+  planned_duration_minutes: "Length of the event window in minutes.",
 };
 
 function titleCaseMetric(key: string): string {
@@ -30,6 +45,23 @@ function metricValue(key: string, value: unknown): string {
   if (key.includes("r2")) return formatNumber(value, 3);
   if (key.includes("minutes")) return `${formatNumber(value, 1)} min`;
   return formatNumber(value, Number.isInteger(value) ? 0 : 1);
+}
+
+function readableStatus(status: string): string {
+  if (status === "deprecated") return "Archived - kept for comparison, not used as the active production model.";
+  if (status === "active") return "Active - used by the planner.";
+  if (status === "candidate") return "Candidate - trained and waiting for promotion.";
+  return status.replace(/_/g, " ");
+}
+
+function trainingSummary(model?: ModelRegistryItem): string {
+  if (!model) return "Training will use completed operational logs available in the database, then refresh the model registry.";
+  const rows = metricRows(model.metrics);
+  const algorithm = rows.find((row) => row.label === "Algorithm")?.value || rows.find((row) => row.label === "Model engine")?.value || "the configured duration model algorithm";
+  const train = rows.find((row) => row.label === "Train samples")?.value || "available training samples";
+  const test = rows.find((row) => row.label === "Test samples")?.value || "a held-out test set";
+  const score = rows.find((row) => row.label === "R-squared")?.value || rows.find((row) => row.label === "Mean absolute error")?.value || "registered validation metrics";
+  return `Last run used data from ${model.training_data_from ? formatDateTime(model.training_data_from) : "the earliest completed log"} to ${model.training_data_to ? formatDateTime(model.training_data_to) : "the latest completed log"}, trained ${algorithm}, split ${train} for training and ${test} for testing, and produced ${score} as the headline result.`;
 }
 
 function metricRows(metrics: Record<string, unknown>): Array<{ label: string; value: string }> {
@@ -56,6 +88,7 @@ export function MePage(): JSX.Element {
   const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
   const [training, setTraining] = useState(false);
   const [metricsDialogModel, setMetricsDialogModel] = useState<ModelRegistryItem | null>(null);
+  const [metricsTab, setMetricsTab] = useState(0);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,7 +121,7 @@ export function MePage(): JSX.Element {
         model_name: displayedModel?.model_name || "event_duration_baseline",
       });
       await load();
-      setSuccess("The model was retrained and the model data was refreshed.");
+      setSuccess(`The model was retrained and the registry was refreshed. ${trainingSummary(displayedModel)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start model training.");
     } finally {
@@ -161,8 +194,8 @@ export function MePage(): JSX.Element {
                   <Typography fontWeight={800}>{displayedModel.model_version}</Typography>
                 </Grid>
                 <Grid item xs={12} md={2}>
-                  <Typography color="text.secondary">Status</Typography>
-                  <Typography fontWeight={800}>{displayedModel.status}</Typography>
+                  <Typography color="text.secondary">Operational status</Typography>
+                  <Typography fontWeight={800}>{readableStatus(displayedModel.status)}</Typography>
                 </Grid>
                 <Grid item xs={12} md={4}>
                   <Typography color="text.secondary">Trained at</Typography>
@@ -174,6 +207,7 @@ export function MePage(): JSX.Element {
               <Typography color="text.secondary">No registered model.</Typography>
             )}
             <Stack direction="row" spacing={1}>
+            <Typography color="text.secondary">{trainingSummary(displayedModel)}</Typography>
             <Button variant="contained" disabled={training} onClick={() => void trainModel()}>
               Train model
             </Button>
@@ -191,10 +225,10 @@ export function MePage(): JSX.Element {
               { key: "name", label: "Model", render: (item) => item.model_name },
               { key: "version", label: "Version", render: (item) => item.model_version },
               { key: "type", label: "Prediction type", render: (item) => item.prediction_type },
-              { key: "status", label: "Status", render: (item) => item.status },
-              { key: "trained", label: "Trained at", render: (item) => formatDateTime(item.created_at) },
-              { key: "from", label: "Data from", render: (item) => item.training_data_from ? formatDateTime(item.training_data_from) : "None" },
-              { key: "to", label: "Data to", render: (item) => item.training_data_to ? formatDateTime(item.training_data_to) : "None" },
+              { key: "status", label: "Operational status", render: (item) => readableStatus(item.status) },
+              { key: "trained", label: "Training run date", render: (item) => formatDateTime(item.created_at) },
+              { key: "from", label: "Logs used from", render: (item) => item.training_data_from ? formatDateTime(item.training_data_from) : "None" },
+              { key: "to", label: "Logs used to", render: (item) => item.training_data_to ? formatDateTime(item.training_data_to) : "None" },
               {
                 key: "metrics",
                 label: "Metrics",
@@ -205,16 +239,36 @@ export function MePage(): JSX.Element {
           <Dialog open={Boolean(metricsDialogModel)} onClose={() => setMetricsDialogModel(null)} maxWidth="md" fullWidth>
             <DialogTitle>{metricsDialogModel ? `${metricsDialogModel.model_name} metrics` : "Model metrics"}</DialogTitle>
             <DialogContent>
-              <Grid container spacing={1.5} sx={{ pt: 1 }}>
-                {metricsDialogModel && metricRows(metricsDialogModel.metrics).map((metric) => (
-                  <Grid item xs={12} md={4} key={metric.label}>
-                    <Paper variant="outlined" sx={{ p: 1.5, height: "100%" }}>
-                      <Typography variant="caption" color="text.secondary">{metric.label}</Typography>
-                      <Typography fontWeight={800}>{metric.value}</Typography>
-                    </Paper>
-                  </Grid>
-                ))}
-              </Grid>
+              <Tabs value={metricsTab} onChange={(_event, value: number) => setMetricsTab(value)} sx={{ mb: 2 }}>
+                <Tab label="Metrics" />
+                <Tab label="Feature names" />
+              </Tabs>
+              {metricsTab === 0 && (
+                <Grid container spacing={1.5} sx={{ pt: 1 }}>
+                  {metricsDialogModel && metricRows(metricsDialogModel.metrics).filter((metric) => metric.label !== "Feature Names").map((metric) => (
+                    <Grid item xs={12} md={4} key={metric.label}>
+                      <Paper variant="outlined" sx={{ p: 1.5, height: "100%" }}>
+                        <Typography variant="caption" color="text.secondary">{metric.label}</Typography>
+                        <Typography fontWeight={800}>{metric.value}</Typography>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+              {metricsTab === 1 && (
+                <Stack spacing={1}>
+                  {String(metricsDialogModel?.metrics?.feature_names || "").split(",").filter(Boolean).length === 0 ? (
+                    <Typography color="text.secondary">No feature list was stored with this model.</Typography>
+                  ) : (
+                    String(metricsDialogModel?.metrics?.feature_names || "").split(",").map((feature) => feature.trim()).filter(Boolean).map((feature) => (
+                      <Paper key={feature} variant="outlined" sx={{ p: 1.5 }}>
+                        <Typography fontWeight={800}>{feature.replace(/_/g, " ")}</Typography>
+                        <Typography color="text.secondary">{featureDescriptions[feature] || "Input signal used by the model to estimate event duration or operational risk."}</Typography>
+                      </Paper>
+                    ))
+                  )}
+                </Stack>
+              )}
             </DialogContent>
           </Dialog>
         </Stack>

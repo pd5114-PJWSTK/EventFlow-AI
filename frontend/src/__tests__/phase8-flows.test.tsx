@@ -17,6 +17,9 @@ vi.mock("../components/EventSelect", () => ({
     </select>
   ),
 }));
+vi.mock("../components/EventDetailsCard", () => ({
+  EventDetailsCard: ({ title }: { title: string }) => <div>{title}</div>,
+}));
 vi.mock("../lib/auth", () => ({
   useAuth: () => ({
     api: {
@@ -47,7 +50,7 @@ const locationList = {
   total: 1,
 };
 
-describe("Phase 8 CP-06 operator flows", () => {
+describe("Phase 8 CP-07 operator flows", () => {
   beforeEach(() => {
     requestMock.mockReset();
     sessionStorage.clear();
@@ -93,6 +96,8 @@ describe("Phase 8 CP-06 operator flows", () => {
 
     await waitFor(() => expect(screen.getByText("Recommended plan")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Select plan" }));
+    await waitFor(() => expect(screen.getByText("Review resource assignments before final approval")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Approve final plan" }));
 
     await waitFor(() => {
       expect(requestMock).toHaveBeenCalledWith("POST", "/api/planner/recommend-best-plan", expect.objectContaining({ commit_to_assignments: true }));
@@ -127,7 +132,7 @@ describe("Phase 8 CP-06 operator flows", () => {
 
   it("runs post-event parse and commit flow", async () => {
     requestMock.mockImplementation((_method: string, path: string) => {
-      if (path.startsWith("/api/events")) return Promise.resolve({ ...eventList, items: [{ ...eventList.items[0], event_id: "evt-post", status: "planned" }] });
+      if (path.startsWith("/api/events")) return Promise.resolve({ ...eventList, items: [{ ...eventList.items[0], event_id: "evt-post", status: "completed" }] });
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
       if (path === "/api/runtime/events/evt-post/post-event/parse") {
         return Promise.resolve({ event_id: "evt-post", parser_mode: "llm", parse_confidence: 0.9, gaps: [], draft_complete: { completed_at: "2026-06-12T18:00:00Z", total_delay_minutes: 0, actual_cost: 22000, sla_breached: false, client_satisfaction_score: 4.8, internal_quality_score: 4.6, summary_notes: "Everything completed correctly." } });
@@ -138,7 +143,7 @@ describe("Phase 8 CP-06 operator flows", () => {
 
     render(<PostEventPage />);
 
-    fireEvent.change(await screen.findByLabelText("Event to close"), { target: { value: "evt-post" } });
+    fireEvent.change(await screen.findByLabelText("Completed event to log"), { target: { value: "evt-post" } });
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
 
     await waitFor(() => expect(screen.getByText("Completion sheet")).toBeInTheDocument());

@@ -521,6 +521,7 @@ def recommend_best_plan_with_ml(
     fallback_enabled: bool = True,
     duration_model_id: str | None = None,
     plan_evaluator_model_id: str | None = None,
+    assignment_overrides: list[dict[str, Any]] | None = None,
 ) -> RecommendBestPlanResponse:
     event = db.get(Event, event_id)
     if event is None:
@@ -730,6 +731,8 @@ def recommend_best_plan_with_ml(
     candidate_results.sort(key=lambda item: item["plan_score"], reverse=True)
     selected = candidate_results[0]
     selected_result: PlannerResult = selected["planner_result"]
+    if assignment_overrides:
+        selected_result = _apply_assignment_overrides(selected_result, assignment_overrides)
     recommendation = _create_recommendation(
         db=db,
         event=event,
@@ -899,6 +902,46 @@ def _create_recommendation(
             )
 
     return recommendation
+
+
+def _apply_assignment_overrides(
+    result: PlannerResult, overrides: list[dict[str, Any]]
+) -> PlannerResult:
+    override_by_requirement = {
+        str(item.get("requirement_id")): [
+            str(resource_id)
+            for resource_id in item.get("resource_ids", [])
+            if str(resource_id).strip()
+        ]
+        for item in overrides
+        if item.get("requirement_id")
+    }
+    if not override_by_requirement:
+        return result
+
+    assignments: list[PlannerAssignment] = []
+    for assignment in result.assignments:
+        resource_ids = override_by_requirement.get(
+            assignment.requirement_id, assignment.resource_ids
+        )
+        assignments.append(
+            PlannerAssignment(
+                requirement_id=assignment.requirement_id,
+                resource_ids=resource_ids,
+                unassigned_count=max(assignment.unassigned_count - len(resource_ids), 0)
+                if resource_ids
+                else assignment.unassigned_count,
+                estimated_cost=assignment.estimated_cost,
+            )
+        )
+    return PlannerResult(
+        plan_id=result.plan_id,
+        solver=result.solver,
+        assignments=assignments,
+        estimated_cost=result.estimated_cost,
+        duration_ms=result.duration_ms,
+        fallback_reason=result.fallback_reason,
+    )
 
 
 def _commit_assignments(

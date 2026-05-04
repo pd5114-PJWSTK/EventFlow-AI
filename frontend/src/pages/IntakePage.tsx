@@ -193,7 +193,16 @@ export function IntakePage(): JSX.Element {
       {!draft && (
         <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
           <Stack spacing={2}>
-            <TextField label="Event description" multiline minRows={8} value={rawInput} onChange={(event) => setRawInput(event.target.value)} fullWidth />
+            <TextField
+              label="Event description"
+              placeholder="Describe the client, venue, city, date and time window, expected guest count, budget, operational requirements and any constraints the planner should know about."
+              multiline
+              minRows={8}
+              value={rawInput}
+              onChange={(event) => setRawInput(event.target.value)}
+              helperText="Use natural language. The parser will prepare a review sheet, but you will still approve every important field before saving."
+              fullWidth
+            />
             <Box><Button variant="contained" onClick={() => void preview()} disabled={isLoading || rawInput.trim().length === 0}>Import</Button></Box>
           </Stack>
         </Paper>
@@ -207,6 +216,10 @@ export function IntakePage(): JSX.Element {
               {source && <Chip label={source} color={source.includes("LLM") ? "success" : "warning"} variant="outlined" />}
               {requiredErrorCount > 0 && <Chip label={`Missing: ${requiredErrorCount}`} color="error" />}
             </Stack>
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "rgba(15, 118, 110, 0.04)" }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={800}>Original text entered by operator</Typography>
+              <Typography sx={{ whiteSpace: "pre-wrap" }}>{rawInput}</Typography>
+            </Paper>
             {fieldErrors.form && <Alert severity="warning">{fieldErrors.form}</Alert>}
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}><TextField label="Event name" value={draft.event_name} onChange={(event) => updateDraft({ event_name: event.target.value })} error={Boolean(fieldErrors.event_name)} helperText={fieldErrors.event_name} fullWidth /></Grid>
@@ -308,7 +321,13 @@ export function IntakePage(): JSX.Element {
                       />
                     </Grid>
                     <Grid item xs={12} md={4}>
-                      <TextField label="Notes" value={requirement.notes || ""} onChange={(event) => updateRequirement(index, { notes: event.target.value })} fullWidth />
+                      <TextField
+                        label="Notes"
+                        placeholder="Add business context, timing constraints, preferred crew profile or any instruction that helps validate this requirement."
+                        value={requirement.notes || ""}
+                        onChange={(event) => updateRequirement(index, { notes: event.target.value })}
+                        fullWidth
+                      />
                     </Grid>
                     <Grid item xs={12} md={requirement.requirement_type === "other" ? 3 : 12}>
                       <Button color="warning" onClick={() => removeRequirement(index)}>Remove</Button>
