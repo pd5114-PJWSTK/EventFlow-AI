@@ -256,6 +256,7 @@ def replan_event(
     event_id: str,
     incident_id: str | None = None,
     incident_summary: str | None = None,
+    operator_actions: list[dict[str, Any]] | None = None,
     initiated_by: str | None = None,
     initiated_by_user_id: str | None = None,
     commit_to_assignments: bool = True,
@@ -291,6 +292,20 @@ def replan_event(
         previous=baseline,
         current=new_recommendation,
     )
+    operator_actions = operator_actions or []
+    comparison = _apply_operator_actions_to_comparison(
+        db=db,
+        event_id=event_id,
+        comparison=comparison,
+        operator_actions=operator_actions,
+    )
+    if commit_to_assignments and operator_actions:
+        _commit_operator_action_assignments(
+            db=db,
+            event_id=event_id,
+            planner_run_id=generated.planner_run_id,
+            operator_actions=operator_actions,
+        )
     enqueue_runtime_notification(
         event_id=event_id,
         notification_type="replan_completed",
@@ -306,6 +321,7 @@ def replan_event(
             "risk_delta": str(comparison.risk_delta)
             if comparison.risk_delta is not None
             else None,
+            "operator_actions": operator_actions,
         },
     )
     emit_event(
@@ -327,6 +343,7 @@ def replan_event(
         ),
         incident_id=incident_id,
         incident_summary=incident_summary,
+        operator_actions=operator_actions,
         comparison=comparison,
         generated_plan=generated,
     )
@@ -2423,6 +2440,116 @@ def _compare_recommendations(
         is_improved=improved,
         decision_note=_decision_note(improved),
     )
+
+
+def _apply_operator_actions_to_comparison(
+    *,
+    db: Session,
+    event_id: str,
+    comparison: PlanMetricComparison,
+    operator_actions: list[dict[str, Any]],
+) -> PlanMetricComparison:
+    if not operator_actions:
+        return comparison
+    event = db.get(Event, event_id)
+    if event is None:
+        return comparison
+
+    resource_delta = Decimal("0")
+    timing_delta = 0
+    action_notes: list[str] = []
+    for action in operator_actions:
+        action_type = str(action.get("action_type") or "")
+        label = str(action.get("label") or "").strip()
+        if action_type in {"add_resource", "swap_resource"}:
+            resource_type = str(action.get("resource_type") or "")
+            resource_id = str(action.get("resource_id") or "")
+            resource_delta += _override_assignment_cost(
+                db=db,
+                event=event,
+                resource_type=resource_type,
+                resource_ids=[resource_id] if resource_id else [],
+                fallback=Decimal("0"),
+            )
+            action_notes.append(label or f"{action_type.replace('_', ' ')} {resource_type}")
+        elif action_type == "shift_timing":
+            timing_delta += int(action.get("timing_delta_minutes") or 0)
+            action_notes.append(label or "shift event timing")
+        elif label:
+            action_notes.append(label)
+
+    new_cost = _money(comparison.new_cost + resource_delta)
+    previous_cost = comparison.previous_cost
+    cost_delta = comparison.cost_delta
+    if previous_cost is not None:
+        cost_delta = _money(new_cost - previous_cost)
+    elif resource_delta:
+        cost_delta = _money(resource_delta)
+
+    new_duration = comparison.new_duration_minutes
+    if new_duration is not None and timing_delta:
+        new_duration += timing_delta
+    duration_delta = comparison.duration_delta_minutes
+    if comparison.previous_duration_minutes is not None and new_duration is not None:
+        duration_delta = new_duration - comparison.previous_duration_minutes
+
+    note_suffix = ""
+    if action_notes:
+        note_suffix = " Operator actions included: " + "; ".join(action_notes[:5]) + "."
+    if resource_delta:
+        note_suffix += f" Extra resource impact: {_money(resource_delta)} PLN."
+    if timing_delta:
+        note_suffix += f" Timing impact: {timing_delta} min."
+
+    return PlanMetricComparison(
+        previous_cost=previous_cost,
+        new_cost=new_cost,
+        cost_delta=cost_delta,
+        previous_duration_minutes=comparison.previous_duration_minutes,
+        new_duration_minutes=new_duration,
+        duration_delta_minutes=duration_delta,
+        previous_risk=comparison.previous_risk,
+        new_risk=comparison.new_risk,
+        risk_delta=comparison.risk_delta,
+        is_improved=comparison.is_improved,
+        decision_note=f"{comparison.decision_note}{note_suffix}",
+    )
+
+
+def _commit_operator_action_assignments(
+    *,
+    db: Session,
+    event_id: str,
+    planner_run_id: str,
+    operator_actions: list[dict[str, Any]],
+) -> None:
+    event = db.get(Event, event_id)
+    if event is None:
+        return
+    for action in operator_actions:
+        if str(action.get("action_type") or "") not in {"add_resource", "swap_resource"}:
+            continue
+        resource_type = str(action.get("resource_type") or "")
+        resource_id = str(action.get("resource_id") or "")
+        if resource_type not in {"person", "equipment", "vehicle"} or not resource_id:
+            continue
+        assignment = Assignment(
+            event_id=event_id,
+            resource_type=AssignmentResourceType(resource_type),
+            **_resource_fk(resource_type, resource_id),
+            assignment_role=f"operator_action:{str(action.get('action_type') or '')}",
+            planned_start=event.planned_start,
+            planned_end=event.planned_end,
+            status=AssignmentStatus.planned,
+            planner_run_id=planner_run_id,
+            is_manual_override=True,
+            notes=(
+                f"{action.get('label') or 'Operator action'} "
+                f"(owner: {action.get('owner') or 'Coordinator'}, status: {action.get('status') or 'pending'})"
+            ),
+        )
+        db.add(assignment)
+    db.flush()
 
 
 def _is_replan_improved(

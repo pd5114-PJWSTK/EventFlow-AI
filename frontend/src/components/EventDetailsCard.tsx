@@ -85,7 +85,7 @@ export function EventDetailsCard({ eventId, title = "Selected event" }: EventDet
     [equipmentTypeNames, requirements, skillNames],
   );
   const assignmentSummary = useMemo(() => assignments.map(assignmentText), [assignments]);
-  const showAssignments = event ? ["planned", "confirmed", "in_progress", "completed"].includes(event.status) && assignmentSummary.length > 0 : false;
+  const showAssignments = event ? ["planned", "confirmed", "in_progress", "completed"].includes(event.status) : false;
 
   if (!eventId) return null;
 

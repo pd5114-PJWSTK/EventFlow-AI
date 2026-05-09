@@ -142,6 +142,9 @@ def replan_event_endpoint(
             event_id=event_id,
             incident_id=payload.incident_id,
             incident_summary=payload.incident_summary,
+            operator_actions=[
+                item.model_dump(mode="python") for item in payload.operator_actions
+            ],
             initiated_by=payload.initiated_by or str(auth_payload.get("username", "")),
             initiated_by_user_id=str(auth_payload.get("sub", "")),
             commit_to_assignments=payload.commit_to_assignments,

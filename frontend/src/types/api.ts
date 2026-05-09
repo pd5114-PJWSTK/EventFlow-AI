@@ -303,6 +303,7 @@ export interface RuntimeIncidentParseResponse {
 export interface ReplanResponse {
   event_id: string;
   incident_summary?: string | null;
+  operator_actions?: ReplanOperatorAction[];
   comparison: {
     new_cost: string | number;
     cost_delta?: string | number | null;
@@ -310,6 +311,16 @@ export interface ReplanResponse {
     is_improved?: boolean | null;
   };
   generated_plan: GeneratedPlanResponse;
+}
+
+export interface ReplanOperatorAction {
+  action_type: "add_resource" | "swap_resource" | "shift_timing" | "manual_note";
+  label: string;
+  owner: string;
+  status: "pending" | "done";
+  resource_type?: "person" | "equipment" | "vehicle" | null;
+  resource_id?: string | null;
+  timing_delta_minutes?: number | null;
 }
 
 export interface PostEventParseResponse {

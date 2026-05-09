@@ -1718,3 +1718,39 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-09] Zakonczono CP-08 FE Fazy 8 (ML planner influence, before/after UX, resource names, active retraining, live assignments and VPS secret handling).
   Cel: usunac ID z glownego UI, dopiac realne porownanie planowania, poprawic aktywacje modelu ML oraz przygotowac lokalne dane i README pod wdrozenie VPS.
+
+14.8) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-09)
+- Status checkpointu: `phase-8-frontend-cp-09-replan-actions-and-assignment-fallbacks` -> ZREALIZOWANY (domkniecie brakow CP-08: fallback przypisan, assigned-only event context, strukturalne akcje replanowania, retrain E2E).
+- Zakres wykonany:
+  - Planner assignment fallback:
+    - `app/services/planner_input_builder.py` dodaje kandydatow awaryjnych, gdy nie ma idealnego dopasowania roli/skilla/typu sprzetu/pojazdu,
+    - fallback nadal respektuje aktywnosc, status dostepnosci, okno dostepnosci i locki innych eventow,
+    - efekt: jesli firma ma dostepny zasob danej kategorii, planner przypisze go jako opcje awaryjna zamiast zostawiac puste assignmenty.
+  - Event context assigned-only:
+    - `EventDetailsCard` dla statusow `planned`, `confirmed`, `in_progress`, `completed` pokazuje sekcje `Assigned resources` nawet przy pustych assignmentach,
+    - nie wraca juz do wymagan w live/planned/completed tylko dlatego, ze assignmentow brak.
+  - Live replanning operator actions:
+    - dodano kontrakt `ReplanOperatorAction` w API planner/replan,
+    - frontend wysyla strukturalne `operator_actions` zamiast tekstowego bloku w `incident_summary`,
+    - akcje maja typ: `add_resource`, `swap_resource`, `shift_timing`, `manual_note`, wlasciciela, status oraz opcjonalny zasob albo delta czasu,
+    - backend dolicza koszt zasobow operatora do before/after comparison i dopisuje decyzje do decision_note,
+    - przy `commit_to_assignments=true` akcje zasobowe tworza manualne assignmenty eventu (`is_manual_override=true`).
+  - My account / ML retrain:
+    - dodano regresyjny test, ktory potwierdza, ze `force_activate=true` promuje nowy model do `active` nawet przy progach, ktore normalnie archiwizowalyby kandydata,
+    - lista modeli po retrain zawiera aktywny model pochodzacy z aktualnych danych treningowych/testowych.
+- Walidacja wykonania:
+  - Frontend:
+    - `npm.cmd run typecheck` -> passed,
+    - `npm.cmd run lint` -> 0 errors, 1 existing warning `react-refresh/only-export-components` w `frontend/src/lib/auth.tsx`,
+    - `npm.cmd run build` -> passed; Vite ostrzega tylko o duzym chunku 661.52 kB.
+  - Backend / regresja:
+    - `python -m py_compile app/schemas/planner.py app/api/planner.py app/services/planner_generation_service.py app/services/planner_input_builder.py tests/test_phase8_frontend_cp09.py` -> passed,
+    - `docker exec -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true eventflow-backend pytest -q tests/test_phase8_frontend_cp09.py` -> 4 passed,
+    - `docker exec -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true eventflow-backend pytest -q tests/test_phase8_frontend_cp09.py tests/test_phase8_frontend_cp08.py tests/test_phase8_frontend_cp07.py tests/test_phase8_frontend_cp06.py` -> 13 passed.
+  - Live smoke lokalny Docker/API:
+    - `/ready` -> ok,
+    - `POST /api/planner/replan/{event_id}` z `operator_actions=[add_resource/person]` -> OK,
+    - live event `Warsaw Executive Summit` zwrocil `cost_delta=2296.00` i decision note z `Operator actions included`.
+
+- [2026-05-09] Zakonczono CP-09 FE Fazy 8 (fallback assignmentow, strukturalne operator actions w replanowaniu, assigned-only event context i retrain model E2E).
+  Cel: domknac pozostale luki CP-08 tak, aby planner nie zostawial pustych assignmentow przy dostepnych zasobach, a replanowanie mialo realne strukturalne decyzje operatora.

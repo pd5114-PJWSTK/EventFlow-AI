@@ -58,6 +58,15 @@ def build_planner_input(
                 required_hours=req_hours,
                 locked_windows=locked_people_windows or {},
             )
+            if not candidates:
+                candidates = _fallback_people_candidates(
+                    people=people,
+                    availability_map=people_availability,
+                    required_start=req_start,
+                    required_end=req_end,
+                    required_hours=req_hours,
+                    locked_windows=locked_people_windows or {},
+                )
             resource_type = "person"
         elif req_type == "equipment_type":
             candidates = _equipment_candidates(
@@ -68,6 +77,14 @@ def build_planner_input(
                 required_end=req_end,
                 locked_windows=locked_equipment_windows or {},
             )
+            if not candidates:
+                candidates = _fallback_equipment_candidates(
+                    equipment=equipment,
+                    availability_map=equipment_availability,
+                    required_start=req_start,
+                    required_end=req_end,
+                    locked_windows=locked_equipment_windows or {},
+                )
             resource_type = "equipment"
         elif req_type == "vehicle_type":
             candidates = _vehicle_candidates(
@@ -78,6 +95,14 @@ def build_planner_input(
                 required_end=req_end,
                 locked_windows=locked_vehicle_windows or {},
             )
+            if not candidates:
+                candidates = _fallback_vehicle_candidates(
+                    vehicles=vehicles,
+                    availability_map=vehicle_availability,
+                    required_start=req_start,
+                    required_end=req_end,
+                    locked_windows=locked_vehicle_windows or {},
+                )
             resource_type = "vehicle"
         else:
             candidates = []
@@ -270,6 +295,43 @@ def _people_candidates(
     return _sorted_candidates(candidates)
 
 
+def _fallback_people_candidates(
+    *,
+    people: Sequence,
+    availability_map: Mapping[str, Sequence],
+    required_start: datetime,
+    required_end: datetime,
+    required_hours: Decimal,
+    locked_windows: Mapping[str, Sequence],
+) -> list[PlannerCandidate]:
+    candidates: list[PlannerCandidate] = []
+    for person in people:
+        if not getattr(person, "active", True):
+            continue
+        if not _status_is_available(getattr(person, "availability_status", None)):
+            continue
+        if not _person_hours_eligible(person, required_hours):
+            continue
+        window = _find_covering_window(
+            availability_map.get(person.person_id, ()), required_start, required_end
+        )
+        if window is None:
+            continue
+        if _has_lock_overlap(locked_windows.get(person.person_id, ()), required_start, required_end):
+            continue
+        cost = _decimal_or_zero(getattr(person, "cost_per_hour", None))
+        candidates.append(
+            PlannerCandidate(
+                resource_id=person.person_id,
+                cost_per_hour=cost,
+                score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                available_from=window.available_from,
+                available_to=window.available_to,
+            )
+        )
+    return _sorted_candidates(candidates)
+
+
 def _equipment_candidates(
     *,
     requirement,
@@ -313,6 +375,40 @@ def _equipment_candidates(
             )
         )
 
+    return _sorted_candidates(candidates)
+
+
+def _fallback_equipment_candidates(
+    *,
+    equipment: Sequence,
+    availability_map: Mapping[str, Sequence],
+    required_start: datetime,
+    required_end: datetime,
+    locked_windows: Mapping[str, Sequence],
+) -> list[PlannerCandidate]:
+    candidates: list[PlannerCandidate] = []
+    for item in equipment:
+        if not getattr(item, "active", True):
+            continue
+        if not _status_is_available(getattr(item, "status", None)):
+            continue
+        window = _find_covering_window(
+            availability_map.get(item.equipment_id, ()), required_start, required_end
+        )
+        if window is None:
+            continue
+        if _has_lock_overlap(locked_windows.get(item.equipment_id, ()), required_start, required_end):
+            continue
+        cost = _decimal_or_zero(getattr(item, "hourly_cost_estimate", None))
+        candidates.append(
+            PlannerCandidate(
+                resource_id=item.equipment_id,
+                cost_per_hour=cost,
+                score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                available_from=window.available_from,
+                available_to=window.available_to,
+            )
+        )
     return _sorted_candidates(candidates)
 
 
@@ -369,6 +465,42 @@ def _vehicle_candidates(
             )
         )
 
+    return _sorted_candidates(candidates)
+
+
+def _fallback_vehicle_candidates(
+    *,
+    vehicles: Sequence,
+    availability_map: Mapping[str, Sequence],
+    required_start: datetime,
+    required_end: datetime,
+    locked_windows: Mapping[str, Sequence],
+) -> list[PlannerCandidate]:
+    candidates: list[PlannerCandidate] = []
+    for vehicle in vehicles:
+        if not getattr(vehicle, "active", True):
+            continue
+        if not _status_is_available(getattr(vehicle, "status", None)):
+            continue
+        window = _find_covering_window(
+            availability_map.get(vehicle.vehicle_id, ()), required_start, required_end
+        )
+        if window is None:
+            continue
+        if _has_lock_overlap(locked_windows.get(vehicle.vehicle_id, ()), required_start, required_end):
+            continue
+        cost = _decimal_or_zero(getattr(vehicle, "cost_per_hour", None))
+        if cost == Decimal("0"):
+            cost = _decimal_or_zero(getattr(vehicle, "cost_per_km", None))
+        candidates.append(
+            PlannerCandidate(
+                resource_id=vehicle.vehicle_id,
+                cost_per_hour=cost,
+                score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                available_from=window.available_from,
+                available_to=window.available_to,
+            )
+        )
     return _sorted_candidates(candidates)
 
 

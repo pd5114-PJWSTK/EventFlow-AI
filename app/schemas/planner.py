@@ -110,18 +110,6 @@ class GeneratePlanResponse(BaseModel):
     gap_resolution: GapResolutionGuidance | None = None
 
 
-class ReplanRequest(BaseModel):
-    incident_id: str | None = None
-    incident_summary: str | None = None
-    initiated_by: str | None = None
-    commit_to_assignments: bool = True
-    solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
-    fallback_enabled: bool = True
-    preserve_consumed_resources: bool = True
-    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
-    expected_event_updated_at: datetime | None = None
-
-
 class PlanMetricComparison(BaseModel):
     previous_cost: Decimal | None = None
     new_cost: Decimal
@@ -136,6 +124,38 @@ class PlanMetricComparison(BaseModel):
     decision_note: str
 
 
+class ReplanOperatorAction(BaseModel):
+    action_type: Literal["add_resource", "swap_resource", "shift_timing", "manual_note"]
+    label: str = Field(min_length=1, max_length=500)
+    owner: str = Field(min_length=1, max_length=120)
+    status: Literal["pending", "done"] = "pending"
+    resource_type: Literal["person", "equipment", "vehicle"] | None = None
+    resource_id: str | None = None
+    timing_delta_minutes: int | None = None
+
+    @model_validator(mode="after")
+    def validate_action_payload(self) -> "ReplanOperatorAction":
+        if self.action_type in {"add_resource", "swap_resource"}:
+            if not self.resource_type or not self.resource_id:
+                raise ValueError("resource actions require resource_type and resource_id")
+        if self.action_type == "shift_timing" and self.timing_delta_minutes is None:
+            raise ValueError("shift_timing requires timing_delta_minutes")
+        return self
+
+
+class ReplanRequest(BaseModel):
+    incident_id: str | None = None
+    incident_summary: str | None = None
+    operator_actions: list[ReplanOperatorAction] = Field(default_factory=list)
+    initiated_by: str | None = None
+    commit_to_assignments: bool = True
+    solver_timeout_seconds: float = Field(default=10.0, gt=0, le=30.0)
+    fallback_enabled: bool = True
+    preserve_consumed_resources: bool = True
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+    expected_event_updated_at: datetime | None = None
+
+
 class ReplanResponse(BaseModel):
     event_id: str
     planner_run_id: str
@@ -144,6 +164,7 @@ class ReplanResponse(BaseModel):
     baseline_recommendation_id: str | None = None
     incident_id: str | None = None
     incident_summary: str | None = None
+    operator_actions: list[ReplanOperatorAction] = Field(default_factory=list)
     comparison: PlanMetricComparison
     generated_plan: GeneratePlanResponse
 
