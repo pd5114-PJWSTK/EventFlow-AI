@@ -17,13 +17,14 @@ interface EventSelectProps {
 }
 
 const LIVE_STATUSES = new Set(["confirmed", "in_progress"]);
+const PLANNING_STATUSES = new Set(["draft", "submitted", "validated"]);
 const FUTURE_STATUSES = new Set(["draft", "submitted", "validated", "planned"]);
 const POST_EVENT_STATUSES = new Set(["completed"]);
 
 function canUseEvent(event: EventItem, scope: EventScope): boolean {
   if (scope === "post-event") return POST_EVENT_STATUSES.has(event.status);
   if (scope === "runtime") return LIVE_STATUSES.has(event.status) || (FUTURE_STATUSES.has(event.status) && new Date(event.planned_end).getTime() >= Date.now());
-  return FUTURE_STATUSES.has(event.status) && new Date(event.planned_start).getTime() >= Date.now();
+  return PLANNING_STATUSES.has(event.status) && new Date(event.planned_start).getTime() >= Date.now();
 }
 
 function sectionFor(event: EventItem, scope: EventScope): string {

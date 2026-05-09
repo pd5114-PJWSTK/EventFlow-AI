@@ -43,7 +43,8 @@ $patches = @(
   "scripts\sql\cp04_production_readiness.sql",
   "scripts\sql\cp05_operational_training_seed.sql",
   "scripts\sql\cp06_operational_company_seed.sql",
-  "scripts\sql\cp07_operational_cleanup_and_live_events.sql"
+  "scripts\sql\cp07_operational_cleanup_and_live_events.sql",
+  "scripts\sql\cp08_business_event_names_and_planning_state.sql"
 )
 foreach ($relativePatch in $patches) {
   $patchPath = Join-Path $repoRoot $relativePatch

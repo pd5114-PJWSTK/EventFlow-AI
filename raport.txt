@@ -1665,3 +1665,56 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-04] Zakonczono CP-07 FE Fazy 8 (live events, cleanup DB, event context, assignment review, runtime/post-event/ML business polish).
   Cel: doprowadzic glowne panele do bardziej operacyjnego workflow i uporzadkowac lokalne dane testowe bez resetowania bazy.
+
+14.7) FAZA 8 FE - POSTEP IMPLEMENTACJI (CP-08)
+- Status checkpointu: `phase-8-frontend-cp-08-ml-planner-resource-names-and-vps-secrets` -> ZREALIZOWANY (resource selects, before/after planner, aktywny ML retrain, czytelne dane i sekret .env pod VPS).
+- Zakres wykonany:
+  - Nowy event:
+    - `Equipment type` i `Person skill` w arkuszu wymagan sa listami wybieralnymi z nazwami biznesowymi, bez wpisywania ID,
+    - walidacja wymaga wyboru realnego typu sprzetu / skillu przed dodaniem eventu.
+  - Planowanie eventu:
+    - zmiana eventu w select resetuje widok planowania,
+    - lista planowania pokazuje tylko przyszle eventy w statusach `submitted` / `validated`, czyli eventy niezatwierdzone planistycznie,
+    - wymagania i przypisania pokazuja nazwy sprzetu, skillow, osob, pojazdow i assetow zamiast UUID,
+    - widok czterech planow zastapiono porownaniem `Baseline ORM planner plan` vs `Optimized plan` ze switchem,
+    - surowe teksty typu `Profile balanced selected with plan_score=...` zostaly usuniete z UI,
+    - krok review zasobow sortuje opcje po rekomendacji, usuwa juz wybrane zasoby z innych pozycji i pokazuje zmieniajacy sie koszt review.
+  - Planner / ML backend:
+    - scoring planow nie splaszcza juz wszystkich wykonalnych profili do `100.0000`, wiec profile maja rozroznialne wyniki,
+    - metryki profili dostaly wplyw na przewidywany czas i ryzyko, co potwierdzono w 3 scenariuszach live,
+    - `assignment_overrides` przelicza koszt przypisania na podstawie wybranego zasobu, a nie zostawia stalej wartosci planu.
+  - Live replanning i post-event:
+    - opis eventu dla live/post-event korzysta z przypisan zasobow, kiedy event jest `planned` / `in_progress` / `completed`,
+    - dodano `GET /api/events/{event_id}/assignments`, ktory zwraca nazwane osoby, sprzet i pojazdy,
+    - CP-08 SQL seed dodaje przykladowe przypisania do eventow live, zeby dashboard i replan pokazywaly realne zasoby.
+  - Dane lokalne:
+    - dodano `scripts/sql/cp08_business_event_names_and_planning_state.sql`, idempotentny patch bez resetu DB,
+    - eventy seedowe dostaly nazwy biznesowe typu `Krakow Music Night` zamiast `OP-037`,
+    - przyszle eventy seedowe wracaja do statusow `submitted` / `validated`, a stare przyszle przypisania sa czyszczone.
+  - My account / ML model:
+    - ekran preferuje model `active` zamiast najnowszego `deprecated`,
+    - retraining admina wysyla `force_activate: true`, a backend aktywuje nowy model po recznym treningu,
+    - metryki obiektowe/array nie pokazuja juz `[object Object]`, tylko czytelny tekst.
+  - VPS / sekrety:
+    - README opisuje przechowywanie kluczy API w `.env` na VPS albo managerze sekretow,
+    - `.env` nie jest commitowany, a Docker Compose przekazuje sekrety przez `env_file` do backendu i workerow,
+    - README zawiera patch CP-08 w lokalnym skrypcie i instrukcji aktualizacji istniejacej bazy VPS.
+- Walidacja wykonania:
+  - Frontend:
+    - `npm.cmd run typecheck` -> passed,
+    - `npm.cmd run lint` -> 0 errors, 1 existing warning `react-refresh/only-export-components` w `frontend/src/lib/auth.tsx`,
+    - `npm.cmd run build` -> passed; Vite ostrzega tylko o duzym chunku 658.37 kB.
+  - Backend / regresja:
+    - `python -m py_compile app/api/events.py app/schemas/assignments.py app/schemas/ml_models.py app/api/ml_models.py app/services/ml_training_service.py app/services/planner_generation_service.py tests/test_phase8_frontend_cp08.py` -> passed,
+    - `docker exec -e READY_CHECK_EXTERNALS=false -e CELERY_ALWAYS_EAGER=true eventflow-backend pytest -q tests/test_phase8_frontend_cp08.py tests/test_phase8_frontend_cp07.py tests/test_phase8_frontend_cp06.py` -> 9 passed.
+  - Live smoke lokalny Docker/API:
+    - `/ready` -> ok,
+    - CP-08 SQL patch -> `UPDATE 60`, `INSERT 8` person assignments, `INSERT 8` equipment assignments, `INSERT 8` vehicle assignments,
+    - endpoint `/api/events/{event_id}/assignments` dla live eventu `Warsaw Executive Summit` -> 3 przypisania z nazwami zasobow,
+    - 3 scenariusze planner/ML po rebuildzie backendu:
+      - `Poznan Retail Roadshow`: selected `reliability_first`, duration `504.3574`, incident risk `0.2450`, score `87.2042`,
+      - `Wroclaw Investor Day`: selected `reliability_first`, duration `524.4408`, incident risk `0.3100`, score `84.2464`,
+      - `Lodz Design Forum`: selected `reliability_first`, duration `490.7917`, incident risk `0.1300`, score `90.6441`.
+
+- [2026-05-09] Zakonczono CP-08 FE Fazy 8 (ML planner influence, before/after UX, resource names, active retraining, live assignments and VPS secret handling).
+  Cel: usunac ID z glownego UI, dopiac realne porownanie planowania, poprawic aktywacje modelu ML oraz przygotowac lokalne dane i README pod wdrozenie VPS.

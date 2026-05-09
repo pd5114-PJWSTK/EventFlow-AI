@@ -98,6 +98,7 @@ class RetrainDurationModelRequest(BaseModel):
     min_samples_required: int | None = Field(default=None, ge=1)
     min_r2_improvement: float | None = None
     max_mae_ratio: float | None = Field(default=None, gt=0)
+    force_activate: bool = False
 
 
 class RetrainDurationModelResponse(BaseModel):

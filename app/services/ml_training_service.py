@@ -428,6 +428,7 @@ def retrain_duration_model(
     min_samples_required: int | None = None,
     min_r2_improvement: float | None = None,
     max_mae_ratio: float | None = None,
+    force_activate: bool = False,
 ) -> RetrainDurationModelResult:
     settings = get_settings()
     effective_min_samples = (
@@ -477,6 +478,13 @@ def retrain_duration_model(
         min_r2_improvement=effective_min_r2_improvement,
         max_mae_ratio=effective_max_mae_ratio,
     )
+
+    if force_activate:
+        activation = {
+            **activation,
+            "activate": True,
+            "reason": f"Activated by admin training request. Evaluation note: {activation['reason']}",
+        }
 
     if activation["activate"]:
         if baseline_active is not None:

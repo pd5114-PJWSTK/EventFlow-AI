@@ -41,6 +41,12 @@ function titleCaseMetric(key: string): string {
 }
 
 function metricValue(key: string, value: unknown): string {
+  if (Array.isArray(value)) return value.map((item) => String(item).replace(/_/g, " ")).join(", ");
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return "No data";
+    return entries.map(([entryKey, entryValue]) => `${titleCaseMetric(entryKey)}: ${metricValue(entryKey, entryValue)}`).join("; ");
+  }
   if (typeof value !== "number") return String(value ?? "No data");
   if (key.includes("r2")) return formatNumber(value, 3);
   if (key.includes("minutes")) return `${formatNumber(value, 1)} min`;
@@ -71,7 +77,8 @@ function metricRows(metrics: Record<string, unknown>): Array<{ label: string; va
 }
 
 function pickDisplayedModel(models: ModelRegistryItem[]): ModelRegistryItem | undefined {
-  return [...models].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+  const sorted = [...models].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return sorted.find((model) => model.status === "active") || sorted[0];
 }
 
 function llmStatusMessage(status: LlmStatus): string {
@@ -117,11 +124,12 @@ export function MePage(): JSX.Element {
     setError(null);
     setSuccess(null);
     try {
-      await api.request("POST", "/api/ml/models/retrain-duration", {
+      const result = await api.request<{ model?: ModelRegistryItem; decision_reason?: string }>("POST", "/api/ml/models/retrain-duration", {
         model_name: displayedModel?.model_name || "event_duration_baseline",
+        force_activate: true,
       });
       await load();
-      setSuccess(`The model was retrained and the registry was refreshed. ${trainingSummary(displayedModel)}`);
+      setSuccess(`The model was retrained, activated and the registry was refreshed. ${result.decision_reason || trainingSummary(result.model || displayedModel)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start model training.");
     } finally {

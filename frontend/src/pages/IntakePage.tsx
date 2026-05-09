@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 
 import { BackCornerButton } from "../components/BackCornerButton";
@@ -7,7 +7,7 @@ import { useAuth } from "../lib/auth";
 import { formatDateInput, fromDateInput, parserSourceLabel } from "../lib/format";
 import { useSessionState } from "../lib/useSessionState";
 import { validateBusinessText, validateCity, validateNonNegativeNumber } from "../lib/validation";
-import type { EventDraft, IntakeCommitResponse, IntakePreviewResponse } from "../types/api";
+import type { EquipmentTypeItem, EventDraft, IntakeCommitResponse, IntakePreviewResponse, ListResponse, SkillItem } from "../types/api";
 
 const EMPTY_TEXT = `Executive product launch for ACME in Gdansk at Amber Expo on 2026-07-20 from 09:00 to 18:00 for 420 attendees, budget 85000 PLN. Need two coordinators, one audio technician, LED screens and one van.`;
 
@@ -63,9 +63,26 @@ export function IntakePage(): JSX.Element {
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [equipmentTypes, setEquipmentTypes] = useState<EquipmentTypeItem[]>([]);
+  const [skills, setSkills] = useState<SkillItem[]>([]);
 
   const hasDraft = Boolean(draft);
   const canAdd = hasDraft && checked && Object.keys(fieldErrors).length === 0;
+
+  useEffect(() => {
+    const loadCatalogs = async (): Promise<void> => {
+      const [equipmentTypesData, skillsData] = await Promise.all([
+        api.request<ListResponse<EquipmentTypeItem>>("GET", "/api/resources/equipment-types?limit=100"),
+        api.request<ListResponse<SkillItem>>("GET", "/api/resources/skills?limit=100"),
+      ]);
+      setEquipmentTypes(equipmentTypesData.items);
+      setSkills(skillsData.items);
+    };
+    void loadCatalogs().catch(() => {
+      setEquipmentTypes([]);
+      setSkills([]);
+    });
+  }, [api]);
 
   const resetFlow = (message?: string): void => {
     setDraft(null);
@@ -136,9 +153,9 @@ export function IntakePage(): JSX.Element {
       const quantityError = validateNonNegativeNumber(requirement.quantity, `Requirement ${index + 1} quantity`, true);
       if (quantityError || Number(requirement.quantity) <= 0) nextErrors[`${prefix}.quantity`] = quantityError || "Quantity must be greater than zero.";
       if (requirement.requirement_type === "person_role" && !requirement.role_required) nextErrors[`${prefix}.role_required`] = "Select a person role.";
-      if (requirement.requirement_type === "equipment_type" && !cleanEquipmentName(requirement.equipment_type_id).trim()) nextErrors[`${prefix}.equipment_type_id`] = "Enter equipment type.";
+      if (requirement.requirement_type === "equipment_type" && !requirement.equipment_type_id) nextErrors[`${prefix}.equipment_type_id`] = "Select equipment type.";
       if (requirement.requirement_type === "vehicle_type" && !requirement.vehicle_type_required) nextErrors[`${prefix}.vehicle_type_required`] = "Select a vehicle type.";
-      if (requirement.requirement_type === "person_skill" && !requirement.skill_id) nextErrors[`${prefix}.skill_id`] = "Enter skill identifier or switch to person role.";
+      if (requirement.requirement_type === "person_skill" && !requirement.skill_id) nextErrors[`${prefix}.skill_id`] = "Select a skill or switch to person role.";
     });
     setFieldErrors(nextErrors);
     const isValid = Object.keys(nextErrors).length === 0;
@@ -273,13 +290,19 @@ export function IntakePage(): JSX.Element {
                     {requirement.requirement_type === "equipment_type" && (
                       <Grid item xs={12} md={3}>
                         <TextField
+                          select
                           label="Equipment type"
-                          value={cleanEquipmentName(requirement.equipment_type_id)}
-                          onChange={(event) => updateRequirement(index, { equipment_type_id: `__AUTO_EQUIPMENT_TYPE__::${event.target.value.trim().toLowerCase().replace(/\s+/g, "_")}` })}
+                          value={requirement.equipment_type_id || ""}
+                          onChange={(event) => updateRequirement(index, { equipment_type_id: event.target.value })}
                           error={Boolean(fieldErrors[`requirements.${index}.equipment_type_id`])}
                           helperText={fieldErrors[`requirements.${index}.equipment_type_id`]}
                           fullWidth
-                        />
+                        >
+                          {requirement.equipment_type_id && !equipmentTypes.some((item) => item.equipment_type_id === requirement.equipment_type_id) && (
+                            <MenuItem value={requirement.equipment_type_id}>{cleanEquipmentName(requirement.equipment_type_id)}</MenuItem>
+                          )}
+                          {equipmentTypes.map((item) => <MenuItem key={item.equipment_type_id} value={item.equipment_type_id}>{item.type_name}</MenuItem>)}
+                        </TextField>
                       </Grid>
                     )}
                     {requirement.requirement_type === "vehicle_type" && (
@@ -300,13 +323,19 @@ export function IntakePage(): JSX.Element {
                     {requirement.requirement_type === "person_skill" && (
                       <Grid item xs={12} md={3}>
                         <TextField
-                          label="Skill reference"
+                          select
+                          label="Skill"
                           value={requirement.skill_id || ""}
                           onChange={(event) => updateRequirement(index, { skill_id: event.target.value })}
                           error={Boolean(fieldErrors[`requirements.${index}.skill_id`])}
-                          helperText={fieldErrors[`requirements.${index}.skill_id`] || "Use a skill ID or change the requirement type."}
+                          helperText={fieldErrors[`requirements.${index}.skill_id`] || "Select the business skill required for this role."}
                           fullWidth
-                        />
+                        >
+                          {requirement.skill_id && !skills.some((item) => item.skill_id === requirement.skill_id) && (
+                            <MenuItem value={requirement.skill_id}>{humanize(requirement.skill_id)}</MenuItem>
+                          )}
+                          {skills.map((item) => <MenuItem key={item.skill_id} value={item.skill_id}>{item.skill_name}</MenuItem>)}
+                        </TextField>
                       </Grid>
                     )}
                     <Grid item xs={12} md={2}>

@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.middleware.rbac import get_current_auth_payload
-from app.models.core import EventStatus
+from app.models.core import Assignment, EventStatus
+from app.schemas.assignments import EventAssignmentListResponse, EventAssignmentRead
 from app.schemas.events import EventCreate, EventListResponse, EventRead, EventUpdate
 from app.schemas.requirements import EventRequirementCreate, EventRequirementListResponse, EventRequirementRead, EventRequirementUpdate
 from app.services.event_service import EventValidationError, create_event, delete_event, get_event, list_events, update_event
@@ -105,6 +106,47 @@ def list_event_requirements_endpoint(
     except RequirementValidationError as exc:
         raise _bad_request(exc) from exc
     return EventRequirementListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/{event_id}/assignments", response_model=EventAssignmentListResponse)
+def list_event_assignments_endpoint(
+    event_id: str,
+    db: Session = Depends(get_db),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> EventAssignmentListResponse:
+    event = get_event(db, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    query = db.query(Assignment).filter(Assignment.event_id == event_id).order_by(Assignment.planned_start.asc())
+    total = query.count()
+    rows = query.offset(offset).limit(limit).all()
+    items = [
+        EventAssignmentRead(
+            assignment_id=row.assignment_id,
+            event_id=row.event_id,
+            resource_type=str(row.resource_type.value if hasattr(row.resource_type, "value") else row.resource_type),
+            person_id=row.person_id,
+            person_name=row.person.full_name if row.person else None,
+            equipment_id=row.equipment_id,
+            equipment_name=(
+                f"{row.equipment.equipment_type.type_name} {row.equipment.asset_tag or row.equipment.serial_number or ''}".strip()
+                if row.equipment and row.equipment.equipment_type
+                else None
+            ),
+            vehicle_id=row.vehicle_id,
+            vehicle_name=row.vehicle.vehicle_name if row.vehicle else None,
+            assignment_role=row.assignment_role,
+            planned_start=row.planned_start,
+            planned_end=row.planned_end,
+            status=str(row.status.value if hasattr(row.status, "value") else row.status),
+            is_consumed_in_execution=row.is_consumed_in_execution,
+            notes=row.notes,
+        )
+        for row in rows
+    ]
+    return EventAssignmentListResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{event_id}/requirements/{requirement_id}", response_model=EventRequirementRead)

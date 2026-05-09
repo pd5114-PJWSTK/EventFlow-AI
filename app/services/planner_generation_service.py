@@ -621,6 +621,14 @@ def recommend_best_plan_with_ml(
             coverage_ratio=coverage_ratio,
             estimated_cost=solved.estimated_cost,
         )
+        profile_duration_multiplier = (
+            Decimal("1")
+            - Decimal(str(profile["reliability_bias"])) * Decimal("0.08")
+            + Decimal(str(profile["risk_bias"])) * Decimal("0.04")
+        )
+        predicted_duration_minutes = (
+            predicted_duration_minutes * max(profile_duration_multiplier, Decimal("0.80"))
+        ).quantize(Decimal("0.0001"))
         duration_breakdown = _duration_breakdown(
             event=event,
             event_feature=event_feature,
@@ -732,7 +740,12 @@ def recommend_best_plan_with_ml(
     selected = candidate_results[0]
     selected_result: PlannerResult = selected["planner_result"]
     if assignment_overrides:
-        selected_result = _apply_assignment_overrides(selected_result, assignment_overrides)
+        selected_result = _apply_assignment_overrides(
+            db=db,
+            event=event,
+            result=selected_result,
+            overrides=assignment_overrides,
+        )
     recommendation = _create_recommendation(
         db=db,
         event=event,
@@ -905,7 +918,11 @@ def _create_recommendation(
 
 
 def _apply_assignment_overrides(
-    result: PlannerResult, overrides: list[dict[str, Any]]
+    *,
+    db: Session,
+    event: Event,
+    result: PlannerResult,
+    overrides: list[dict[str, Any]],
 ) -> PlannerResult:
     override_by_requirement = {
         str(item.get("requirement_id")): [
@@ -913,6 +930,11 @@ def _apply_assignment_overrides(
             for resource_id in item.get("resource_ids", [])
             if str(resource_id).strip()
         ]
+        for item in overrides
+        if item.get("requirement_id")
+    }
+    resource_type_by_requirement = {
+        str(item.get("requirement_id")): str(item.get("resource_type") or "")
         for item in overrides
         if item.get("requirement_id")
     }
@@ -924,6 +946,13 @@ def _apply_assignment_overrides(
         resource_ids = override_by_requirement.get(
             assignment.requirement_id, assignment.resource_ids
         )
+        estimated_cost = _override_assignment_cost(
+            db=db,
+            event=event,
+            resource_type=resource_type_by_requirement.get(assignment.requirement_id, ""),
+            resource_ids=resource_ids,
+            fallback=assignment.estimated_cost,
+        )
         assignments.append(
             PlannerAssignment(
                 requirement_id=assignment.requirement_id,
@@ -931,17 +960,46 @@ def _apply_assignment_overrides(
                 unassigned_count=max(assignment.unassigned_count - len(resource_ids), 0)
                 if resource_ids
                 else assignment.unassigned_count,
-                estimated_cost=assignment.estimated_cost,
+                estimated_cost=estimated_cost,
             )
         )
+    estimated_total = sum((assignment.estimated_cost for assignment in assignments), Decimal("0"))
     return PlannerResult(
         plan_id=result.plan_id,
         solver=result.solver,
         assignments=assignments,
-        estimated_cost=result.estimated_cost,
+        estimated_cost=_money(estimated_total) if estimated_total > 0 else result.estimated_cost,
         duration_ms=result.duration_ms,
         fallback_reason=result.fallback_reason,
     )
+
+
+def _override_assignment_cost(
+    *,
+    db: Session,
+    event: Event,
+    resource_type: str,
+    resource_ids: list[str],
+    fallback: Decimal,
+) -> Decimal:
+    if not resource_ids:
+        return fallback
+    duration_hours = Decimal(str(max((event.planned_end - event.planned_start).total_seconds(), 0) / 3600.0))
+    total = Decimal("0")
+    for resource_id in resource_ids:
+        if resource_type == "person":
+            person = db.get(ResourcePerson, resource_id)
+            if person and person.cost_per_hour is not None:
+                total += person.cost_per_hour * duration_hours
+        elif resource_type == "equipment":
+            equipment = db.get(Equipment, resource_id)
+            if equipment and equipment.hourly_cost_estimate is not None:
+                total += equipment.hourly_cost_estimate * duration_hours
+        elif resource_type == "vehicle":
+            vehicle = db.get(Vehicle, resource_id)
+            if vehicle and vehicle.cost_per_hour is not None:
+                total += vehicle.cost_per_hour * duration_hours
+    return _money(total) if total > 0 else fallback
 
 
 def _commit_assignments(
@@ -2139,9 +2197,12 @@ def _plan_score(
         + risk_norm * risk_weight
     )
     score = Decimal("100") * (Decimal("1") - weighted_penalty)
-    score += coverage_ratio * Decimal("8")
-    score += ml_quality_score * Decimal("0.15")
-    score += Decimal(str(float(profile["reliability_bias"]))) * Decimal("10")
+    # Keep the score inside the 0-100 business scale without flattening all
+    # feasible plans to 100. CP-08 compares baseline vs optimized plans, so the
+    # ranking must expose meaningful ML/profile differences instead of ties.
+    score += (coverage_ratio - Decimal("0.90")) * Decimal("6")
+    score += ml_quality_score * Decimal("0.05")
+    score += Decimal(str(float(profile["reliability_bias"]))) * Decimal("8")
     score = min(max(score, Decimal("0")), Decimal("100"))
     return score.quantize(Decimal("0.0001"))
 

@@ -132,6 +132,7 @@ def retrain_duration_model_endpoint(
             min_samples_required=payload.min_samples_required,
             min_r2_improvement=payload.min_r2_improvement,
             max_mae_ratio=payload.max_mae_ratio,
+            force_activate=payload.force_activate,
         )
         return RetrainDurationModelResponse(
             model=result.model,

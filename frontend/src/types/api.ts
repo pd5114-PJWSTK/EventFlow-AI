@@ -67,6 +67,24 @@ export interface EventRequirementItem {
   created_at?: string | null;
 }
 
+export interface EventAssignmentItem {
+  assignment_id: string;
+  event_id: string;
+  resource_type: "person" | "equipment" | "vehicle" | string;
+  person_id?: string | null;
+  person_name?: string | null;
+  equipment_id?: string | null;
+  equipment_name?: string | null;
+  vehicle_id?: string | null;
+  vehicle_name?: string | null;
+  assignment_role?: string | null;
+  planned_start: string;
+  planned_end: string;
+  status: string;
+  is_consumed_in_execution: boolean;
+  notes?: string | null;
+}
+
 export interface LocationItem {
   location_id: string;
   name?: string | null;

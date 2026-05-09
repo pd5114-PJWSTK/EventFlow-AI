@@ -59,9 +59,9 @@ Z katalogu projektu:
 powershell -ExecutionPolicy Bypass -File .\scripts\start-local-test-env.ps1
 ```
 
-Skrypt uruchamia Docker Compose, czeka na `/ready`, aplikuje idempotentne patche `scripts/sql/cp04_production_readiness.sql`, `scripts/sql/cp05_operational_training_seed.sql`, `scripts/sql/cp06_operational_company_seed.sql` oraz `scripts/sql/cp07_operational_cleanup_and_live_events.sql`, a potem odpala Vite na `http://127.0.0.1:5173`.
+Skrypt uruchamia Docker Compose, czeka na `/ready`, aplikuje idempotentne patche `scripts/sql/cp04_production_readiness.sql`, `scripts/sql/cp05_operational_training_seed.sql`, `scripts/sql/cp06_operational_company_seed.sql`, `scripts/sql/cp07_operational_cleanup_and_live_events.sql` oraz `scripts/sql/cp08_business_event_names_and_planning_state.sql`, a potem odpala Vite na `http://127.0.0.1:5173`.
 
-CP-06 i CP-07 nie resetują wolumenu PostgreSQL. Patche porządkują istniejące dane operacyjne i utrzymują stan bazy: dodają zasoby firmy, uzupełniają pola eventów, usuwają puste smoke rekordy z checkpointów, dodają eventy `in_progress` dla live dashboardu i zostawiają przyszłe eventy `planned`. Jeżeli chcesz zachować lokalną bazę, nie używaj `docker compose down -v`.
+CP-06, CP-07 i CP-08 nie resetują wolumenu PostgreSQL. Patche porządkują istniejące dane operacyjne i utrzymują stan bazy: dodają zasoby firmy, uzupełniają pola eventów, usuwają puste smoke rekordy z checkpointów, dodają eventy `in_progress` dla live dashboardu i zostawiają przyszłe eventy w statusach gotowych do pierwszego planowania (`submitted`/`validated`). Jeżeli chcesz zachować lokalną bazę, nie używaj `docker compose down -v`.
 
 Opcje:
 ```powershell
@@ -162,6 +162,7 @@ npm run build
 1. Uzupełnij `.env` na podstawie `.env.production.example`.
 2. Upewnij się, że `APP_ENV=production`, `API_DOCS_ENABLED=false`, `API_TEST_JOBS_ENABLED=false`, `DEMO_ADMIN_ENABLED=false` i `JWT_SECRET_KEY` ma co najmniej 32 znaki.
 3. Jeżeli chcesz LLM live, ustaw `AI_AZURE_LLM_ENABLED=true` oraz komplet `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_DEPLOYMENT_LLM`.
+   Klucze API przechowuj wyłącznie w pliku `.env` na VPS albo w menedżerze sekretów dostawcy. Nie commituj `.env`; Docker Compose czyta wartości przez `env_file`, więc backend i workery dostaną je przy starcie kontenerów. Po zmianie klucza zrób `docker compose -f docker-compose.vps.yml up -d --build backend worker`.
 4. Uruchom:
 ```powershell
 docker compose -f docker-compose.vps.yml up --build -d
@@ -176,6 +177,8 @@ docker cp .\scripts\sql\cp06_operational_company_seed.sql projekt-postgres-1:/tm
 docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp06_operational_company_seed.sql
 docker cp .\scripts\sql\cp07_operational_cleanup_and_live_events.sql projekt-postgres-1:/tmp/cp07_operational_cleanup_and_live_events.sql
 docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp07_operational_cleanup_and_live_events.sql
+docker cp .\scripts\sql\cp08_business_event_names_and_planning_state.sql projekt-postgres-1:/tmp/cp08_business_event_names_and_planning_state.sql
+docker compose -f docker-compose.vps.yml exec -T postgres psql -U eventflow -d eventflow -v ON_ERROR_STOP=1 -f /tmp/cp08_business_event_names_and_planning_state.sql
 ```
 
 Używaj wariantu `docker cp` + `psql -f`, żeby PowerShell nie przekodował polskich znaków w SQL. Produkcja nie powinna kopiować `non_production/`, lokalnych cache, POC ani starego buildu frontendu. Te ścieżki są wykluczone w `.dockerignore`, a frontend ma osobny `frontend/.dockerignore`.
