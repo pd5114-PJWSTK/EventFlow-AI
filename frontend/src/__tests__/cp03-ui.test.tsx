@@ -9,13 +9,20 @@ import { MePage } from "../pages/MePage";
 import { UsersPage } from "../pages/UsersPage";
 
 const requestMock = vi.fn();
+const logoutMock = vi.fn();
+const logoutAllMock = vi.fn();
+const apiMock = {
+  request: requestMock,
+  logoutAll: logoutAllMock,
+};
+const authMock = {
+  me: { username: "admin", roles: ["admin", "manager"], is_superadmin: true },
+  logout: logoutMock,
+  api: apiMock,
+};
 
 vi.mock("../lib/auth", () => ({
-  useAuth: () => ({
-    me: { username: "admin", roles: ["admin", "manager"], is_superadmin: true },
-    logout: vi.fn(),
-    api: { request: requestMock, logoutAll: vi.fn() },
-  }),
+  useAuth: () => authMock,
 }));
 
 const eventList = {
@@ -44,6 +51,8 @@ const locationList = {
 describe("CP-05 business UI", () => {
   beforeEach(() => {
     requestMock.mockReset();
+    logoutMock.mockReset();
+    logoutAllMock.mockReset();
     sessionStorage.clear();
     requestMock.mockImplementation((_method: string, path: string) => {
       if (path.startsWith("/api/events")) return Promise.resolve(eventList);

@@ -1,5 +1,7 @@
 frontend/node_modules
 frontend/dist
+frontend/.vite
+frontend/coverage
 non_production
 .git
 __pycache__
@@ -8,5 +10,10 @@ __pycache__
 .deps
 .venv
 models
+backups
+.env
+.env.local
+.env.production
+.env.*.local
 poc_escape_dynamic
 poc_escape_dynamic_vps

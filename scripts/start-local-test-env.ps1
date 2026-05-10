@@ -1,6 +1,5 @@
 ﻿param(
-  [switch]$SkipBuild,
-  [switch]$SkipNpmInstall
+  [switch]$SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +12,7 @@ if (-not $SkipBuild) {
   $composeArgs += "--build"
 }
 
-Write-Host "[start] Uruchamianie backend stack przez docker compose..." -ForegroundColor Cyan
+Write-Host "[start] Starting the full app through docker compose..." -ForegroundColor Cyan
 docker @composeArgs
 
 $healthUrl = "http://127.0.0.1:8000/health"
@@ -36,39 +35,20 @@ for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
 }
 
 if (-not $ready) {
-  throw "Backend nie osiagnal statusu gotowosci pod $readyUrl."
+  throw "Backend did not reach readiness at $readyUrl."
 }
 
-$patches = @(
-  "scripts\sql\cp04_production_readiness.sql",
-  "scripts\sql\cp05_operational_training_seed.sql",
-  "scripts\sql\cp06_operational_company_seed.sql",
-  "scripts\sql\cp07_operational_cleanup_and_live_events.sql",
-  "scripts\sql\cp08_business_event_names_and_planning_state.sql"
-)
-foreach ($relativePatch in $patches) {
-  $patchPath = Join-Path $repoRoot $relativePatch
-  if (-not (Test-Path $patchPath)) {
-    continue
-  }
-  Write-Host "[start] Aplikacja patcha DB: $relativePatch" -ForegroundColor Cyan
+$patchPath = Join-Path $repoRoot "scripts\sql\production_upgrade.sql"
+if (Test-Path $patchPath) {
+  Write-Host "[start] Applying DB patch: scripts\sql\production_upgrade.sql" -ForegroundColor Cyan
   $dbUser = if ($env:POSTGRES_USER) { $env:POSTGRES_USER } else { "eventflow" }
   $dbName = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "eventflow" }
-  $containerPatchPath = "/tmp/" + (Split-Path -Leaf $patchPath)
+  $containerPatchPath = "/tmp/production_upgrade.sql"
   docker cp $patchPath "eventflow-postgres:$containerPatchPath"
   docker compose exec -T postgres psql -U $dbUser -d $dbName -v ON_ERROR_STOP=1 -f $containerPatchPath
 }
 
-Set-Location (Join-Path $repoRoot "frontend")
-
-if (-not $SkipNpmInstall -or -not (Test-Path "node_modules")) {
-  Write-Host "[start] Instalacja zaleznosci frontend..." -ForegroundColor Cyan
-  npm install
-}
-
-Write-Host "[ok] Backend gotowy: $healthUrl" -ForegroundColor Green
-Write-Host "[ok] Frontend dev: http://127.0.0.1:5173" -ForegroundColor Green
-Write-Host "[info] Logowanie domyslne: admin / Adm1nVPS_2026!Secure" -ForegroundColor Yellow
-Write-Host "[info] LLM lokalnie dziala tylko gdy AI_AZURE_LLM_ENABLED=true oraz Azure credentials sa ustawione w .env." -ForegroundColor Yellow
-
-npm run dev
+Write-Host "[ok] Backend: $healthUrl" -ForegroundColor Green
+Write-Host "[ok] Frontend: http://127.0.0.1:5173" -ForegroundColor Green
+Write-Host "[info] Canonical local runtime uses Docker Compose only; no local Python, venv or npm is required." -ForegroundColor Yellow
+Write-Host "[info] LLM works only when AI_AZURE_LLM_ENABLED=true and Azure credentials are set in .env." -ForegroundColor Yellow

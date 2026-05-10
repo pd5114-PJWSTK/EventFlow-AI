@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def test_phase8_frontend_cp07_cleanup_patch_preserves_db_state_and_adds_live_events() -> None:
-    patch = Path("scripts/sql/cp07_operational_cleanup_and_live_events.sql").read_text(encoding="utf-8")
+    patch = Path("scripts/sql/production_upgrade.sql").read_text(encoding="utf-8")
 
     assert "safe to re-run" in patch.lower()
     assert "'in_progress'::core.event_status" in patch
@@ -17,7 +17,7 @@ def test_phase8_frontend_cp07_cleanup_patch_preserves_db_state_and_adds_live_eve
 def test_phase8_frontend_cp07_start_script_applies_cleanup_patch() -> None:
     script = Path("scripts/start-local-test-env.ps1").read_text(encoding="utf-8")
 
-    assert "cp07_operational_cleanup_and_live_events.sql" in script
+    assert "production_upgrade.sql" in script
 
 
 def test_phase8_frontend_cp07_planner_contract_accepts_assignment_overrides() -> None:

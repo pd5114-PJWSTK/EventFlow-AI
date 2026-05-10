@@ -94,5 +94,28 @@ services:
     cap_drop:
       - ALL
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: eventflow-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+
+  frontend-check:
+    image: node:20-alpine
+    profiles:
+      - quality
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm ci && npm run typecheck && npm run lint && npm test && npm run build"
+
 volumes:
   postgres_data:
+  frontend_node_modules:

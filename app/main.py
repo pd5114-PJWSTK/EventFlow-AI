@@ -10,6 +10,7 @@ from app.api.locations import router as locations_router
 from app.api.ml_features import router as ml_features_router
 from app.api.ml_models import router as ml_models_router
 from app.api.ml_predictions import router as ml_predictions_router
+from app.api.ops_monitoring import router as ops_monitoring_router
 from app.api.planner import router as planner_router
 from app.api.resources import router as resources_router
 from app.api.runtime_ops import router as runtime_ops_router
@@ -36,6 +37,7 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_users_router)
+app.include_router(ops_monitoring_router)
 if settings.api_test_jobs_enabled:
     app.include_router(test_jobs_router, dependencies=[Depends(require_role(MANAGER_ROLES))])
 app.include_router(clients_router, dependencies=[Depends(require_role(PLANNING_ROLES))])

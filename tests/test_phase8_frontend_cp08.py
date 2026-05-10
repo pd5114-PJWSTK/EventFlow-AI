@@ -4,14 +4,16 @@ from pathlib import Path
 
 
 def test_phase8_frontend_cp08_sql_uses_business_names_and_unplanned_future_statuses() -> None:
-    patch = Path("scripts/sql/cp08_business_event_names_and_planning_state.sql").read_text(encoding="utf-8")
+    production_patch = Path("scripts/sql/production_upgrade.sql").read_text(encoding="utf-8")
+    patch = production_patch.split("-- Source: scripts\\sql\\cp08_business_event_names_and_planning_state.sql", 1)[1]
     script = Path("scripts/start-local-test-env.ps1").read_text(encoding="utf-8")
 
     assert "Krakow Music Night" in patch
+    assert "cp08_business_event_names_and_planning_state.sql" in production_patch
     assert "'submitted'::core.event_status" in patch
     assert "'validated'::core.event_status" in patch
     assert "OP-" not in patch
-    assert "cp08_business_event_names_and_planning_state.sql" in script
+    assert "production_upgrade.sql" in script
 
 
 def test_phase8_frontend_cp08_frontend_hides_resource_ids_in_operational_views() -> None:

@@ -115,7 +115,7 @@ def test_phase8_frontend_cp05_post_event_commit_does_not_500(api_client: TestCli
 
 
 def test_phase8_frontend_cp05_training_seed_contains_60_coherent_examples() -> None:
-    patch = Path("scripts/sql/cp05_operational_training_seed.sql").read_text(encoding="utf-8")
+    patch = Path("scripts/sql/production_upgrade.sql").read_text(encoding="utf-8")
 
     assert "generate_series(1, 60)" in patch
     assert "TRAIN-001" in patch

@@ -6,6 +6,9 @@ import { PostEventPage } from "../pages/PostEventPage";
 import { RuntimePage } from "../pages/RuntimePage";
 
 const requestMock = vi.fn();
+const apiMock = {
+  request: requestMock,
+};
 
 vi.mock("../components/EventSelect", () => ({
   EventSelect: ({ label, value, onChange }: { label: string; value: string; onChange: (eventId: string) => void }) => (
@@ -22,9 +25,7 @@ vi.mock("../components/EventDetailsCard", () => ({
 }));
 vi.mock("../lib/auth", () => ({
   useAuth: () => ({
-    api: {
-      request: requestMock,
-    },
+    api: apiMock,
   }),
 }));
 
@@ -49,6 +50,23 @@ const locationList = {
   items: [{ location_id: "loc-1", name: "Congress Centre", city: "Warsaw", location_type: "conference_center", parking_difficulty: 2, access_difficulty: 2, setup_complexity_score: 4 }],
   total: 1,
 };
+const peopleList = {
+  items: [{ person_id: "person-audio", full_name: "Audio Technician", role: "technician_audio", active: true, availability_status: "available", cost_per_hour: 90 }],
+  total: 1,
+};
+const equipmentTypeList = {
+  items: [{ equipment_type_id: "type-audio", type_name: "Audio kit" }],
+  total: 1,
+};
+const equipmentList = {
+  items: [{ equipment_id: "eq-audio", equipment_type_id: "type-audio", asset_tag: "Audio replacement kit", active: true, status: "available", hourly_cost_estimate: 120 }],
+  total: 1,
+};
+const vehicleList = {
+  items: [{ vehicle_id: "van-1", vehicle_name: "Service van", vehicle_type: "van", active: true, status: "available", cost_per_hour: 80 }],
+  total: 1,
+};
+const emptyList = { items: [], total: 0 };
 
 describe("Phase 8 CP-07 operator flows", () => {
   beforeEach(() => {
@@ -57,10 +75,12 @@ describe("Phase 8 CP-07 operator flows", () => {
     requestMock.mockImplementation((_method: string, path: string) => {
       if (path.startsWith("/api/events")) return Promise.resolve(eventList);
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
-      if (path.startsWith("/api/resources/people")) return Promise.resolve({ items: [], total: 0 });
-      if (path.startsWith("/api/resources/equipment")) return Promise.resolve({ items: [], total: 0 });
-      if (path.startsWith("/api/resources/vehicles")) return Promise.resolve({ items: [], total: 0 });
-      return Promise.resolve({});
+      if (path.startsWith("/api/resources/people")) return Promise.resolve(peopleList);
+      if (path.startsWith("/api/resources/equipment-types")) return Promise.resolve(equipmentTypeList);
+      if (path.startsWith("/api/resources/equipment")) return Promise.resolve(equipmentList);
+      if (path.startsWith("/api/resources/vehicles")) return Promise.resolve(vehicleList);
+      if (path.startsWith("/api/resources/skills")) return Promise.resolve(emptyList);
+      return Promise.resolve(emptyList);
     });
   });
 
@@ -68,18 +88,22 @@ describe("Phase 8 CP-07 operator flows", () => {
     requestMock.mockImplementation((method: string, path: string, body?: unknown) => {
       if (path.startsWith("/api/events")) return Promise.resolve(eventList);
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
-      if (path.startsWith("/api/resources/people")) return Promise.resolve({ items: [], total: 0 });
-      if (path.startsWith("/api/resources/equipment")) return Promise.resolve({ items: [], total: 0 });
-      if (path.startsWith("/api/resources/vehicles")) return Promise.resolve({ items: [], total: 0 });
+      if (path.includes("/requirements")) return Promise.resolve({ items: [{ requirement_id: "req-1", requirement_type: "person_role", role_required: "coordinator", quantity: 1 }], total: 1 });
+      if (path.includes("/assignments")) return Promise.resolve(emptyList);
+      if (path.startsWith("/api/resources/people")) return Promise.resolve(peopleList);
+      if (path.startsWith("/api/resources/equipment-types")) return Promise.resolve(equipmentTypeList);
+      if (path.startsWith("/api/resources/equipment")) return Promise.resolve(equipmentList);
+      if (path.startsWith("/api/resources/vehicles")) return Promise.resolve(vehicleList);
+      if (path.startsWith("/api/resources/skills")) return Promise.resolve(emptyList);
       if (path === "/api/planner/generate-plan") {
-        return Promise.resolve({ event_id: "event-123", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 10000 });
+        return Promise.resolve({ event_id: "event-123", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [{ requirement_id: "req-1", resource_type: "person", resource_ids: ["person-audio"], unassigned_count: 0, estimated_cost: 720 }], estimated_cost: 10000 });
       }
       if (path === "/api/planner/recommend-best-plan") {
         return Promise.resolve({
           event_id: "event-123",
           selected_candidate_name: "balanced",
           selected_explanation: "Lowest cost with full requirement coverage.",
-          selected_plan: { event_id: "event-123", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 10000 },
+          selected_plan: { event_id: "event-123", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [{ requirement_id: "req-1", resource_type: "person", resource_ids: ["person-audio"], unassigned_count: 0, estimated_cost: 720 }], estimated_cost: 10000 },
           candidates: [
             { candidate_name: "balanced", solver: "fallback", estimated_cost: 10000, estimated_duration_minutes: 480, predicted_delay_risk: 0.1, coverage_ratio: 1, plan_score: 90, selection_explanation: "Best cost and risk balance." },
             { candidate_name: "cost_guarded", solver: "fallback", estimated_cost: 9000, estimated_duration_minutes: 510, predicted_delay_risk: 0.15, coverage_ratio: 0.95, plan_score: 84, selection_explanation: "Lower cost with a little more risk." },
@@ -94,8 +118,8 @@ describe("Phase 8 CP-07 operator flows", () => {
     fireEvent.change(await screen.findByLabelText("Event to plan"), { target: { value: "event-123" } });
     fireEvent.click(screen.getByRole("button", { name: "Plan event" }));
 
-    await waitFor(() => expect(screen.getByText("Recommended plan")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Select plan" }));
+    await waitFor(() => expect(screen.getByText("Optimized plan")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Next: review resources" }));
     await waitFor(() => expect(screen.getByText("Review resource assignments before final approval")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Approve final plan" }));
 
@@ -108,13 +132,17 @@ describe("Phase 8 CP-07 operator flows", () => {
     requestMock.mockImplementation((_method: string, path: string) => {
       if (path.startsWith("/api/events")) return Promise.resolve({ ...eventList, items: [{ ...eventList.items[0], event_id: "evt-live", status: "planned" }] });
       if (path.startsWith("/api/locations")) return Promise.resolve(locationList);
+      if (path.startsWith("/api/resources/people")) return Promise.resolve(peopleList);
+      if (path.startsWith("/api/resources/equipment-types")) return Promise.resolve(equipmentTypeList);
+      if (path.startsWith("/api/resources/equipment")) return Promise.resolve(equipmentList);
+      if (path.startsWith("/api/resources/vehicles")) return Promise.resolve(vehicleList);
       if (path === "/api/runtime/events/evt-live/incident/parse") {
         return Promise.resolve({ event_id: "evt-live", incident_id: "inc-1", incident_type: "equipment_failure", severity: "medium", description: "Sound system failure", root_cause: "equipment", sla_impact: false, cost_impact: null, reported_by: "Jane", parser_mode: "llm", parse_confidence: 0.9 });
       }
       if (path === "/api/planner/replan/evt-live") {
-        return Promise.resolve({ event_id: "evt-live", comparison: { new_cost: 12000, cost_delta: 500, decision_note: "Recommended equipment replacement." }, generated_plan: { event_id: "evt-live", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [], estimated_cost: 12000 } });
+        return Promise.resolve({ event_id: "evt-live", comparison: { new_cost: 12000, cost_delta: 500, decision_note: "Recommended equipment replacement." }, generated_plan: { event_id: "evt-live", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [{ requirement_id: "req-audio", resource_type: "equipment", resource_ids: ["eq-audio"], unassigned_count: 0, estimated_cost: 960 }], estimated_cost: 12000 } });
       }
-      return Promise.resolve({});
+      return Promise.resolve(emptyList);
     });
 
     render(<RuntimePage />);
@@ -127,7 +155,7 @@ describe("Phase 8 CP-07 operator flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept incident" }));
 
     await waitFor(() => expect(screen.getByText("Replan recommendation")).toBeInTheDocument());
-    expect(screen.getByDisplayValue(/replacement audio kit/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/replacement audio equipment/i)).toBeInTheDocument();
   });
 
   it("runs post-event parse and commit flow", async () => {

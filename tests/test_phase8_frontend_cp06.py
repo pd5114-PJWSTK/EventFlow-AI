@@ -9,14 +9,15 @@ def test_phase8_frontend_cp06_security_report_moved_to_docs_reports() -> None:
 
 
 def test_phase8_frontend_cp06_operational_seed_keeps_database_state_and_adds_company_resources() -> None:
-    patch = Path("scripts/sql/cp06_operational_company_seed.sql").read_text(encoding="utf-8")
+    patch = Path("scripts/sql/production_upgrade.sql").read_text(encoding="utf-8")
+    cp06_section = patch.split("-- Source: scripts\\sql\\cp06_operational_company_seed.sql", 1)[1]
 
-    assert "Safe to re-run" in patch
-    assert "operational_seed_cp06" in patch
-    assert "resources_people" in patch
-    assert "core.equipment" in patch
-    assert "core.vehicles" in patch
-    assert "OP-001" in patch
-    assert "TRAIN-" not in patch
-    assert "DROP TABLE" not in patch.upper()
-    assert "TRUNCATE" not in patch.upper()
+    assert "Safe to re-run" in cp06_section
+    assert "operational_seed_cp06" in cp06_section
+    assert "resources_people" in cp06_section
+    assert "core.equipment" in cp06_section
+    assert "core.vehicles" in cp06_section
+    assert "OP-001" in cp06_section
+    assert "TRAIN-" not in cp06_section
+    assert "DROP TABLE" not in cp06_section.upper()
+    assert "TRUNCATE" not in cp06_section.upper()

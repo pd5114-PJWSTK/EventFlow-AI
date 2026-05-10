@@ -85,7 +85,7 @@ def test_phase8_frontend_cp04_post_event_parse_uses_idempotency(api_client: Test
 
 def test_phase8_frontend_cp04_sql_patches_create_idempotency_records() -> None:
     schema = Path("docker/postgres/init/01_schema.sql").read_text(encoding="utf-8")
-    patch = Path("scripts/sql/cp04_production_readiness.sql").read_text(encoding="utf-8")
+    patch = Path("scripts/sql/production_upgrade.sql").read_text(encoding="utf-8")
 
     assert "CREATE TABLE ops.idempotency_records" in schema
     assert "CREATE TABLE IF NOT EXISTS ops.idempotency_records" in patch

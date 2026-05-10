@@ -1754,3 +1754,24 @@ Wniosek: wymagania Fazy 1 sa wykonane.
 
 - [2026-05-09] Zakonczono CP-09 FE Fazy 8 (fallback assignmentow, strukturalne operator actions w replanowaniu, assigned-only event context i retrain model E2E).
   Cel: domknac pozostale luki CP-08 tak, aby planner nie zostawial pustych assignmentow przy dostepnych zasobach, a replanowanie mialo realne strukturalne decyzje operatora.
+
+## CP-10 / Phase 9 - production cleanup and VPS readiness
+
+- Merged `phase/8-frontend` into `main` with a fast-forward merge.
+- Cleaned local frontend build artifacts before merge; no source files were removed.
+- Consolidated checkpoint SQL patches into `scripts/sql/production_upgrade.sql` and moved originals to `non_production/checkpoint_sql/`.
+- Reduced active Python test set by moving historical Phase 2-6 checkpoint tests to `non_production/checkpoint_tests/`; current core, Phase 7, Phase 8 and Phase 9 tests remain active.
+- Added admin-only `GET /api/ops/monitoring` for DB, Redis and Celery status.
+- Added VPS operations docs: deployment, backup/restore, runbook, release/rollback and developer onboarding.
+- Added production backup/restore scripts under `scripts/ops/`.
+- Updated README for final local/VPS startup, LLM configuration, tests and production repository layout.
+- Updated `.gitignore`, `.dockerignore` and `pytest.ini` so local artifacts and non-production archives stay out of runtime/test paths.
+- Standardized all runtime and validation commands on Docker Compose via `scripts/start-local-test-env.ps1` and `scripts/run-quality-gates.ps1`; local `.venv`, global Python and global Node are no longer release paths.
+- Removed local `.venv` from the workspace because it is not required by the canonical Docker workflow.
+- Docker services were normalized to named containers: `eventflow-backend`, `eventflow-frontend`, `eventflow-postgres`, `eventflow-redis`, `eventflow-celery-worker`, `eventflow-celery-beat`.
+- Final validation:
+  - `docker compose config --quiet` -> passed.
+  - `docker compose -f docker-compose.vps.yml config --quiet` -> passed.
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\run-quality-gates.ps1` -> passed.
+  - Backend Docker tests -> 86 passed, 5 warnings.
+  - Frontend Docker checks -> typecheck passed, lint 0 errors / 1 existing warning, tests 13 passed, production build passed.
