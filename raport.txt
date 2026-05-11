@@ -1775,3 +1775,28 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - `powershell -ExecutionPolicy Bypass -File .\scripts\run-quality-gates.ps1` -> passed.
   - Backend Docker tests -> 86 passed, 5 warnings.
   - Frontend Docker checks -> typecheck passed, lint 0 errors / 1 existing warning, tests 13 passed, production build passed.
+
+## CP-11 - Event planning simplification and demo optimized plan
+
+- Simplified the main event planning flow:
+  - AI intake commit now creates events as `validated`, because the user has already checked the sheet before pressing `Add`.
+  - Event Planning now lists only future `validated` events and displays them as `Ready to plan`.
+  - `submitted` remains a backend compatibility status, but is no longer part of the main planning UI.
+- Extended planner responses:
+  - baseline and optimized plans expose the same business metrics: cost, duration, delay risk, incident risk, SLA risk, coverage, missing resources, assigned resources and plan quality.
+  - optimized responses include metric deltas versus baseline.
+  - assignment review is split into per-resource slots, so `3x technician_audio` becomes three editable rows.
+  - resource options in review come from backend candidate scoring and prevent duplicate slot selection.
+- Improved optimization mechanics:
+  - baseline remains cost/feasibility driven.
+  - optimized profiles now use a separate resource reliability signal, so reliable resources can be selected when they improve the balanced plan quality.
+  - backend rejects duplicate assignment overrides in a single plan.
+- Added idempotent demo data:
+  - `Demo-plan-event` with `source_channel='demo_cp11'`, status `validated`, three requirements, six demo audio technicians, four demo audio systems and one van.
+  - local DB patch was applied without resetting the PostgreSQL volume.
+- Validation:
+  - Targeted CP-11 backend tests -> 3 passed.
+  - Full quality gate `powershell -ExecutionPolicy Bypass -File .\scripts\run-quality-gates.ps1` -> passed.
+  - Backend Docker tests -> 89 passed, 5 warnings.
+  - Frontend Docker checks -> typecheck passed, lint 0 errors / 1 existing warning, tests 13 passed, production build passed.
+  - Live local smoke for `Demo-plan-event` -> baseline selected cheaper audio technicians `901-903`, optimized selected reliable technicians `904-906`, assignment slots count 6, cost delta `+1260 PLN`, plan quality delta `+5.9569`.

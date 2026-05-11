@@ -45,13 +45,17 @@ from app.models.ops import (
     ResourceCheckpoint,
 )
 from app.schemas.planner import (
+    AssignmentCandidateOption,
+    AssignmentSlot,
     GapResolutionPreviewResponse,
     GapResolutionGuidance,
     GapResolutionOption,
     GeneratedPlanAssignment,
     GeneratePlanResponse,
     PlanCandidateEvaluation,
+    PlanMetricDelta,
     PlanMetricComparison,
+    PlanMetrics,
     RequirementGapSummary,
     RecommendBestPlanResponse,
     ResolvePlanGapsRequest,
@@ -88,6 +92,14 @@ class ConsumedAssignment:
     resource_type: str
     resource_id: str
     estimated_cost: Decimal
+
+
+@dataclass(frozen=True)
+class _MetricEventFeature:
+    feature_attendee_count: int | None
+    feature_setup_complexity_score: int | None
+    feature_access_difficulty: int | None
+    feature_parking_difficulty: int | None
 
 
 _PRIORITY_LOCK_EVENT_STATUSES = {"planned", "confirmed", "in_progress"}
@@ -228,6 +240,18 @@ def generate_plan(
             assignment_ids=assignment_ids,
             transport_leg_ids=transport_leg_ids,
             estimated_cost=_money(result.estimated_cost),
+            metrics=_plan_metrics(
+                event=event,
+                event_feature=_metric_feature_for_event(event),
+                result=result,
+                planner_input=original_model,
+            ),
+            assignment_slots=_assignment_slots(
+                db=db,
+                event=event,
+                result=result,
+                planner_input=original_model,
+            ),
             gap_resolution=_build_gap_resolution_guidance(
                 db=db,
                 event=event,
@@ -622,6 +646,7 @@ def recommend_best_plan_with_ml(
             score_weight=profile["score_weight"],
             cost_weight=profile["cost_weight"],
             reliability_bias=profile["reliability_bias"],
+            risk_bias=profile["risk_bias"],
         )
         solved = PlannerService(policy=policy).solve(profiled_input)
         total_required = sum(max(requirement.quantity, 0) for requirement in profiled_input.requirements)
@@ -747,6 +772,7 @@ def recommend_best_plan_with_ml(
                 "guardrail_applied": guardrail_applied,
                 "guardrail_reason": guardrail_reason,
                 "selection_explanation": selection_explanation,
+                "profiled_input": profiled_input,
             }
         )
 
@@ -755,6 +781,13 @@ def recommend_best_plan_with_ml(
 
     candidate_results.sort(key=lambda item: item["plan_score"], reverse=True)
     selected = candidate_results[0]
+    baseline_result = PlannerService(policy=policy).solve(planner_input)
+    baseline_metrics = _plan_metrics(
+        event=event,
+        event_feature=event_feature,
+        result=baseline_result,
+        planner_input=planner_input,
+    )
     selected_result: PlannerResult = selected["planner_result"]
     if assignment_overrides:
         selected_result = _apply_assignment_overrides(
@@ -840,10 +873,17 @@ def recommend_best_plan_with_ml(
         assignments=[
             _response_assignment(assignment, requirement_by_id)
             for assignment in selected_result.assignments
-        ],
+            ],
         assignment_ids=assignment_ids,
         transport_leg_ids=transport_leg_ids,
         estimated_cost=_money(selected_result.estimated_cost),
+        metrics=_selected_plan_metrics(selected=selected, result=selected_result),
+        assignment_slots=_assignment_slots(
+            db=db,
+            event=event,
+            result=selected_result,
+            planner_input=selected["profiled_input"],
+        ),
         gap_resolution=_build_gap_resolution_guidance(
             db=db,
             event=event,
@@ -861,6 +901,9 @@ def recommend_best_plan_with_ml(
         selected_plan_score=selected["plan_score"].quantize(Decimal("0.0001")),
         selected_explanation=str(selected["selection_explanation"]),
         selected_plan=selected_plan,
+        baseline_metrics=baseline_metrics,
+        optimized_metrics=selected_plan.metrics,
+        metric_deltas=_metric_delta(baseline_metrics, selected_plan.metrics),
         candidates=[
             PlanCandidateEvaluation(
                 candidate_name=str(item["profile"]["name"]),
@@ -941,6 +984,7 @@ def _apply_assignment_overrides(
     result: PlannerResult,
     overrides: list[dict[str, Any]],
 ) -> PlannerResult:
+    _validate_override_resource_uniqueness(overrides)
     override_by_requirement = {
         str(item.get("requirement_id")): [
             str(resource_id)
@@ -960,6 +1004,7 @@ def _apply_assignment_overrides(
 
     assignments: list[PlannerAssignment] = []
     for assignment in result.assignments:
+        required_count = len(assignment.resource_ids) + assignment.unassigned_count
         resource_ids = override_by_requirement.get(
             assignment.requirement_id, assignment.resource_ids
         )
@@ -974,9 +1019,7 @@ def _apply_assignment_overrides(
             PlannerAssignment(
                 requirement_id=assignment.requirement_id,
                 resource_ids=resource_ids,
-                unassigned_count=max(assignment.unassigned_count - len(resource_ids), 0)
-                if resource_ids
-                else assignment.unassigned_count,
+                unassigned_count=max(required_count - len(resource_ids), 0),
                 estimated_cost=estimated_cost,
             )
         )
@@ -989,6 +1032,20 @@ def _apply_assignment_overrides(
         duration_ms=result.duration_ms,
         fallback_reason=result.fallback_reason,
     )
+
+
+def _validate_override_resource_uniqueness(overrides: list[dict[str, Any]]) -> None:
+    seen: set[tuple[str, str]] = set()
+    duplicates: list[str] = []
+    for item in overrides:
+        resource_type = str(item.get("resource_type") or "")
+        for resource_id in item.get("resource_ids", []):
+            key = (resource_type, str(resource_id))
+            if key in seen:
+                duplicates.append(str(resource_id))
+            seen.add(key)
+    if duplicates:
+        raise PlanGenerationError("The same resource cannot be assigned to multiple slots in one plan.")
 
 
 def _override_assignment_cost(
@@ -1624,6 +1681,206 @@ def _response_assignment(
     )
 
 
+def _metric_feature_for_event(event: Event) -> _MetricEventFeature:
+    location = event.location
+    return _MetricEventFeature(
+        feature_attendee_count=event.attendee_count,
+        feature_setup_complexity_score=getattr(location, "setup_complexity_score", 1) if location else 1,
+        feature_access_difficulty=getattr(location, "access_difficulty", 1) if location else 1,
+        feature_parking_difficulty=getattr(location, "parking_difficulty", 1) if location else 1,
+    )
+
+
+def _plan_metrics(
+    *,
+    event: Event,
+    event_feature,
+    result: PlannerResult,
+    planner_input: PlannerInput,
+    optimization_score: Decimal | None = None,
+) -> PlanMetrics:
+    total_required = sum(max(requirement.quantity, 0) for requirement in planner_input.requirements)
+    assigned_count = sum(len(assignment.resource_ids) for assignment in result.assignments)
+    missing_count = sum(assignment.unassigned_count for assignment in result.assignments)
+    coverage_ratio = Decimal("1.0000")
+    if total_required > 0:
+        coverage_ratio = _ratio_decimal(Decimal(assigned_count), Decimal(total_required))
+    base_duration = Decimal(max(_event_duration_minutes(event), 1))
+    estimated_duration = _candidate_duration_minutes(
+        base_duration_minutes=base_duration,
+        coverage_ratio=coverage_ratio,
+        estimated_cost=result.estimated_cost,
+    )
+    delay_risk = _candidate_delay_risk(
+        predicted_duration_minutes=estimated_duration,
+        event=event,
+        coverage_ratio=coverage_ratio,
+        unassigned_count=missing_count,
+        total_required=total_required,
+    )
+    incident_risk = _candidate_incident_risk(
+        event_feature=event_feature,
+        coverage_ratio=coverage_ratio,
+        unassigned_count=missing_count,
+        risk_bias=Decimal("0"),
+    )
+    sla_risk = _candidate_sla_risk(
+        delay_risk=delay_risk,
+        incident_risk=incident_risk,
+        event=event,
+        predicted_total_duration_minutes=estimated_duration,
+    )
+    score = optimization_score
+    if score is None:
+        score = _plan_score(
+            estimated_cost=result.estimated_cost,
+            total_duration_minutes=estimated_duration,
+            delay_risk=delay_risk,
+            incident_risk=incident_risk,
+            sla_breach_risk=sla_risk,
+            coverage_ratio=coverage_ratio,
+            ml_quality_score=Decimal("0"),
+            profile={"reliability_bias": 0.0},
+        )
+    return PlanMetrics(
+        estimated_cost=_money(result.estimated_cost),
+        estimated_duration_minutes=estimated_duration.quantize(Decimal("0.0001")),
+        predicted_delay_risk=delay_risk.quantize(Decimal("0.0001")),
+        predicted_incident_risk=incident_risk.quantize(Decimal("0.0001")),
+        predicted_sla_breach_risk=sla_risk.quantize(Decimal("0.0001")),
+        coverage_ratio=coverage_ratio.quantize(Decimal("0.0001")),
+        missing_resource_count=int(missing_count),
+        assigned_resource_count=int(assigned_count),
+        optimization_score=score.quantize(Decimal("0.0001")),
+    )
+
+
+def _metric_delta(baseline: PlanMetrics | None, optimized: PlanMetrics | None) -> PlanMetricDelta | None:
+    if baseline is None or optimized is None:
+        return None
+    return PlanMetricDelta(
+        estimated_cost=optimized.estimated_cost - baseline.estimated_cost,
+        estimated_duration_minutes=optimized.estimated_duration_minutes - baseline.estimated_duration_minutes,
+        predicted_delay_risk=optimized.predicted_delay_risk - baseline.predicted_delay_risk,
+        predicted_incident_risk=optimized.predicted_incident_risk - baseline.predicted_incident_risk,
+        predicted_sla_breach_risk=optimized.predicted_sla_breach_risk - baseline.predicted_sla_breach_risk,
+        coverage_ratio=optimized.coverage_ratio - baseline.coverage_ratio,
+        missing_resource_count=optimized.missing_resource_count - baseline.missing_resource_count,
+        assigned_resource_count=optimized.assigned_resource_count - baseline.assigned_resource_count,
+        optimization_score=optimized.optimization_score - baseline.optimization_score,
+    )
+
+
+def _selected_plan_metrics(*, selected: dict[str, Any], result: PlannerResult) -> PlanMetrics:
+    assigned_count = sum(len(assignment.resource_ids) for assignment in result.assignments)
+    return PlanMetrics(
+        estimated_cost=_money(result.estimated_cost),
+        estimated_duration_minutes=selected["predicted_duration_minutes"].quantize(Decimal("0.0001")),
+        predicted_delay_risk=selected["predicted_delay_risk"].quantize(Decimal("0.0001")),
+        predicted_incident_risk=selected["predicted_incident_risk"].quantize(Decimal("0.0001")),
+        predicted_sla_breach_risk=selected["predicted_sla_breach_risk"].quantize(Decimal("0.0001")),
+        coverage_ratio=selected["coverage_ratio"].quantize(Decimal("0.0001")),
+        missing_resource_count=int(selected["unassigned_count"]),
+        assigned_resource_count=int(assigned_count),
+        optimization_score=selected["plan_score"].quantize(Decimal("0.0001")),
+    )
+
+
+def _assignment_slots(
+    *,
+    db: Session,
+    event: Event,
+    result: PlannerResult,
+    planner_input: PlannerInput,
+) -> list[AssignmentSlot]:
+    requirement_by_id = {requirement.requirement_id: requirement for requirement in planner_input.requirements}
+    assignment_by_requirement = {assignment.requirement_id: assignment for assignment in result.assignments}
+    slots: list[AssignmentSlot] = []
+    for requirement in planner_input.requirements:
+        assignment = assignment_by_requirement.get(requirement.requirement_id)
+        selected_ids = list(assignment.resource_ids if assignment else [])
+        per_selected_cost = _money(_resource_cost_share(assignment)) if assignment and assignment.resource_ids else Decimal("0.00")
+        for index in range(max(requirement.quantity, 1)):
+            selected_resource_id = selected_ids[index] if index < len(selected_ids) else None
+            slots.append(
+                AssignmentSlot(
+                    requirement_id=requirement.requirement_id,
+                    slot_index=index + 1,
+                    resource_type=requirement.resource_type,
+                    business_label=_slot_label(requirement, index + 1),
+                    selected_resource_id=selected_resource_id,
+                    selected_resource_name=_resource_name(db, requirement.resource_type, selected_resource_id) if selected_resource_id else None,
+                    estimated_cost=per_selected_cost if selected_resource_id else Decimal("0.00"),
+                    candidate_options=[
+                        _candidate_option(db=db, event=event, requirement=requirement, candidate=candidate)
+                        for candidate in _ranked_slot_candidates(requirement)
+                    ],
+                )
+            )
+    return slots
+
+
+def _ranked_slot_candidates(requirement: PlannerRequirement) -> list[PlannerCandidate]:
+    return sorted(requirement.candidates, key=lambda item: (-item.score, item.cost_per_hour, item.resource_id))
+
+
+def _candidate_option(
+    *,
+    db: Session,
+    event: Event,
+    requirement: PlannerRequirement,
+    candidate: PlannerCandidate,
+) -> AssignmentCandidateOption:
+    score = min(max(candidate.score * Decimal("100"), Decimal("0")), Decimal("100"))
+    cost = _money(candidate.cost_per_hour * _planner_requirement_hours(event, requirement))
+    return AssignmentCandidateOption(
+        resource_id=candidate.resource_id,
+        resource_name=_resource_name(db, requirement.resource_type, candidate.resource_id),
+        recommendation_score=score.quantize(Decimal("0.01")),
+        estimated_cost=cost,
+        availability_note="Available for the required event window.",
+        why_recommended=_candidate_rationale(candidate),
+    )
+
+
+def _candidate_rationale(candidate: PlannerCandidate) -> str:
+    if candidate.reliability_score >= Decimal("0.20"):
+        return "Strong reliability history for event-critical work."
+    if candidate.reliability_score > Decimal("0"):
+        return "Good reliability profile with acceptable cost."
+    return "Cost-effective available resource for this requirement."
+
+
+def _slot_label(requirement: PlannerRequirement, slot_index: int) -> str:
+    base = requirement.resource_type.replace("_", " ").title()
+    return f"{base} {slot_index}"
+
+
+def _resource_name(db: Session, resource_type: str, resource_id: str | None) -> str:
+    if not resource_id:
+        return "No resource selected"
+    if resource_type == "person":
+        person = db.get(ResourcePerson, resource_id)
+        return person.full_name if person is not None else "Unknown person"
+    if resource_type == "equipment":
+        equipment = db.get(Equipment, resource_id)
+        if equipment is None:
+            return "Unknown equipment"
+        type_name = equipment.equipment_type.type_name if equipment.equipment_type else "Equipment"
+        return f"{type_name}{f' - {equipment.asset_tag}' if equipment.asset_tag else ''}"
+    if resource_type == "vehicle":
+        vehicle = db.get(Vehicle, resource_id)
+        return vehicle.vehicle_name if vehicle is not None else "Unknown vehicle"
+    return resource_id
+
+
+def _planner_requirement_hours(event: Event, requirement: PlannerRequirement) -> Decimal:
+    start = requirement.required_start or event.planned_start
+    end = requirement.required_end or event.planned_end
+    seconds = max((end - start).total_seconds(), 0)
+    return Decimal(str(seconds / 3600.0))
+
+
 def _assignment_resource_type(requirement: PlannerRequirement) -> AssignmentResourceType:
     if requirement.resource_type == "person":
         return AssignmentResourceType.person
@@ -1839,19 +2096,28 @@ def _apply_profile_to_planner_input(
     score_weight: float,
     cost_weight: float,
     reliability_bias: float,
+    risk_bias: float,
 ) -> PlannerInput:
     transformed_requirements: list[PlannerRequirement] = []
     for requirement in planner_input.requirements:
         transformed_candidates: list[PlannerCandidate] = []
         for candidate in requirement.candidates:
             base_score = float(candidate.score)
-            cost_penalty = float(candidate.cost_per_hour) * cost_weight
-            adjusted_score = max(base_score * score_weight - cost_penalty + reliability_bias, 0.0001)
+            reliability_score = float(candidate.reliability_score)
+            cost_penalty = (float(candidate.cost_per_hour) / 100.0) * cost_weight
+            reliability_weight = max(0.0, 0.15 + reliability_bias * 2.5 - risk_bias * 0.4)
+            adjusted_score = max(
+                base_score * score_weight
+                + reliability_score * reliability_weight
+                - cost_penalty,
+                0.0001,
+            )
             transformed_candidates.append(
                 PlannerCandidate(
                     resource_id=candidate.resource_id,
                     cost_per_hour=candidate.cost_per_hour,
                     score=Decimal(str(round(adjusted_score, 6))),
+                    reliability_score=candidate.reliability_score,
                     available_from=candidate.available_from,
                     available_to=candidate.available_to,
                 )

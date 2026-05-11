@@ -69,8 +69,8 @@ export function parserSourceLabel(parserMode?: string, usedFallback?: boolean): 
 export function translateStatus(value?: string | null): string {
   const map: Record<string, string> = {
     draft: "Draft",
-    submitted: "Submitted",
-    validated: "Validated",
+    submitted: "Needs review",
+    validated: "Ready to plan",
     planned: "Planned",
     confirmed: "Confirmed",
     in_progress: "In progress",

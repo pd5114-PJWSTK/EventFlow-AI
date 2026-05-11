@@ -61,6 +61,50 @@ class GeneratedPlanAssignment(BaseModel):
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
 
 
+class PlanMetrics(BaseModel):
+    estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    estimated_duration_minutes: Decimal = Field(default=Decimal("0.00"))
+    predicted_delay_risk: Decimal = Field(default=Decimal("0.00"))
+    predicted_incident_risk: Decimal = Field(default=Decimal("0.00"))
+    predicted_sla_breach_risk: Decimal = Field(default=Decimal("0.00"))
+    coverage_ratio: Decimal = Field(default=Decimal("0.00"))
+    missing_resource_count: int = 0
+    assigned_resource_count: int = 0
+    optimization_score: Decimal = Field(default=Decimal("0.00"))
+
+
+class PlanMetricDelta(BaseModel):
+    estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    estimated_duration_minutes: Decimal = Field(default=Decimal("0.00"))
+    predicted_delay_risk: Decimal = Field(default=Decimal("0.00"))
+    predicted_incident_risk: Decimal = Field(default=Decimal("0.00"))
+    predicted_sla_breach_risk: Decimal = Field(default=Decimal("0.00"))
+    coverage_ratio: Decimal = Field(default=Decimal("0.00"))
+    missing_resource_count: int = 0
+    assigned_resource_count: int = 0
+    optimization_score: Decimal = Field(default=Decimal("0.00"))
+
+
+class AssignmentCandidateOption(BaseModel):
+    resource_id: str
+    resource_name: str
+    recommendation_score: Decimal = Field(default=Decimal("0.00"))
+    estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    availability_note: str = "Available for this event window."
+    why_recommended: str = "Recommended by planner scoring."
+
+
+class AssignmentSlot(BaseModel):
+    requirement_id: str
+    slot_index: int
+    resource_type: str
+    business_label: str
+    selected_resource_id: str | None = None
+    selected_resource_name: str | None = None
+    estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    candidate_options: list[AssignmentCandidateOption] = Field(default_factory=list)
+
+
 class RequirementGapSummary(BaseModel):
     requirement_id: str
     resource_type: str
@@ -107,6 +151,8 @@ class GeneratePlanResponse(BaseModel):
     assignment_ids: list[str] = Field(default_factory=list)
     transport_leg_ids: list[str] = Field(default_factory=list)
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    metrics: PlanMetrics | None = None
+    assignment_slots: list[AssignmentSlot] = Field(default_factory=list)
     gap_resolution: GapResolutionGuidance | None = None
 
 
@@ -216,6 +262,9 @@ class RecommendBestPlanResponse(BaseModel):
     selected_plan_score: Decimal
     selected_explanation: str
     selected_plan: GeneratePlanResponse
+    baseline_metrics: PlanMetrics | None = None
+    optimized_metrics: PlanMetrics | None = None
+    metric_deltas: PlanMetricDelta | None = None
     candidates: list[PlanCandidateEvaluation] = Field(default_factory=list)
 
 

@@ -249,6 +249,50 @@ export interface GeneratedPlanAssignment {
   estimated_cost: string | number;
 }
 
+export interface PlanMetrics {
+  estimated_cost: string | number;
+  estimated_duration_minutes: string | number;
+  predicted_delay_risk: string | number;
+  predicted_incident_risk: string | number;
+  predicted_sla_breach_risk: string | number;
+  coverage_ratio: string | number;
+  missing_resource_count: number;
+  assigned_resource_count: number;
+  optimization_score: string | number;
+}
+
+export interface PlanMetricDelta {
+  estimated_cost: string | number;
+  estimated_duration_minutes: string | number;
+  predicted_delay_risk: string | number;
+  predicted_incident_risk: string | number;
+  predicted_sla_breach_risk: string | number;
+  coverage_ratio: string | number;
+  missing_resource_count: number;
+  assigned_resource_count: number;
+  optimization_score: string | number;
+}
+
+export interface AssignmentCandidateOption {
+  resource_id: string;
+  resource_name: string;
+  recommendation_score: string | number;
+  estimated_cost: string | number;
+  availability_note: string;
+  why_recommended: string;
+}
+
+export interface AssignmentSlot {
+  requirement_id: string;
+  slot_index: number;
+  resource_type: string;
+  business_label: string;
+  selected_resource_id?: string | null;
+  selected_resource_name?: string | null;
+  estimated_cost: string | number;
+  candidate_options: AssignmentCandidateOption[];
+}
+
 export interface GeneratedPlanResponse {
   event_id: string;
   planner_run_id: string;
@@ -258,6 +302,8 @@ export interface GeneratedPlanResponse {
   is_fully_assigned: boolean;
   assignments: GeneratedPlanAssignment[];
   estimated_cost: string | number;
+  metrics?: PlanMetrics | null;
+  assignment_slots?: AssignmentSlot[];
 }
 
 export interface PlanCandidate {
@@ -281,8 +327,12 @@ export interface PlanCandidate {
 export interface RecommendBestPlanResponse {
   event_id: string;
   selected_candidate_name: string;
+  selected_plan_score?: string | number;
   selected_explanation: string;
   selected_plan: GeneratedPlanResponse;
+  baseline_metrics?: PlanMetrics | null;
+  optimized_metrics?: PlanMetrics | null;
+  metric_deltas?: PlanMetricDelta | null;
   candidates: PlanCandidate[];
 }
 

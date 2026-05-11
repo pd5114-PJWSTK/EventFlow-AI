@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Chip, CircularProgress, ListSubheader, MenuItem, Stack, TextField } from "@mui/material";
 
 import { useAuth } from "../lib/auth";
-import { formatDateTime } from "../lib/format";
+import { formatDateTime, translateStatus } from "../lib/format";
 import type { EventItem, ListResponse, LocationItem } from "../types/api";
 
 type EventScope = "future" | "runtime" | "post-event";
@@ -17,7 +17,7 @@ interface EventSelectProps {
 }
 
 const LIVE_STATUSES = new Set(["confirmed", "in_progress"]);
-const PLANNING_STATUSES = new Set(["draft", "submitted", "validated"]);
+const PLANNING_STATUSES = new Set(["validated"]);
 const FUTURE_STATUSES = new Set(["draft", "submitted", "validated", "planned"]);
 const POST_EVENT_STATUSES = new Set(["completed"]);
 
@@ -104,7 +104,7 @@ export function EventSelect({ value, onChange, label, scope = "future", error, h
               <MenuItem key={event.event_id} value={event.event_id}>
                 <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ width: "100%" }}>
                   <span>{event.event_name} ({place}, {formatDateTime(event.planned_start)})</span>
-                  <Chip size="small" label={event.status.replace(/_/g, " ")} color={chipColor(event.status)} variant="outlined" />
+                  <Chip size="small" label={translateStatus(event.status)} color={chipColor(event.status)} variant="outlined" />
                 </Stack>
               </MenuItem>
             );

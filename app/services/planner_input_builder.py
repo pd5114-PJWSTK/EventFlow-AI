@@ -279,14 +279,13 @@ def _people_candidates(
             continue
 
         cost = _decimal_or_zero(getattr(person, "cost_per_hour", None))
-        score = _score_from_cost(cost) + _reliability_bonus(
-            getattr(person, "reliability_notes", None)
-        )
+        reliability_score = _reliability_bonus(getattr(person, "reliability_notes", None))
         candidates.append(
             PlannerCandidate(
                 resource_id=person.person_id,
                 cost_per_hour=cost,
-                score=score,
+                score=_score_from_cost(cost),
+                reliability_score=reliability_score,
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -325,6 +324,7 @@ def _fallback_people_candidates(
                 resource_id=person.person_id,
                 cost_per_hour=cost,
                 score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                reliability_score=_reliability_bonus(getattr(person, "reliability_notes", None)),
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -370,6 +370,7 @@ def _equipment_candidates(
                 resource_id=item.equipment_id,
                 cost_per_hour=cost,
                 score=_score_from_cost(cost),
+                reliability_score=Decimal("0.08") if getattr(item, "replacement_available", False) else Decimal("0"),
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -405,6 +406,7 @@ def _fallback_equipment_candidates(
                 resource_id=item.equipment_id,
                 cost_per_hour=cost,
                 score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                reliability_score=Decimal("0.08") if getattr(item, "replacement_available", False) else Decimal("0"),
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -460,6 +462,7 @@ def _vehicle_candidates(
                 resource_id=vehicle.vehicle_id,
                 cost_per_hour=cost,
                 score=_score_from_cost(cost),
+                reliability_score=Decimal("0.05"),
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -497,6 +500,7 @@ def _fallback_vehicle_candidates(
                 resource_id=vehicle.vehicle_id,
                 cost_per_hour=cost,
                 score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                reliability_score=Decimal("0.05"),
                 available_from=window.available_from,
                 available_to=window.available_to,
             )

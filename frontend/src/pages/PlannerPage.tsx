@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
-import { Alert, Box, Button, Grid, MenuItem, Paper, Stack, Switch, TextField, Typography } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, Switch, TextField, Typography } from "@mui/material";
 
 import { AnimatedPipeline } from "../components/AnimatedPipeline";
 import { BackCornerButton } from "../components/BackCornerButton";
@@ -12,6 +13,7 @@ import { useAuth } from "../lib/auth";
 import { formatDurationMinutes, formatMoney, formatNumber, formatPercent } from "../lib/format";
 import { useSessionState } from "../lib/useSessionState";
 import type {
+  AssignmentSlot,
   EquipmentItem,
   EquipmentTypeItem,
   EventAssignmentItem,
@@ -21,6 +23,8 @@ import type {
   ListResponse,
   PersonItem,
   PlanCandidate,
+  PlanMetricDelta,
+  PlanMetrics,
   RecommendBestPlanResponse,
   SkillItem,
   VehicleItem,
@@ -96,26 +100,75 @@ function selectedCandidate(recommendation: RecommendBestPlanResponse | null): Pl
   return recommendation.candidates.find((candidate) => candidate.candidate_name === recommendation.selected_candidate_name);
 }
 
-function baselineMetrics(plan: GeneratedPlanResponse | null): Array<{ label: string; value: string }> {
-  if (!plan) return [];
+function fallbackMetrics(plan: GeneratedPlanResponse | null): PlanMetrics | null {
+  if (!plan) return null;
+  const assigned = plan.assignments.reduce((sum, item) => sum + item.resource_ids.length, 0);
+  const missing = plan.assignments.reduce((sum, item) => sum + item.unassigned_count, 0);
+  const total = assigned + missing;
+  const coverage = total > 0 ? assigned / total : 1;
+  return {
+    estimated_cost: plan.estimated_cost,
+    estimated_duration_minutes: 0,
+    predicted_delay_risk: 0,
+    predicted_incident_risk: 0,
+    predicted_sla_breach_risk: 0,
+    coverage_ratio: coverage,
+    missing_resource_count: missing,
+    assigned_resource_count: assigned,
+    optimization_score: 0,
+  };
+}
+
+function metricRows(metrics: PlanMetrics | null | undefined): Array<{ label: string; value: string; helper?: string }> {
+  if (!metrics) return [];
   return [
-    { label: "Cost", value: formatMoney(plan.estimated_cost) },
-    { label: "Coverage", value: plan.is_fully_assigned ? "Full" : "Partial" },
-    { label: "Assignments", value: formatNumber(plan.assignments.reduce((sum, item) => sum + item.resource_ids.length, 0)) },
-    { label: "Solver", value: plan.solver },
+    { label: "Total cost", value: formatMoney(metrics.estimated_cost) },
+    { label: "Estimated duration", value: Number(metrics.estimated_duration_minutes) > 0 ? formatDurationMinutes(metrics.estimated_duration_minutes) : "Calculated in optimized run" },
+    { label: "Delay risk", value: formatPercent(metrics.predicted_delay_risk) },
+    { label: "Incident risk", value: formatPercent(metrics.predicted_incident_risk) },
+    { label: "SLA breach risk", value: formatPercent(metrics.predicted_sla_breach_risk) },
+    { label: "Requirement coverage", value: formatPercent(metrics.coverage_ratio), helper: "Share of required resource slots that are assigned." },
+    { label: "Missing resources", value: formatNumber(metrics.missing_resource_count) },
+    { label: "Assigned resources", value: formatNumber(metrics.assigned_resource_count) },
+    { label: "Plan quality", value: Number(metrics.optimization_score) > 0 ? `${formatNumber(metrics.optimization_score, 1)} / 100` : "Baseline" },
   ];
 }
 
-function optimizedMetrics(candidate: PlanCandidate | undefined, plan: GeneratedPlanResponse | null): Array<{ label: string; value: string }> {
-  if (!candidate || !plan) return baselineMetrics(plan);
+function deltaRows(delta?: PlanMetricDelta | null): Array<{ label: string; value: string; goodWhen: "negative" | "positive" }> {
+  if (!delta) return [];
   return [
-    { label: "Profile", value: candidateTitle(candidate.candidate_name) },
-    { label: "Cost", value: formatMoney(candidate.estimated_cost) },
-    { label: "Duration", value: formatDurationMinutes(candidate.estimated_duration_minutes) },
-    { label: "Delay risk", value: formatPercent(candidate.predicted_delay_risk) },
-    { label: "Coverage", value: formatPercent(candidate.coverage_ratio) },
-    { label: "Score", value: formatNumber(candidate.plan_score, 1) },
+    { label: "Cost", value: signedMoney(delta.estimated_cost), goodWhen: "negative" },
+    { label: "Duration", value: signedDuration(delta.estimated_duration_minutes), goodWhen: "negative" },
+    { label: "Delay risk", value: signedPercent(delta.predicted_delay_risk), goodWhen: "negative" },
+    { label: "Incident risk", value: signedPercent(delta.predicted_incident_risk), goodWhen: "negative" },
+    { label: "Coverage", value: signedPercent(delta.coverage_ratio), goodWhen: "positive" },
+    { label: "Plan quality", value: signedNumber(delta.optimization_score), goodWhen: "positive" },
   ];
+}
+
+function signedNumber(value: string | number): string {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "No data";
+  return `${numeric > 0 ? "+" : ""}${formatNumber(numeric, 1)}`;
+}
+
+function signedMoney(value: string | number): string {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "No data";
+  return `${numeric > 0 ? "+" : ""}${formatMoney(numeric)}`;
+}
+
+function signedDuration(value: string | number): string {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "No data";
+  return `${numeric > 0 ? "+" : ""}${formatDurationMinutes(numeric)}`;
+}
+
+function signedPercent(value: string | number): string {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "No data";
+  const percent = Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
+  return `${percent > 0 ? "+" : ""}${formatNumber(percent, 1)} pp`;
 }
 
 function optimizationNarrative(candidate: PlanCandidate | undefined): string {
@@ -127,57 +180,66 @@ function optimizationNarrative(candidate: PlanCandidate | undefined): string {
   return "The optimizer selected a balanced plan because it offers the best mix of cost, coverage and risk for the current event data.";
 }
 
-function resourceCost(resourceType: string, resourceId: string, people: PersonItem[], equipment: EquipmentItem[], vehicles: VehicleItem[]): number {
-  if (resourceType === "person") return Number(people.find((person) => person.person_id === resourceId)?.cost_per_hour || 0) * 8;
-  if (resourceType === "equipment") return Number(equipment.find((item) => item.equipment_id === resourceId)?.hourly_cost_estimate || 0) * 8;
-  return Number(vehicles.find((vehicle) => vehicle.vehicle_id === resourceId)?.cost_per_hour || 0) * 4;
+function sameAssignments(baseline: GeneratedPlanResponse | null, optimized: GeneratedPlanResponse | null): boolean {
+  if (!baseline || !optimized) return false;
+  return JSON.stringify(baseline.assignments.map((item) => [...item.resource_ids].sort()).sort()) === JSON.stringify(optimized.assignments.map((item) => [...item.resource_ids].sort()).sort());
 }
 
 function resourceOptions(
-  assignment: GeneratedPlanAssignment,
+  slot: AssignmentSlot,
   index: number,
-  assignmentDraft: GeneratedPlanAssignment[],
+  assignmentDraft: AssignmentSlot[],
   existingAssignments: EventAssignmentItem[],
-  people: PersonItem[],
-  equipment: EquipmentItem[],
-  vehicles: VehicleItem[],
-  resourceMap: Record<string, string>,
-): Array<{ id: string; label: string; score: number }> {
+): Array<{ id: string; label: string; score: number; cost: string | number; note: string }> {
   const usedInDraft = new Set(
-    assignmentDraft.flatMap((item, itemIndex) => itemIndex === index ? [] : item.resource_ids),
+    assignmentDraft.map((item, itemIndex) => itemIndex === index ? "" : item.selected_resource_id || "").filter(Boolean),
   );
   const usedInEvent = new Set(
     existingAssignments.map((item) => item.person_id || item.equipment_id || item.vehicle_id).filter(Boolean) as string[],
   );
-  const current = new Set(assignment.resource_ids);
-  const baseScore = (position: number, id: string, available = true): number => {
-    const selectedBoost = current.has(id) ? 18 : 0;
-    const availabilityPenalty = available ? 0 : 25;
-    return Math.max(35, 96 - position * 3 + selectedBoost - availabilityPenalty);
-  };
-  let rows: Array<{ id: string; label: string; score: number; available?: boolean }> = [];
-  if (assignment.resource_type === "person") {
-    rows = people.map((person, index) => ({
-      id: person.person_id,
-      label: resourceMap[person.person_id] || person.full_name,
-      score: baseScore(index, person.person_id, person.active && person.availability_status === "available"),
-    }));
-  } else if (assignment.resource_type === "equipment") {
-    rows = equipment.map((item, index) => ({
-      id: item.equipment_id,
-      label: resourceMap[item.equipment_id] || item.asset_tag || "Equipment",
-      score: baseScore(index, item.equipment_id, item.active && item.status === "available"),
-    }));
-  } else {
-    rows = vehicles.map((vehicle, index) => ({
-      id: vehicle.vehicle_id,
-      label: resourceMap[vehicle.vehicle_id] || vehicle.vehicle_name,
-      score: baseScore(index, vehicle.vehicle_id, vehicle.active && vehicle.status === "available"),
-    }));
-  }
-  return rows
-    .filter((row) => current.has(row.id) || (!usedInDraft.has(row.id) && !usedInEvent.has(row.id)))
+  return (slot.candidate_options || [])
+    .map((option) => ({
+      id: option.resource_id,
+      label: option.resource_name,
+      score: Number(option.recommendation_score),
+      cost: option.estimated_cost,
+      note: option.why_recommended,
+    }))
+    .filter((row) => row.id === slot.selected_resource_id || (!usedInDraft.has(row.id) && !usedInEvent.has(row.id)))
     .sort((a, b) => b.score - a.score);
+}
+
+function fallbackSlotsFromAssignments(plan: GeneratedPlanResponse, resourceMap: Record<string, string>, labelByRequirement: Record<string, string>): AssignmentSlot[] {
+  return plan.assignments.flatMap((assignment) => {
+    const selected = assignment.resource_ids.length > 0 ? assignment.resource_ids : Array.from({ length: assignment.unassigned_count }, () => "");
+    return selected.map((resourceId, index) => ({
+      requirement_id: assignment.requirement_id,
+      slot_index: index + 1,
+      resource_type: assignment.resource_type,
+      business_label: `${labelByRequirement[assignment.requirement_id] || humanize(assignment.resource_type)} ${index + 1}`,
+      selected_resource_id: resourceId || null,
+      selected_resource_name: resourceId ? resourceMap[resourceId] || "Unnamed resource" : null,
+      estimated_cost: assignment.resource_ids.length > 0 ? Number(assignment.estimated_cost) / assignment.resource_ids.length : 0,
+      candidate_options: resourceId ? [{
+        resource_id: resourceId,
+        resource_name: resourceMap[resourceId] || "Unnamed resource",
+        recommendation_score: 100,
+        estimated_cost: assignment.estimated_cost,
+        availability_note: "Selected by planner.",
+        why_recommended: "Selected by planner.",
+      }] : [],
+    }));
+  });
+}
+
+function groupedAssignmentOverrides(slots: AssignmentSlot[]): Array<{ requirement_id: string; resource_type: string; resource_ids: string[] }> {
+  const grouped = new Map<string, { requirement_id: string; resource_type: string; resource_ids: string[] }>();
+  slots.forEach((slot) => {
+    const current = grouped.get(slot.requirement_id) || { requirement_id: slot.requirement_id, resource_type: slot.resource_type, resource_ids: [] };
+    if (slot.selected_resource_id) current.resource_ids.push(slot.selected_resource_id);
+    grouped.set(slot.requirement_id, current);
+  });
+  return Array.from(grouped.values());
 }
 
 export function PlannerPage(): JSX.Element {
@@ -187,14 +249,11 @@ export function PlannerPage(): JSX.Element {
   const [recommendation, setRecommendation] = useSessionState<RecommendBestPlanResponse | null>("cp05.planner.recommendation", null);
   const [activeStep, setActiveStep] = useSessionState("cp05.planner.activeStep", 0);
   const [resourceMap, setResourceMap] = useSessionState<Record<string, string>>("cp06.planner.resourceMap", {});
-  const [people, setPeople] = useSessionState<PersonItem[]>("cp07.planner.people", []);
-  const [equipment, setEquipment] = useSessionState<EquipmentItem[]>("cp07.planner.equipment", []);
-  const [vehicles, setVehicles] = useSessionState<VehicleItem[]>("cp07.planner.vehicles", []);
   const [requirements, setRequirements] = useSessionState<EventRequirementItem[]>("cp08.planner.requirements", []);
   const [existingAssignments, setExistingAssignments] = useSessionState<EventAssignmentItem[]>("cp08.planner.assignments", []);
   const [equipmentTypeNames, setEquipmentTypeNames] = useSessionState<Record<string, string>>("cp08.planner.equipmentTypeNames", {});
   const [skillNames, setSkillNames] = useSessionState<Record<string, string>>("cp08.planner.skillNames", {});
-  const [assignmentDraft, setAssignmentDraft] = useSessionState<GeneratedPlanAssignment[]>("cp07.planner.assignmentDraft", []);
+  const [assignmentDraft, setAssignmentDraft] = useSessionState<AssignmentSlot[]>("cp11.planner.assignmentDraft", []);
   const [reviewAssignments, setReviewAssignments] = useSessionState("cp07.planner.reviewAssignments", false);
   const [showOptimized, setShowOptimized] = useSessionState("cp08.planner.showOptimized", true);
   const [success, setSuccess] = useState<string | null>(null);
@@ -207,11 +266,11 @@ export function PlannerPage(): JSX.Element {
   );
   const chosenCandidate = selectedCandidate(recommendation);
   const planInView = showOptimized && recommendation ? recommendation.selected_plan : previewPlan;
-  const metricsInView = showOptimized && recommendation ? optimizedMetrics(chosenCandidate, recommendation.selected_plan) : baselineMetrics(previewPlan);
-  const reviewEstimate = assignmentDraft.reduce((sum, item) => {
-    const selectedCost = item.resource_ids.reduce((resourceSum, resourceId) => resourceSum + resourceCost(item.resource_type, resourceId, people, equipment, vehicles), 0);
-    return sum + (selectedCost || Number(item.estimated_cost || 0));
-  }, 0);
+  const baselinePlanMetrics = recommendation?.baseline_metrics || previewPlan?.metrics || fallbackMetrics(previewPlan);
+  const optimizedPlanMetrics = recommendation?.optimized_metrics || recommendation?.selected_plan.metrics || fallbackMetrics(recommendation?.selected_plan || null);
+  const metricsInView = showOptimized && recommendation ? optimizedPlanMetrics : baselinePlanMetrics;
+  const reviewEstimate = assignmentDraft.reduce((sum, item) => sum + Number(item.estimated_cost || 0), 0);
+  const assignmentsIdentical = sameAssignments(previewPlan, recommendation?.selected_plan || null);
 
   const clearPlanState = (): void => {
     setPreviewPlan(null);
@@ -248,9 +307,6 @@ export function PlannerPage(): JSX.Element {
       api.request<ListResponse<EquipmentTypeItem>>("GET", "/api/resources/equipment-types?limit=100"),
       api.request<ListResponse<SkillItem>>("GET", "/api/resources/skills?limit=100"),
     ]);
-    setPeople(peopleData.items);
-    setEquipment(equipmentData.items);
-    setVehicles(vehiclesData.items);
     setRequirements(requirementsData.items);
     setExistingAssignments(assignmentsData.items);
     setEquipmentTypeNames(Object.fromEntries(equipmentTypesData.items.map((item) => [item.equipment_type_id, item.type_name])));
@@ -275,7 +331,11 @@ export function PlannerPage(): JSX.Element {
       await api.request("POST", "/api/ml/features/generate", { event_id: eventId, include_event_feature: true, include_resource_features: true });
       const recommended = await api.request<RecommendBestPlanResponse>("POST", "/api/planner/recommend-best-plan", { event_id: eventId, commit_to_assignments: false });
       setRecommendation(recommended);
-      setAssignmentDraft(recommended.selected_plan.assignments);
+      setAssignmentDraft(
+        recommended.selected_plan.assignment_slots && recommended.selected_plan.assignment_slots.length > 0
+          ? recommended.selected_plan.assignment_slots
+          : fallbackSlotsFromAssignments(recommended.selected_plan, resourceMap, labelByRequirement),
+      );
       setShowOptimized(true);
       setActiveStep(3);
     } catch (err) {
@@ -292,11 +352,7 @@ export function PlannerPage(): JSX.Element {
       await api.request<RecommendBestPlanResponse>("POST", "/api/planner/recommend-best-plan", {
         event_id: eventId,
         commit_to_assignments: true,
-        assignment_overrides: assignmentDraft.map((assignment) => ({
-          requirement_id: assignment.requirement_id,
-          resource_type: assignment.resource_type,
-          resource_ids: assignment.resource_ids,
-        })),
+        assignment_overrides: groupedAssignmentOverrides(assignmentDraft),
       });
       setActiveStep(4);
       resetFlow("The optimized plan and reviewed assignments were approved and saved.");
@@ -314,7 +370,16 @@ export function PlannerPage(): JSX.Element {
   };
 
   const updateAssignmentResource = (index: number, resourceId: string): void => {
-    setAssignmentDraft((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, resource_ids: resourceId ? [resourceId] : [], estimated_cost: resourceId ? resourceCost(item.resource_type, resourceId, people, equipment, vehicles) : item.estimated_cost } : item));
+    setAssignmentDraft((current) => current.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      const selected = item.candidate_options.find((option) => option.resource_id === resourceId);
+      return {
+        ...item,
+        selected_resource_id: resourceId || null,
+        selected_resource_name: selected?.resource_name || null,
+        estimated_cost: selected?.estimated_cost || 0,
+      };
+    }));
   };
 
   return (
@@ -346,15 +411,42 @@ export function PlannerPage(): JSX.Element {
                 </Stack>
               </Stack>
               <Grid container spacing={1.5}>
-                {metricsInView.map((metric) => <Grid item xs={12} sm={6} md={3} key={metric.label}><Metric label={metric.label} value={metric.value} /></Grid>)}
+                {metricRows(metricsInView).map((metric) => <Grid item xs={12} sm={6} md={4} key={metric.label}><Metric label={metric.label} value={metric.value} /></Grid>)}
               </Grid>
+              {recommendation.metric_deltas && (
+                <Stack spacing={1}>
+                  <Typography fontWeight={900}>Difference versus baseline</Typography>
+                  <Grid container spacing={1}>
+                    {deltaRows(recommendation.metric_deltas).map((metric) => (
+                      <Grid item xs={12} sm={6} md={2} key={metric.label}>
+                        <Chip label={`${metric.label}: ${metric.value}`} color={metric.value.startsWith("-") && metric.goodWhen === "negative" ? "success" : metric.value.startsWith("+") && metric.goodWhen === "positive" ? "success" : "default"} variant="outlined" />
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Stack>
+              )}
               <Stack spacing={0.75}>
                 <Typography fontWeight={900}>{showOptimized ? "Optimized resource assignment" : "Baseline resource assignment"}</Typography>
                 {planUsage(planInView, resourceMap, labelByRequirement).map((sentence) => <Typography key={sentence} color="text.secondary">{sentence}</Typography>)}
               </Stack>
+              {assignmentsIdentical && showOptimized && (
+                <Alert severity="info">Baseline was already optimal for the current data, so the optimizer kept the same resources and only recalculated the business risk and quality metrics.</Alert>
+              )}
               <Alert severity="info" icon={<CompareArrowsIcon />}>
                 Switch between baseline and optimized to compare cost, coverage, risk and assigned resources. Continue only after the optimized result is acceptable as a starting point.
               </Alert>
+              <Accordion variant="outlined">
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography fontWeight={800}>Technical details</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Stack spacing={0.5}>
+                    <Typography color="text.secondary">Baseline solver: {previewPlan.solver}</Typography>
+                    <Typography color="text.secondary">Optimized profile: {candidateTitle(chosenCandidate?.candidate_name)}</Typography>
+                    <Typography color="text.secondary">Optimized score: {formatNumber(recommendation.selected_plan_score, 1)} / 100</Typography>
+                  </Stack>
+                </AccordionDetails>
+              </Accordion>
             </Stack>
           </Paper>
           <Stack direction="row" spacing={1}>
@@ -375,25 +467,25 @@ export function PlannerPage(): JSX.Element {
               </Typography>
             </Stack>
             <Alert severity="info">Current review estimate: {formatMoney(reviewEstimate)}. This estimate updates when you change resources.</Alert>
-            {assignmentDraft.map((assignment, index) => {
-              const options = resourceOptions(assignment, index, assignmentDraft, existingAssignments, people, equipment, vehicles, resourceMap);
-              const selectedCost = assignment.resource_ids.reduce((sum, resourceId) => sum + resourceCost(assignment.resource_type, resourceId, people, equipment, vehicles), 0);
+            {assignmentDraft.map((slot, index) => {
+              const options = resourceOptions(slot, index, assignmentDraft, existingAssignments);
               return (
-                <Paper key={`${assignment.requirement_id}-${index}`} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Paper key={`${slot.requirement_id}-${slot.slot_index}-${index}`} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                   <Grid container spacing={2} alignItems="center">
                     <Grid item xs={12} md={3}>
-                      <Typography variant="caption" color="text.secondary">Requirement</Typography>
-                      <Typography fontWeight={800}>{labelByRequirement[assignment.requirement_id] || humanize(assignment.resource_type)}</Typography>
+                      <Typography variant="caption" color="text.secondary">Resource slot</Typography>
+                      <Typography fontWeight={800}>{slot.business_label || `${labelByRequirement[slot.requirement_id] || humanize(slot.resource_type)} ${slot.slot_index}`}</Typography>
                     </Grid>
                     <Grid item xs={12} md={6}>
-                      <TextField select label="Assigned resource" value={assignment.resource_ids[0] || ""} onChange={(event) => updateAssignmentResource(index, event.target.value)} fullWidth>
+                      <TextField select label="Assigned resource" value={slot.selected_resource_id || ""} onChange={(event) => updateAssignmentResource(index, event.target.value)} fullWidth>
                         <MenuItem value="">No resource assigned yet</MenuItem>
-                        {options.map((option) => <MenuItem key={option.id} value={option.id}>{option.label} - recommendation {formatNumber(option.score, 0)}%</MenuItem>)}
+                        {options.map((option) => <MenuItem key={option.id} value={option.id}>{option.label} - recommendation {formatNumber(option.score, 0)}% - {formatMoney(option.cost)}</MenuItem>)}
                       </TextField>
+                      {slot.selected_resource_id && <Typography variant="caption" color="text.secondary">{options.find((option) => option.id === slot.selected_resource_id)?.note}</Typography>}
                     </Grid>
                     <Grid item xs={12} md={3}>
                       <Typography variant="caption" color="text.secondary">Estimated cost impact</Typography>
-                      <Typography fontWeight={800}>{formatMoney(selectedCost || assignment.estimated_cost)}</Typography>
+                      <Typography fontWeight={800}>{formatMoney(slot.estimated_cost)}</Typography>
                     </Grid>
                   </Grid>
                 </Paper>

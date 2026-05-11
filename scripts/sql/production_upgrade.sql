@@ -117,6 +117,7 @@ CREATE INDEX IF NOT EXISTS ix_resource_checkpoints_event_time
 
 COMMIT;
 
+
 -- ============================================================================
 -- Source: scripts\sql\cp04_auth_and_security.sql
 -- ============================================================================
@@ -1103,6 +1104,278 @@ SET vehicle_id = EXCLUDED.vehicle_id,
     status = EXCLUDED.status,
     is_consumed_in_execution = EXCLUDED.is_consumed_in_execution,
     notes = EXCLUDED.notes;
+
+COMMIT;
+
+-- ============================================================================
+-- Source: CP-11 demo planning event
+-- ============================================================================
+
+BEGIN;
+
+UPDATE core.events e
+SET status = 'validated'::core.event_status
+WHERE e.status = 'submitted'::core.event_status
+  AND e.planned_start >= NOW()
+  AND e.attendee_count IS NOT NULL
+  AND e.budget_estimate IS NOT NULL
+  AND EXISTS (SELECT 1 FROM core.event_requirements r WHERE r.event_id = e.event_id);
+
+INSERT INTO core.clients (client_id, name, priority, industry, contact_person_name, notes)
+VALUES (
+    '81000000-0000-0000-0000-000000000901',
+    'Demo Production Client',
+    'high'::core.priority_level,
+    'Live entertainment',
+    'Marta Demo',
+    'Client used for CP-11 event planning demo.'
+)
+ON CONFLICT (client_id) DO UPDATE
+SET name = EXCLUDED.name,
+    priority = EXCLUDED.priority,
+    industry = EXCLUDED.industry,
+    contact_person_name = EXCLUDED.contact_person_name,
+    notes = EXCLUDED.notes;
+
+INSERT INTO core.locations (
+    location_id, name, city, address_line, postal_code, country_code,
+    location_type, parking_difficulty, access_difficulty, setup_complexity_score, notes
+)
+VALUES (
+    '82000000-0000-0000-0000-000000000901',
+    'Demo Arena Main Hall',
+    'Krakow',
+    'ul. Demonstracyjna 11',
+    '30-901',
+    'PL',
+    'conference_center'::core.location_type,
+    4,
+    4,
+    8,
+    'Demo venue with demanding audio setup and limited loading access.'
+)
+ON CONFLICT (location_id) DO UPDATE
+SET name = EXCLUDED.name,
+    city = EXCLUDED.city,
+    address_line = EXCLUDED.address_line,
+    postal_code = EXCLUDED.postal_code,
+    country_code = EXCLUDED.country_code,
+    location_type = EXCLUDED.location_type,
+    parking_difficulty = EXCLUDED.parking_difficulty,
+    access_difficulty = EXCLUDED.access_difficulty,
+    setup_complexity_score = EXCLUDED.setup_complexity_score,
+    notes = EXCLUDED.notes;
+
+INSERT INTO core.equipment_types (equipment_type_id, type_name, category, description, default_setup_minutes, default_teardown_minutes)
+VALUES (
+    '83000000-0000-0000-0000-000000000901',
+    'Demo Premium Audio System',
+    'audio',
+    'Line-array audio system used to demonstrate baseline versus optimized planning.',
+    85,
+    50
+)
+ON CONFLICT (equipment_type_id) DO UPDATE
+SET type_name = EXCLUDED.type_name,
+    category = EXCLUDED.category,
+    description = EXCLUDED.description,
+    default_setup_minutes = EXCLUDED.default_setup_minutes,
+    default_teardown_minutes = EXCLUDED.default_teardown_minutes;
+
+INSERT INTO core.events (
+    event_id, client_id, location_id, event_name, event_type, event_subtype,
+    description, attendee_count, planned_start, planned_end, priority, status,
+    budget_estimate, currency_code, source_channel, requires_transport,
+    requires_setup, requires_teardown, notes
+)
+VALUES (
+    '80000000-0000-0000-0000-000000000901',
+    '81000000-0000-0000-0000-000000000901',
+    '82000000-0000-0000-0000-000000000901',
+    'Demo-plan-event',
+    'concert',
+    'premium_audio_showcase',
+    'Demo event designed to show clear differences between baseline and optimized resource planning.',
+    850,
+    '2026-09-18 14:00:00+00'::timestamptz,
+    '2026-09-18 23:00:00+00'::timestamptz,
+    'high'::core.priority_level,
+    'validated'::core.event_status,
+    68000.00,
+    'PLN',
+    'demo_cp11',
+    true,
+    true,
+    true,
+    'Validated demo event ready to plan. Baseline should prefer cheaper resources, optimized should prefer more reliable resources.'
+)
+ON CONFLICT (event_id) DO UPDATE
+SET event_name = EXCLUDED.event_name,
+    event_type = EXCLUDED.event_type,
+    event_subtype = EXCLUDED.event_subtype,
+    description = EXCLUDED.description,
+    attendee_count = EXCLUDED.attendee_count,
+    planned_start = EXCLUDED.planned_start,
+    planned_end = EXCLUDED.planned_end,
+    priority = EXCLUDED.priority,
+    status = EXCLUDED.status,
+    budget_estimate = EXCLUDED.budget_estimate,
+    source_channel = EXCLUDED.source_channel,
+    requires_transport = EXCLUDED.requires_transport,
+    requires_setup = EXCLUDED.requires_setup,
+    requires_teardown = EXCLUDED.requires_teardown,
+    notes = EXCLUDED.notes;
+
+INSERT INTO core.resources_people (
+    person_id, full_name, role, employment_type, home_base_location_id,
+    availability_status, max_daily_hours, max_weekly_hours, cost_per_hour,
+    reliability_notes, active
+)
+VALUES
+    ('87000000-0000-0000-0000-000000000901', 'Adam Budget Audio', 'technician_audio'::core.person_role, 'contractor'::core.employment_type, '82000000-0000-0000-0000-000000000901', 'available'::core.resource_status, 10.00, 44.00, 30.00, 'Standard reliability; cost-efficient demo baseline option.', true),
+    ('87000000-0000-0000-0000-000000000902', 'Beata Budget Audio', 'technician_audio'::core.person_role, 'contractor'::core.employment_type, '82000000-0000-0000-0000-000000000901', 'available'::core.resource_status, 10.00, 44.00, 35.00, 'Standard reliability; cost-efficient demo baseline option.', true),
+    ('87000000-0000-0000-0000-000000000903', 'Celina Budget Audio', 'technician_audio'::core.person_role, 'contractor'::core.employment_type, '82000000-0000-0000-0000-000000000901', 'available'::core.resource_status, 10.00, 44.00, 40.00, 'Standard reliability; cost-efficient demo baseline option.', true),
+    ('87000000-0000-0000-0000-000000000904', 'Daniel High Reliability Audio', 'technician_audio'::core.person_role, 'employee'::core.employment_type, '82000000-0000-0000-0000-000000000901', 'available'::core.resource_status, 10.00, 44.00, 70.00, 'high reliability; senior audio engineer for complex live shows.', true),
+    ('87000000-0000-0000-0000-000000000905', 'Ewa High Reliability Audio', 'technician_audio'::core.person_role, 'employee'::core.employment_type, '82000000-0000-0000-0000-000000000901', 'available'::core.resource_status, 10.00, 44.00, 75.00, 'high reliability; senior RF and console specialist.', true),
+    ('87000000-0000-0000-0000-000000000906', 'Filip High Reliability Audio', 'technician_audio'::core.person_role, 'employee'::core.employment_type, '82000000-0000-0000-0000-000000000901', 'available'::core.resource_status, 10.00, 44.00, 80.00, 'high reliability; backup systems and live failover specialist.', true)
+ON CONFLICT (person_id) DO UPDATE
+SET full_name = EXCLUDED.full_name,
+    role = EXCLUDED.role,
+    employment_type = EXCLUDED.employment_type,
+    home_base_location_id = EXCLUDED.home_base_location_id,
+    availability_status = EXCLUDED.availability_status,
+    max_daily_hours = EXCLUDED.max_daily_hours,
+    max_weekly_hours = EXCLUDED.max_weekly_hours,
+    cost_per_hour = EXCLUDED.cost_per_hour,
+    reliability_notes = EXCLUDED.reliability_notes,
+    active = EXCLUDED.active,
+    updated_at = NOW();
+
+INSERT INTO core.equipment (
+    equipment_id, equipment_type_id, asset_tag, serial_number, status,
+    warehouse_location_id, transport_requirements, replacement_available,
+    hourly_cost_estimate, purchase_date, notes, active
+)
+VALUES
+    ('88000000-0000-0000-0000-000000000901', '83000000-0000-0000-0000-000000000901', 'DEMO-AUDIO-BUDGET-1', 'DEMO-AUD-B-001', 'available'::core.resource_status, '82000000-0000-0000-0000-000000000901', 'standard van case', false, 35.00, '2024-01-15', 'Baseline audio system: cheap, no immediate replacement kit.', true),
+    ('88000000-0000-0000-0000-000000000902', '83000000-0000-0000-0000-000000000901', 'DEMO-AUDIO-BUDGET-2', 'DEMO-AUD-B-002', 'available'::core.resource_status, '82000000-0000-0000-0000-000000000901', 'standard van case', false, 38.00, '2024-02-10', 'Baseline audio system: cheap, no immediate replacement kit.', true),
+    ('88000000-0000-0000-0000-000000000903', '83000000-0000-0000-0000-000000000901', 'DEMO-AUDIO-RELIABLE-1', 'DEMO-AUD-R-001', 'available'::core.resource_status, '82000000-0000-0000-0000-000000000901', 'flight case with spare amp', true, 45.00, '2025-04-20', 'Optimized audio system: higher reliability and replacement path.', true),
+    ('88000000-0000-0000-0000-000000000904', '83000000-0000-0000-0000-000000000901', 'DEMO-AUDIO-RELIABLE-2', 'DEMO-AUD-R-002', 'available'::core.resource_status, '82000000-0000-0000-0000-000000000901', 'flight case with spare amp', true, 48.00, '2025-05-18', 'Optimized audio system: higher reliability and replacement path.', true)
+ON CONFLICT (equipment_id) DO UPDATE
+SET equipment_type_id = EXCLUDED.equipment_type_id,
+    asset_tag = EXCLUDED.asset_tag,
+    serial_number = EXCLUDED.serial_number,
+    status = EXCLUDED.status,
+    warehouse_location_id = EXCLUDED.warehouse_location_id,
+    transport_requirements = EXCLUDED.transport_requirements,
+    replacement_available = EXCLUDED.replacement_available,
+    hourly_cost_estimate = EXCLUDED.hourly_cost_estimate,
+    purchase_date = EXCLUDED.purchase_date,
+    notes = EXCLUDED.notes,
+    active = EXCLUDED.active,
+    updated_at = NOW();
+
+INSERT INTO core.vehicles (
+    vehicle_id, vehicle_name, vehicle_type, registration_number, capacity_notes,
+    status, home_location_id, cost_per_km, cost_per_hour, active
+)
+VALUES (
+    '89000000-0000-0000-0000-000000000901',
+    'Demo Audio Cargo Van',
+    'van'::core.vehicle_type,
+    'KR901DE',
+    'Dedicated van for demo audio systems and crew transport.',
+    'available'::core.resource_status,
+    '82000000-0000-0000-0000-000000000901',
+    2.80,
+    85.00,
+    true
+)
+ON CONFLICT (vehicle_id) DO UPDATE
+SET vehicle_name = EXCLUDED.vehicle_name,
+    vehicle_type = EXCLUDED.vehicle_type,
+    registration_number = EXCLUDED.registration_number,
+    capacity_notes = EXCLUDED.capacity_notes,
+    status = EXCLUDED.status,
+    home_location_id = EXCLUDED.home_location_id,
+    cost_per_km = EXCLUDED.cost_per_km,
+    cost_per_hour = EXCLUDED.cost_per_hour,
+    active = EXCLUDED.active,
+    updated_at = NOW();
+
+INSERT INTO core.people_availability (availability_id, person_id, available_from, available_to, is_available, source, notes)
+SELECT
+    ('87100000-0000-0000-0000-' || lpad(i::text, 12, '0'))::uuid,
+    ('87000000-0000-0000-0000-' || lpad(i::text, 12, '0'))::uuid,
+    '2026-09-18 08:00:00+00'::timestamptz,
+    '2026-09-19 02:00:00+00'::timestamptz,
+    true,
+    'demo_cp11',
+    'Available for Demo-plan-event.'
+FROM generate_series(901, 906) AS s(i)
+ON CONFLICT (availability_id) DO UPDATE
+SET available_from = EXCLUDED.available_from,
+    available_to = EXCLUDED.available_to,
+    is_available = EXCLUDED.is_available,
+    source = EXCLUDED.source,
+    notes = EXCLUDED.notes;
+
+INSERT INTO core.equipment_availability (availability_id, equipment_id, available_from, available_to, is_available, source, notes)
+SELECT
+    ('88100000-0000-0000-0000-' || lpad(i::text, 12, '0'))::uuid,
+    ('88000000-0000-0000-0000-' || lpad(i::text, 12, '0'))::uuid,
+    '2026-09-18 08:00:00+00'::timestamptz,
+    '2026-09-19 02:00:00+00'::timestamptz,
+    true,
+    'demo_cp11',
+    'Available for Demo-plan-event.'
+FROM generate_series(901, 904) AS s(i)
+ON CONFLICT (availability_id) DO UPDATE
+SET available_from = EXCLUDED.available_from,
+    available_to = EXCLUDED.available_to,
+    is_available = EXCLUDED.is_available,
+    source = EXCLUDED.source,
+    notes = EXCLUDED.notes;
+
+INSERT INTO core.vehicle_availability (availability_id, vehicle_id, available_from, available_to, is_available, source, notes)
+VALUES (
+    '89100000-0000-0000-0000-000000000901',
+    '89000000-0000-0000-0000-000000000901',
+    '2026-09-18 08:00:00+00'::timestamptz,
+    '2026-09-19 02:00:00+00'::timestamptz,
+    true,
+    'demo_cp11',
+    'Available for Demo-plan-event.'
+)
+ON CONFLICT (availability_id) DO UPDATE
+SET available_from = EXCLUDED.available_from,
+    available_to = EXCLUDED.available_to,
+    is_available = EXCLUDED.is_available,
+    source = EXCLUDED.source,
+    notes = EXCLUDED.notes;
+
+INSERT INTO core.event_requirements (
+    requirement_id, event_id, requirement_type, role_required, equipment_type_id,
+    vehicle_type_required, quantity, mandatory, required_start, required_end, notes
+)
+VALUES
+    ('84000000-0000-0000-0000-000000000901', '80000000-0000-0000-0000-000000000901', 'person_role'::core.requirement_type, 'technician_audio'::core.person_role, NULL, NULL, 3.00, true, '2026-09-18 14:00:00+00'::timestamptz, '2026-09-18 23:00:00+00'::timestamptz, 'Three audio technicians required for complex live audio setup.'),
+    ('85000000-0000-0000-0000-000000000901', '80000000-0000-0000-0000-000000000901', 'equipment_type'::core.requirement_type, NULL, '83000000-0000-0000-0000-000000000901', NULL, 2.00, true, '2026-09-18 14:00:00+00'::timestamptz, '2026-09-18 23:00:00+00'::timestamptz, 'Two premium audio systems required for main PA and redundant side-fill coverage.'),
+    ('85500000-0000-0000-0000-000000000901', '80000000-0000-0000-0000-000000000901', 'vehicle_type'::core.requirement_type, NULL, NULL, 'van'::core.vehicle_type, 1.00, true, '2026-09-18 14:00:00+00'::timestamptz, '2026-09-18 23:00:00+00'::timestamptz, 'One van required for audio cargo and crew movement.')
+ON CONFLICT (requirement_id) DO UPDATE
+SET requirement_type = EXCLUDED.requirement_type,
+    role_required = EXCLUDED.role_required,
+    equipment_type_id = EXCLUDED.equipment_type_id,
+    vehicle_type_required = EXCLUDED.vehicle_type_required,
+    quantity = EXCLUDED.quantity,
+    mandatory = EXCLUDED.mandatory,
+    required_start = EXCLUDED.required_start,
+    required_end = EXCLUDED.required_end,
+    notes = EXCLUDED.notes;
+
+DELETE FROM core.assignments
+WHERE event_id = '80000000-0000-0000-0000-000000000901'
+  AND is_manual_override IS FALSE;
 
 COMMIT;
 

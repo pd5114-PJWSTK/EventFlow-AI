@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from app.models.core import Client, EquipmentType, Location, LocationType, PersonRole, PriorityLevel, RequirementType, VehicleType
+from app.models.core import Client, EquipmentType, EventStatus, Location, LocationType, PersonRole, PriorityLevel, RequirementType, VehicleType
 from app.schemas.ai_agents import (
     AIAgentsIngestEventCommitRequest,
     AIAgentsIngestEventDraftGap,
@@ -275,6 +275,7 @@ def commit_ingest_event_draft(
             planned_start=draft.planned_start,
             planned_end=draft.planned_end,
             priority=draft.event_priority,
+            status=EventStatus.validated,
             budget_estimate=draft.budget_estimate,
             requires_transport=draft.requires_transport,
             requires_setup=draft.requires_setup,

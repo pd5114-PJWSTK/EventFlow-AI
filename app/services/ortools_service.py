@@ -14,6 +14,7 @@ class PlannerCandidate:
     resource_id: str
     cost_per_hour: Decimal = Decimal("0")
     score: Decimal = Decimal("0")
+    reliability_score: Decimal = Decimal("0")
     available_from: datetime | None = None
     available_to: datetime | None = None
 
