@@ -1,4 +1,4 @@
-﻿RAPORT IMPLEMENTACJI - EVENTFLOW AI (FAZA 1)
+RAPORT IMPLEMENTACJI - EVENTFLOW AI (FAZA 1)
 Data aktualizacji: 2026-04-25
 
 1) STATUS PRZYCZYNY BLEDU (CELERY NotRegistered)
@@ -1800,3 +1800,31 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Backend Docker tests -> 89 passed, 5 warnings.
   - Frontend Docker checks -> typecheck passed, lint 0 errors / 1 existing warning, tests 13 passed, production build passed.
   - Live local smoke for `Demo-plan-event` -> baseline selected cheaper audio technicians `901-903`, optimized selected reliable technicians `904-906`, assignment slots count 6, cost delta `+1260 PLN`, plan quality delta `+5.9569`.
+
+## CP-12 - Planning data calibration, ML retrain and login polish
+
+- Improved Event Planning metrics and explanations:
+  - baseline and optimized plans now include the same extended business metrics: event budget, planned resource cost, resource cost versus budget, duration, delay risk, incident risk, SLA breach risk, requirement coverage, reliability score, backup coverage, missing resources, assigned resources and plan quality.
+  - frontend labels clarify that planner cost is only the assignable people/equipment/vehicle cost, not the full event budget.
+  - metric deltas now include resource-cost-to-budget, reliability and backup coverage changes.
+- Fixed manual resource review cost display:
+  - assignment slot initial `estimated_cost` now uses the selected candidate option cost instead of an average assignment share.
+  - changing a slot still updates cost immediately from the selected candidate option.
+- Strengthened plan evaluator ML value:
+  - plan evaluator features now include `reliability_score`, `backup_coverage_ratio` and `resource_cost_to_budget_ratio`.
+  - old 15-feature plan evaluator artifacts are safely skipped by the planner scorer, which falls back instead of failing on feature mismatch.
+  - current local DB was retrained after the CP-12 data upgrade: duration model `v20260511183052` (`random_forest`) and plan evaluator `v20260511183055` (`gradient_boosting`).
+- Calibrated realistic demo/operational data:
+  - `scripts/sql/production_upgrade.sql` now has an idempotent CP-12 data block for realistic people, equipment, vehicle, event budget, outcome, feature snapshot and actual timing values.
+  - seeded training coverage now provides 60 real samples for duration hardening and 240 plan evaluator candidate samples.
+  - `Demo-plan-event` remains `validated` and is calibrated to show visible baseline-vs-optimized differences in cost, reliability, risk and backup coverage.
+- Fixed frontend warning and login ergonomics:
+  - split auth context and `useAuth` hook out of `auth.tsx`, removing the previous `react-refresh/only-export-components` lint warning.
+  - login now submits through a real form, so pressing Enter in the login fields triggers sign-in.
+- Validation:
+  - SQL upgrade applied successfully to the running Docker PostgreSQL database without resetting the volume.
+  - ML retrain: `event_duration_hardened` -> 60 real samples, 48/12 train/test split, `random_forest`; `plan_candidate_evaluator` -> 60 real samples, 240 candidate samples, `gradient_boosting`.
+  - Full quality gate `powershell -ExecutionPolicy Bypass -File .\scripts\run-quality-gates.ps1` -> passed.
+  - Backend Docker tests -> 90 passed, 5 warnings.
+  - Frontend Docker checks -> typecheck passed, lint passed with no React Refresh warning, tests 14 passed, production build passed.
+  - Live smoke Demo-plan-event after container restart -> selected reliability_first, cost delta +3996 PLN, duration delta -19.4914 min, delay risk delta -0.0155, incident risk delta -0.1000, plan quality delta +9.5302, slots 6.

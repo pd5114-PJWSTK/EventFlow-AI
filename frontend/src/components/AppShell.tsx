@@ -1,4 +1,4 @@
-﻿import { Link as RouterLink, Outlet, useLocation } from "react-router-dom";
+import { Link as RouterLink, Outlet, useLocation } from "react-router-dom";
 import {
   AppBar,
   Box,
@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 
 import { navItems } from "../app/navigation";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 
 const drawerWidth = 286;
 

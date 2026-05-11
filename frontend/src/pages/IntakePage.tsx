@@ -3,7 +3,7 @@ import { Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, TextField, Typo
 
 import { BackCornerButton } from "../components/BackCornerButton";
 import { StatusBanner } from "../components/StatusBanner";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { formatDateInput, fromDateInput, parserSourceLabel } from "../lib/format";
 import { useSessionState } from "../lib/useSessionState";
 import { validateBusinessText, validateCity, validateNonNegativeNumber } from "../lib/validation";

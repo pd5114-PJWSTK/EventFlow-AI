@@ -3,7 +3,7 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import { Box, Chip, Grid, Paper, Stack, Typography } from "@mui/material";
 
 import { navItems } from "../app/navigation";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { daysUntil, formatDateTime } from "../lib/format";
 import type { EventItem, ListResponse, LocationItem } from "../types/api";
 
@@ -88,7 +88,7 @@ export function DashboardPage(): JSX.Element {
                         <Box>
                           <Typography fontWeight={800}>{event.event_name}</Typography>
                           <Typography variant="body2" color="text.secondary">
-                            {(location?.name || location?.city || "Venue missing") + " • ends " + formatDateTime(event.planned_end)}
+                            {(location?.name || location?.city || "Venue missing") + " - ends " + formatDateTime(event.planned_end)}
                           </Typography>
                         </Box>
                         <Chip label={event.status.replace(/_/g, " ")} color="success" variant="outlined" />
@@ -114,7 +114,7 @@ export function DashboardPage(): JSX.Element {
                       <Box>
                         <Typography fontWeight={800}>{event.event_name}</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          {(location?.name || location?.city || "Venue missing") + " • " + formatDateTime(event.planned_start)}
+                          {(location?.name || location?.city || "Venue missing") + " - " + formatDateTime(event.planned_start)}
                         </Typography>
                       </Box>
                       <Stack direction="row" spacing={0.75} alignItems="center" color="primary.main">

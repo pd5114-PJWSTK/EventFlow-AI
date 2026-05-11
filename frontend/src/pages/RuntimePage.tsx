@@ -6,7 +6,7 @@ import { BackCornerButton } from "../components/BackCornerButton";
 import { EventDetailsCard } from "../components/EventDetailsCard";
 import { EventSelect } from "../components/EventSelect";
 import { StatusBanner } from "../components/StatusBanner";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { formatMoney, parserSourceLabel } from "../lib/format";
 import { useSessionState } from "../lib/useSessionState";
 import { validateBusinessText, validateNonNegativeNumber } from "../lib/validation";

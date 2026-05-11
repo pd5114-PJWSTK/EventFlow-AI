@@ -3,7 +3,7 @@ import { Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, TextField, Typo
 
 import { BusinessTable } from "../components/BusinessTable";
 import { StatusBanner } from "../components/StatusBanner";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import type { AdminUser, ListResponse } from "../types/api";
 
 const roleOptions = ["admin", "manager", "coordinator", "technician"];

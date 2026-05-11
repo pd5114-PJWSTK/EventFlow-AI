@@ -62,12 +62,16 @@ class GeneratedPlanAssignment(BaseModel):
 
 
 class PlanMetrics(BaseModel):
+    event_budget: Decimal | None = None
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    resource_cost_to_budget_ratio: Decimal | None = None
     estimated_duration_minutes: Decimal = Field(default=Decimal("0.00"))
     predicted_delay_risk: Decimal = Field(default=Decimal("0.00"))
     predicted_incident_risk: Decimal = Field(default=Decimal("0.00"))
     predicted_sla_breach_risk: Decimal = Field(default=Decimal("0.00"))
     coverage_ratio: Decimal = Field(default=Decimal("0.00"))
+    reliability_score: Decimal = Field(default=Decimal("0.00"))
+    backup_coverage_ratio: Decimal = Field(default=Decimal("0.00"))
     missing_resource_count: int = 0
     assigned_resource_count: int = 0
     optimization_score: Decimal = Field(default=Decimal("0.00"))
@@ -75,11 +79,14 @@ class PlanMetrics(BaseModel):
 
 class PlanMetricDelta(BaseModel):
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    resource_cost_to_budget_ratio: Decimal | None = None
     estimated_duration_minutes: Decimal = Field(default=Decimal("0.00"))
     predicted_delay_risk: Decimal = Field(default=Decimal("0.00"))
     predicted_incident_risk: Decimal = Field(default=Decimal("0.00"))
     predicted_sla_breach_risk: Decimal = Field(default=Decimal("0.00"))
     coverage_ratio: Decimal = Field(default=Decimal("0.00"))
+    reliability_score: Decimal = Field(default=Decimal("0.00"))
+    backup_coverage_ratio: Decimal = Field(default=Decimal("0.00"))
     missing_resource_count: int = 0
     assigned_resource_count: int = 0
     optimization_score: Decimal = Field(default=Decimal("0.00"))

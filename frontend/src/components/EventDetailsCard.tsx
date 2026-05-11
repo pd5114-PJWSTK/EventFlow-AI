@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Chip, Grid, Paper, Stack, Typography } from "@mui/material";
 
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { formatDateTime, formatMoney, formatNumber, translateStatus } from "../lib/format";
 import type {
   EquipmentTypeItem,

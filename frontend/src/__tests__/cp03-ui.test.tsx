@@ -1,4 +1,4 @@
-﻿import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { vi } from "vitest";
 
@@ -21,7 +21,7 @@ const authMock = {
   api: apiMock,
 };
 
-vi.mock("../lib/auth", () => ({
+vi.mock("../lib/useAuth", () => ({
   useAuth: () => authMock,
 }));
 

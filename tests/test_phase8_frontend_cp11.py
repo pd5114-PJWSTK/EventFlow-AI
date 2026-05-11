@@ -114,8 +114,20 @@ def test_cp11_planner_metrics_slots_and_optimized_resource_difference(api_client
     baseline_payload = baseline.json()
     recommended_payload = recommended.json()
     assert set(baseline_payload["metrics"].keys()) == set(recommended_payload["optimized_metrics"].keys())
+    for key in ("event_budget", "resource_cost_to_budget_ratio", "reliability_score", "backup_coverage_ratio"):
+        assert key in baseline_payload["metrics"]
+        assert key in recommended_payload["optimized_metrics"]
     assert len(recommended_payload["selected_plan"]["assignment_slots"]) == 3
+    for slot in recommended_payload["selected_plan"]["assignment_slots"]:
+        selected_option = next(
+            option
+            for option in slot["candidate_options"]
+            if option["resource_id"] == slot["selected_resource_id"]
+        )
+        assert slot["estimated_cost"] == selected_option["estimated_cost"]
     assert recommended_payload["metric_deltas"] is not None
+    assert "reliability_score" in recommended_payload["metric_deltas"]
+    assert "backup_coverage_ratio" in recommended_payload["metric_deltas"]
 
     baseline_ids = set(baseline_payload["assignments"][0]["resource_ids"])
     optimized_ids = set(recommended_payload["selected_plan"]["assignments"][0]["resource_ids"])
@@ -146,3 +158,18 @@ def test_cp11_production_upgrade_contains_demo_plan_event() -> None:
     assert "source_channel" in patch
     assert "demo_cp11" in patch
     assert "'validated'::core.event_status" in patch
+
+
+def test_cp12_plan_evaluator_features_and_calibrated_seed() -> None:
+    training_service = Path("app/services/ml_training_service.py").read_text(encoding="utf-8")
+    planner_service = Path("app/services/planner_generation_service.py").read_text(encoding="utf-8")
+    upgrade = Path("scripts/sql/production_upgrade.sql").read_text(encoding="utf-8")
+
+    for feature_name in ("reliability_score", "backup_coverage_ratio", "resource_cost_to_budget_ratio"):
+        assert feature_name in training_service
+        assert feature_name in planner_service
+
+    assert "CP-12 realistic planning calibration" in upgrade
+    assert "operational_seed_cp12" in upgrade
+    assert "planner cost covers assignable" in upgrade.lower()
+    assert "52000.00" in upgrade

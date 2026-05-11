@@ -9,7 +9,7 @@ import { BackCornerButton } from "../components/BackCornerButton";
 import { EventDetailsCard } from "../components/EventDetailsCard";
 import { EventSelect } from "../components/EventSelect";
 import { StatusBanner } from "../components/StatusBanner";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { formatDurationMinutes, formatMoney, formatNumber, formatPercent } from "../lib/format";
 import { useSessionState } from "../lib/useSessionState";
 import type {
@@ -40,11 +40,12 @@ function humanize(value?: string | null): string {
   return value ? value.replace(/_/g, " ") : "Not specified";
 }
 
-function Metric({ label, value }: { label: string; value: string }): JSX.Element {
+function Metric({ label, value, helper }: { label: string; value: string; helper?: string }): JSX.Element {
   return (
     <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 999, height: "100%" }}>
       <Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography>
       <Typography fontWeight={900}>{value}</Typography>
+      {helper && <Typography variant="caption" color="text.secondary">{helper}</Typography>}
     </Paper>
   );
 }
@@ -107,12 +108,16 @@ function fallbackMetrics(plan: GeneratedPlanResponse | null): PlanMetrics | null
   const total = assigned + missing;
   const coverage = total > 0 ? assigned / total : 1;
   return {
+    event_budget: null,
+    resource_cost_to_budget_ratio: null,
     estimated_cost: plan.estimated_cost,
     estimated_duration_minutes: 0,
     predicted_delay_risk: 0,
     predicted_incident_risk: 0,
     predicted_sla_breach_risk: 0,
     coverage_ratio: coverage,
+    reliability_score: 0,
+    backup_coverage_ratio: 0,
     missing_resource_count: missing,
     assigned_resource_count: assigned,
     optimization_score: 0,
@@ -122,12 +127,16 @@ function fallbackMetrics(plan: GeneratedPlanResponse | null): PlanMetrics | null
 function metricRows(metrics: PlanMetrics | null | undefined): Array<{ label: string; value: string; helper?: string }> {
   if (!metrics) return [];
   return [
-    { label: "Total cost", value: formatMoney(metrics.estimated_cost) },
+    { label: "Event budget", value: metrics.event_budget ? formatMoney(metrics.event_budget) : "Not provided" },
+    { label: "Planned resource cost", value: formatMoney(metrics.estimated_cost) },
+    { label: "Resource cost vs budget", value: metrics.resource_cost_to_budget_ratio != null ? formatPercent(metrics.resource_cost_to_budget_ratio) : "No budget data" },
     { label: "Estimated duration", value: Number(metrics.estimated_duration_minutes) > 0 ? formatDurationMinutes(metrics.estimated_duration_minutes) : "Calculated in optimized run" },
     { label: "Delay risk", value: formatPercent(metrics.predicted_delay_risk) },
     { label: "Incident risk", value: formatPercent(metrics.predicted_incident_risk) },
     { label: "SLA breach risk", value: formatPercent(metrics.predicted_sla_breach_risk) },
     { label: "Requirement coverage", value: formatPercent(metrics.coverage_ratio), helper: "Share of required resource slots that are assigned." },
+    { label: "Reliability score", value: formatPercent(metrics.reliability_score), helper: "Average reliability of the assigned resources based on operational history." },
+    { label: "Backup coverage", value: formatPercent(metrics.backup_coverage_ratio), helper: "Share of slots with at least one alternative resource available." },
     { label: "Missing resources", value: formatNumber(metrics.missing_resource_count) },
     { label: "Assigned resources", value: formatNumber(metrics.assigned_resource_count) },
     { label: "Plan quality", value: Number(metrics.optimization_score) > 0 ? `${formatNumber(metrics.optimization_score, 1)} / 100` : "Baseline" },
@@ -138,10 +147,13 @@ function deltaRows(delta?: PlanMetricDelta | null): Array<{ label: string; value
   if (!delta) return [];
   return [
     { label: "Cost", value: signedMoney(delta.estimated_cost), goodWhen: "negative" },
+    { label: "Cost vs budget", value: delta.resource_cost_to_budget_ratio != null ? signedPercent(delta.resource_cost_to_budget_ratio) : "No data", goodWhen: "negative" },
     { label: "Duration", value: signedDuration(delta.estimated_duration_minutes), goodWhen: "negative" },
     { label: "Delay risk", value: signedPercent(delta.predicted_delay_risk), goodWhen: "negative" },
     { label: "Incident risk", value: signedPercent(delta.predicted_incident_risk), goodWhen: "negative" },
     { label: "Coverage", value: signedPercent(delta.coverage_ratio), goodWhen: "positive" },
+    { label: "Reliability", value: signedPercent(delta.reliability_score), goodWhen: "positive" },
+    { label: "Backup coverage", value: signedPercent(delta.backup_coverage_ratio), goodWhen: "positive" },
     { label: "Plan quality", value: signedNumber(delta.optimization_score), goodWhen: "positive" },
   ];
 }
@@ -410,8 +422,15 @@ export function PlannerPage(): JSX.Element {
                   <Typography fontWeight={800}>Optimized</Typography>
                 </Stack>
               </Stack>
+              <Alert severity="info">
+                The cost shown here is the planned resource assignment cost. It is compared with the event budget to show whether the operational plan is heavy or light relative to the full event value.
+              </Alert>
               <Grid container spacing={1.5}>
-                {metricRows(metricsInView).map((metric) => <Grid item xs={12} sm={6} md={4} key={metric.label}><Metric label={metric.label} value={metric.value} /></Grid>)}
+                {metricRows(metricsInView).map((metric) => (
+                  <Grid item xs={12} sm={6} md={4} key={metric.label}>
+                    <Metric label={metric.label} value={metric.value} helper={metric.helper} />
+                  </Grid>
+                ))}
               </Grid>
               {recommendation.metric_deltas && (
                 <Stack spacing={1}>

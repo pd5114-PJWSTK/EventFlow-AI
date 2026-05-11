@@ -1,4 +1,4 @@
-﻿-- EventFlow production upgrade patch.
+-- EventFlow production upgrade patch.
 -- Consolidates CP-03 through CP-08 database hardening, seeds, cleanup and planning-state patches.
 -- Safe to apply repeatedly with psql -v ON_ERROR_STOP=1.
 
@@ -1379,3 +1379,290 @@ WHERE event_id = '80000000-0000-0000-0000-000000000901'
 
 COMMIT;
 
+
+-- CP-12 realistic planning calibration: keep historical cases business-like and make ML value visible.
+BEGIN;
+
+UPDATE core.resources_people p
+SET cost_per_hour = CASE
+        WHEN p.role IN ('project_manager', 'stage_manager') THEN (140 + (split_part(p.person_id::text, '-', 5)::bigint % 5) * 18)::numeric(10,2)
+        WHEN p.role IN ('technician_audio', 'technician_video', 'technician_light') THEN (75 + (split_part(p.person_id::text, '-', 5)::bigint % 6) * 22)::numeric(10,2)
+        WHEN p.role = 'driver' THEN (65 + (split_part(p.person_id::text, '-', 5)::bigint % 4) * 12)::numeric(10,2)
+        ELSE (70 + (split_part(p.person_id::text, '-', 5)::bigint % 5) * 10)::numeric(10,2)
+    END,
+    reliability_notes = CASE
+        WHEN split_part(p.person_id::text, '-', 5)::bigint % 4 = 0 THEN 'high reliability; senior operator with strong on-time delivery and low incident history.'
+        WHEN split_part(p.person_id::text, '-', 5)::bigint % 4 = 1 THEN 'reliable standard crew member; good delivery history with normal supervision.'
+        WHEN split_part(p.person_id::text, '-', 5)::bigint % 4 = 2 THEN 'cost-efficient available resource; suitable for non-critical slots.'
+        ELSE 'high reliability backup-ready resource; recommended for critical live-event assignments.'
+    END,
+    max_daily_hours = CASE WHEN p.role IN ('project_manager', 'stage_manager') THEN 12 ELSE 10 END,
+    updated_at = NOW()
+WHERE p.person_id::text LIKE '87000000-0000-0000-0000-%';
+
+UPDATE core.equipment eq
+SET hourly_cost_estimate = CASE
+        WHEN eq.equipment_type_id = '83000000-0000-0000-0000-000000000001' THEN (120 + (split_part(eq.equipment_id::text, '-', 5)::bigint % 5) * 45)::numeric(10,2)
+        WHEN eq.equipment_type_id = '83000000-0000-0000-0000-000000000002' THEN (170 + (split_part(eq.equipment_id::text, '-', 5)::bigint % 4) * 55)::numeric(10,2)
+        WHEN eq.equipment_type_id = '83000000-0000-0000-0000-000000000004' THEN (130 + (split_part(eq.equipment_id::text, '-', 5)::bigint % 5) * 35)::numeric(10,2)
+        ELSE (70 + (split_part(eq.equipment_id::text, '-', 5)::bigint % 6) * 24)::numeric(10,2)
+    END,
+    replacement_available = (split_part(eq.equipment_id::text, '-', 5)::bigint % 3 <> 1),
+    notes = CASE
+        WHEN split_part(eq.equipment_id::text, '-', 5)::bigint % 3 <> 1 THEN 'Production-ready asset with available backup path and recent service check.'
+        ELSE 'Lower-cost asset without confirmed backup; use only for non-critical assignments.'
+    END,
+    updated_at = NOW()
+WHERE eq.equipment_id::text LIKE '88000000-0000-0000-0000-%';
+
+UPDATE core.vehicles v
+SET cost_per_hour = CASE
+        WHEN v.vehicle_type = 'truck' THEN (165 + (split_part(v.vehicle_id::text, '-', 5)::bigint % 4) * 30)::numeric(10,2)
+        WHEN v.vehicle_type = 'van' THEN (115 + (split_part(v.vehicle_id::text, '-', 5)::bigint % 4) * 20)::numeric(10,2)
+        ELSE (80 + (split_part(v.vehicle_id::text, '-', 5)::bigint % 4) * 14)::numeric(10,2)
+    END,
+    cost_per_km = CASE
+        WHEN v.vehicle_type = 'truck' THEN 4.20
+        WHEN v.vehicle_type = 'van' THEN 3.10
+        ELSE 2.40
+    END,
+    updated_at = NOW()
+WHERE v.vehicle_id::text LIKE '89000000-0000-0000-0000-%';
+
+UPDATE core.events e
+SET event_name = CASE (split_part(e.event_id::text, '-', 5)::bigint % 6)
+        WHEN 0 THEN 'Regional Sales Kickoff ' || lpad(split_part(e.event_id::text, '-', 5)::bigint::text, 2, '0')
+        WHEN 1 THEN 'Krakow Product Showcase ' || lpad(split_part(e.event_id::text, '-', 5)::bigint::text, 2, '0')
+        WHEN 2 THEN 'Executive Partner Summit ' || lpad(split_part(e.event_id::text, '-', 5)::bigint::text, 2, '0')
+        WHEN 3 THEN 'Retail Roadshow Evening ' || lpad(split_part(e.event_id::text, '-', 5)::bigint::text, 2, '0')
+        WHEN 4 THEN 'Investor Demo Forum ' || lpad(split_part(e.event_id::text, '-', 5)::bigint::text, 2, '0')
+        ELSE 'City Music Showcase ' || lpad(split_part(e.event_id::text, '-', 5)::bigint::text, 2, '0')
+    END,
+    description = 'Realistic operations case for planning-model calibration. Budget is full event budget; planner cost covers assignable people, equipment and vehicles only.',
+    attendee_count = (180 + (split_part(e.event_id::text, '-', 5)::bigint % 10) * 85)::integer,
+    budget_estimate = (28000 + (split_part(e.event_id::text, '-', 5)::bigint % 12) * 6500)::numeric(12,2),
+    priority = CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 5 = 0 THEN 'critical'::core.priority_level WHEN split_part(e.event_id::text, '-', 5)::bigint % 3 = 0 THEN 'high'::core.priority_level ELSE 'medium'::core.priority_level END,
+    status = CASE WHEN e.status IN ('draft'::core.event_status, 'submitted'::core.event_status) THEN 'validated'::core.event_status ELSE e.status END,
+    source_channel = 'operational_seed_cp12',
+    notes = 'CP-12 calibrated case: resource cost, reliability and backup coverage are intentionally varied to demonstrate baseline-vs-optimized planning value.',
+    updated_at = NOW()
+WHERE e.event_id::text LIKE '80000000-0000-0000-0000-%'
+  AND e.source_channel <> 'demo_cp11';
+
+UPDATE ops.event_outcomes o
+SET actual_cost = (e.budget_estimate * (0.78 + ((split_part(e.event_id::text, '-', 5)::bigint % 7) * 0.025)))::numeric(12,2),
+    total_delay_minutes = CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 45 ELSE 8 + (split_part(e.event_id::text, '-', 5)::bigint % 6) * 4 END,
+    client_satisfaction_score = CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 3 ELSE 4 + (split_part(e.event_id::text, '-', 5)::bigint % 2) END,
+    internal_quality_score = CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 3 ELSE 4 END,
+    summary_notes = 'CP-12 realistic outcome: cost, delay and quality calibrated for current ML retraining.'
+FROM core.events e
+WHERE e.event_id = o.event_id
+  AND e.event_id::text LIKE '80000000-0000-0000-0000-%';
+
+UPDATE core.resources_people
+SET cost_per_hour = CASE person_id
+        WHEN '87000000-0000-0000-0000-000000000901' THEN 95.00
+        WHEN '87000000-0000-0000-0000-000000000902' THEN 105.00
+        WHEN '87000000-0000-0000-0000-000000000903' THEN 110.00
+        WHEN '87000000-0000-0000-0000-000000000904' THEN 205.00
+        WHEN '87000000-0000-0000-0000-000000000905' THEN 220.00
+        WHEN '87000000-0000-0000-0000-000000000906' THEN 235.00
+        ELSE cost_per_hour
+    END,
+    reliability_notes = CASE
+        WHEN person_id IN ('87000000-0000-0000-0000-000000000904','87000000-0000-0000-0000-000000000905','87000000-0000-0000-0000-000000000906') THEN 'high reliability; senior live audio engineer with proven low-delay incident history.'
+        ELSE 'cost-efficient baseline audio technician; available but not preferred for critical demo slots.'
+    END,
+    updated_at = NOW()
+WHERE person_id IN (
+    '87000000-0000-0000-0000-000000000901', '87000000-0000-0000-0000-000000000902',
+    '87000000-0000-0000-0000-000000000903', '87000000-0000-0000-0000-000000000904',
+    '87000000-0000-0000-0000-000000000905', '87000000-0000-0000-0000-000000000906'
+);
+
+UPDATE core.equipment
+SET hourly_cost_estimate = CASE equipment_id
+        WHEN '88000000-0000-0000-0000-000000000901' THEN 155.00
+        WHEN '88000000-0000-0000-0000-000000000902' THEN 165.00
+        WHEN '88000000-0000-0000-0000-000000000903' THEN 360.00
+        WHEN '88000000-0000-0000-0000-000000000904' THEN 380.00
+        ELSE hourly_cost_estimate
+    END,
+    replacement_available = equipment_id IN ('88000000-0000-0000-0000-000000000903','88000000-0000-0000-0000-000000000904'),
+    notes = CASE
+        WHEN equipment_id IN ('88000000-0000-0000-0000-000000000903','88000000-0000-0000-0000-000000000904') THEN 'High-reliability audio system with spare amplifier and replacement path for critical live events.'
+        ELSE 'Lower-cost audio system; acceptable baseline option with limited redundancy.'
+    END,
+    updated_at = NOW()
+WHERE equipment_id IN (
+    '88000000-0000-0000-0000-000000000901', '88000000-0000-0000-0000-000000000902',
+    '88000000-0000-0000-0000-000000000903', '88000000-0000-0000-0000-000000000904'
+);
+
+UPDATE core.vehicles
+SET cost_per_hour = 165.00,
+    cost_per_km = 3.60,
+    capacity_notes = 'Demo van sized for audio racks, crew transport and same-day fallback delivery.',
+    updated_at = NOW()
+WHERE vehicle_id = '89000000-0000-0000-0000-000000000901';
+
+UPDATE core.events
+SET budget_estimate = 52000.00,
+    attendee_count = 720,
+    priority = 'critical'::core.priority_level,
+    notes = 'CP-12 demo: baseline should choose lower-cost resources; optimized should trade higher assignment cost for lower risk, stronger reliability and backup coverage.',
+    status = 'validated'::core.event_status,
+    updated_at = NOW()
+WHERE event_id = '80000000-0000-0000-0000-000000000901';
+
+DELETE FROM core.assignments
+WHERE event_id = '80000000-0000-0000-0000-000000000901'
+  AND is_manual_override IS FALSE;
+
+COMMIT;
+
+
+
+
+
+
+-- CP-12 training sample completion: feature snapshots, timings and outcomes for current seeded events.
+BEGIN;
+
+INSERT INTO ai.event_features (
+    event_id, feature_event_type, feature_event_subtype, feature_city, feature_location_type,
+    feature_attendee_count, feature_attendee_bucket, feature_setup_complexity_score,
+    feature_access_difficulty, feature_parking_difficulty, feature_priority,
+    feature_day_of_week, feature_month, feature_season, feature_requires_transport,
+    feature_requires_setup, feature_requires_teardown, feature_required_person_count,
+    feature_required_equipment_count, feature_required_vehicle_count, feature_estimated_distance_km,
+    feature_client_priority, generated_at
+)
+SELECT
+    e.event_id,
+    e.event_type,
+    e.event_subtype,
+    l.city,
+    l.location_type::text,
+    e.attendee_count,
+    CASE WHEN e.attendee_count < 250 THEN 'small' WHEN e.attendee_count < 700 THEN 'medium' ELSE 'large' END,
+    l.setup_complexity_score,
+    l.access_difficulty,
+    l.parking_difficulty,
+    e.priority::text,
+    EXTRACT(ISODOW FROM e.planned_start)::smallint,
+    EXTRACT(MONTH FROM e.planned_start)::smallint,
+    CASE WHEN EXTRACT(MONTH FROM e.planned_start) IN (12,1,2) THEN 'winter' WHEN EXTRACT(MONTH FROM e.planned_start) IN (3,4,5) THEN 'spring' WHEN EXTRACT(MONTH FROM e.planned_start) IN (6,7,8) THEN 'summer' ELSE 'autumn' END,
+    e.requires_transport,
+    e.requires_setup,
+    e.requires_teardown,
+    COALESCE(req.person_count, 0)::integer,
+    COALESCE(req.equipment_count, 0)::integer,
+    COALESCE(req.vehicle_count, 0)::integer,
+    (15 + (split_part(e.event_id::text, '-', 5)::bigint % 18) * 6)::numeric(10,2),
+    c.priority::text,
+    NOW()
+FROM core.events e
+JOIN core.locations l ON l.location_id = e.location_id
+JOIN core.clients c ON c.client_id = e.client_id
+LEFT JOIN (
+    SELECT
+        event_id,
+        SUM(CASE WHEN requirement_type IN ('person_role','person_skill') THEN quantity ELSE 0 END) AS person_count,
+        SUM(CASE WHEN requirement_type = 'equipment_type' THEN quantity ELSE 0 END) AS equipment_count,
+        SUM(CASE WHEN requirement_type = 'vehicle_type' THEN quantity ELSE 0 END) AS vehicle_count
+    FROM core.event_requirements
+    GROUP BY event_id
+) req ON req.event_id = e.event_id
+WHERE e.event_id::text LIKE '80000000-0000-0000-0000-%'
+ON CONFLICT (event_id) DO UPDATE
+SET feature_event_type = EXCLUDED.feature_event_type,
+    feature_event_subtype = EXCLUDED.feature_event_subtype,
+    feature_city = EXCLUDED.feature_city,
+    feature_location_type = EXCLUDED.feature_location_type,
+    feature_attendee_count = EXCLUDED.feature_attendee_count,
+    feature_attendee_bucket = EXCLUDED.feature_attendee_bucket,
+    feature_setup_complexity_score = EXCLUDED.feature_setup_complexity_score,
+    feature_access_difficulty = EXCLUDED.feature_access_difficulty,
+    feature_parking_difficulty = EXCLUDED.feature_parking_difficulty,
+    feature_priority = EXCLUDED.feature_priority,
+    feature_day_of_week = EXCLUDED.feature_day_of_week,
+    feature_month = EXCLUDED.feature_month,
+    feature_season = EXCLUDED.feature_season,
+    feature_requires_transport = EXCLUDED.feature_requires_transport,
+    feature_requires_setup = EXCLUDED.feature_requires_setup,
+    feature_requires_teardown = EXCLUDED.feature_requires_teardown,
+    feature_required_person_count = EXCLUDED.feature_required_person_count,
+    feature_required_equipment_count = EXCLUDED.feature_required_equipment_count,
+    feature_required_vehicle_count = EXCLUDED.feature_required_vehicle_count,
+    feature_estimated_distance_km = EXCLUDED.feature_estimated_distance_km,
+    feature_client_priority = EXCLUDED.feature_client_priority,
+    generated_at = EXCLUDED.generated_at;
+
+INSERT INTO ops.actual_timings (
+    timing_id, event_id, phase_name, planned_start, planned_end, actual_start, actual_end,
+    delay_reason_code, notes
+)
+SELECT
+    ('89800000-0000-0000-0000-' || lpad(split_part(e.event_id::text, '-', 5), 12, '0'))::uuid,
+    e.event_id,
+    'other'::ops.phase_name,
+    e.planned_start,
+    e.planned_end,
+    e.planned_start + make_interval(mins => (split_part(e.event_id::text, '-', 5)::integer % 9)),
+    e.planned_start + make_interval(mins => (
+        260
+        + COALESCE(e.attendee_count, 0) / 4
+        + COALESCE(l.setup_complexity_score, 1) * 18
+        + COALESCE(l.access_difficulty, 1) * 9
+        + COALESCE(l.parking_difficulty, 1) * 6
+        + CASE WHEN e.priority = 'critical'::core.priority_level THEN 40 WHEN e.priority = 'high'::core.priority_level THEN 25 ELSE 0 END
+        + (split_part(e.event_id::text, '-', 5)::integer % 11) * 7
+    )),
+    CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 'resource_delay' ELSE NULL END,
+    'CP-12 calibrated actual duration sample for ML retraining.'
+FROM core.events e
+JOIN core.locations l ON l.location_id = e.location_id
+WHERE e.event_id::text LIKE '80000000-0000-0000-0000-%'
+ON CONFLICT (timing_id) DO UPDATE
+SET planned_start = EXCLUDED.planned_start,
+    planned_end = EXCLUDED.planned_end,
+    actual_start = EXCLUDED.actual_start,
+    actual_end = EXCLUDED.actual_end,
+    delay_reason_code = EXCLUDED.delay_reason_code,
+    notes = EXCLUDED.notes;
+
+INSERT INTO ops.event_outcomes (
+    event_id, finished_on_time, total_delay_minutes, actual_cost, overtime_cost,
+    transport_cost, sla_breached, client_satisfaction_score, internal_quality_score,
+    margin_estimate, summary_notes, closed_at
+)
+SELECT
+    e.event_id,
+    (split_part(e.event_id::text, '-', 5)::bigint % 4 <> 0),
+    CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 45 ELSE 8 + (split_part(e.event_id::text, '-', 5)::bigint % 6) * 4 END,
+    (e.budget_estimate * (0.78 + ((split_part(e.event_id::text, '-', 5)::bigint % 7) * 0.025)))::numeric(12,2),
+    CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 1200 ELSE 300 END,
+    (600 + (split_part(e.event_id::text, '-', 5)::bigint % 5) * 180)::numeric(12,2),
+    (split_part(e.event_id::text, '-', 5)::bigint % 4 = 0),
+    CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 3 ELSE 4 + (split_part(e.event_id::text, '-', 5)::bigint % 2) END,
+    CASE WHEN split_part(e.event_id::text, '-', 5)::bigint % 4 = 0 THEN 3 ELSE 4 END,
+    (e.budget_estimate * 0.18)::numeric(12,2),
+    'CP-12 calibrated outcome sample for current model training and demo planning.',
+    e.planned_end + interval '1 day'
+FROM core.events e
+WHERE e.event_id::text LIKE '80000000-0000-0000-0000-%'
+ON CONFLICT (event_id) DO UPDATE
+SET finished_on_time = EXCLUDED.finished_on_time,
+    total_delay_minutes = EXCLUDED.total_delay_minutes,
+    actual_cost = EXCLUDED.actual_cost,
+    overtime_cost = EXCLUDED.overtime_cost,
+    transport_cost = EXCLUDED.transport_cost,
+    sla_breached = EXCLUDED.sla_breached,
+    client_satisfaction_score = EXCLUDED.client_satisfaction_score,
+    internal_quality_score = EXCLUDED.internal_quality_score,
+    margin_estimate = EXCLUDED.margin_estimate,
+    summary_notes = EXCLUDED.summary_notes,
+    closed_at = EXCLUDED.closed_at;
+
+COMMIT;

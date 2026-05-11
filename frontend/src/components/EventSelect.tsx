@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Chip, CircularProgress, ListSubheader, MenuItem, Stack, TextField } from "@mui/material";
 
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { formatDateTime, translateStatus } from "../lib/format";
 import type { EventItem, ListResponse, LocationItem } from "../types/api";
 

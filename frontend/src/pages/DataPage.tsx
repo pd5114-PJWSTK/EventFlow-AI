@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 
 import { BusinessTable } from "../components/BusinessTable";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { formatDateTime, formatMoney, translateStatus } from "../lib/format";
 import type {
   EquipmentItem,

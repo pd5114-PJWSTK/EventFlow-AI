@@ -5,7 +5,7 @@ import { BackCornerButton } from "../components/BackCornerButton";
 import { EventDetailsCard } from "../components/EventDetailsCard";
 import { EventSelect } from "../components/EventSelect";
 import { StatusBanner } from "../components/StatusBanner";
-import { useAuth } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { formatDateInput, fromDateInput, parserSourceLabel } from "../lib/format";
 import { useSessionState } from "../lib/useSessionState";
 import { validateNonNegativeNumber, validateScore } from "../lib/validation";

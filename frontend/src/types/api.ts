@@ -250,24 +250,31 @@ export interface GeneratedPlanAssignment {
 }
 
 export interface PlanMetrics {
+  event_budget?: string | number | null;
+  resource_cost_to_budget_ratio?: string | number | null;
   estimated_cost: string | number;
   estimated_duration_minutes: string | number;
   predicted_delay_risk: string | number;
   predicted_incident_risk: string | number;
   predicted_sla_breach_risk: string | number;
   coverage_ratio: string | number;
+  reliability_score: string | number;
+  backup_coverage_ratio: string | number;
   missing_resource_count: number;
   assigned_resource_count: number;
   optimization_score: string | number;
 }
 
 export interface PlanMetricDelta {
+  resource_cost_to_budget_ratio?: string | number | null;
   estimated_cost: string | number;
   estimated_duration_minutes: string | number;
   predicted_delay_risk: string | number;
   predicted_incident_risk: string | number;
   predicted_sla_breach_risk: string | number;
   coverage_ratio: string | number;
+  reliability_score: string | number;
+  backup_coverage_ratio: string | number;
   missing_resource_count: number;
   assigned_resource_count: number;
   optimization_score: string | number;

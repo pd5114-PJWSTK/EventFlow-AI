@@ -1,4 +1,4 @@
-﻿import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { PlannerPage } from "../pages/PlannerPage";
@@ -23,7 +23,7 @@ vi.mock("../components/EventSelect", () => ({
 vi.mock("../components/EventDetailsCard", () => ({
   EventDetailsCard: ({ title }: { title: string }) => <div>{title}</div>,
 }));
-vi.mock("../lib/auth", () => ({
+vi.mock("../lib/useAuth", () => ({
   useAuth: () => ({
     api: apiMock,
   }),

@@ -1039,6 +1039,9 @@ def _build_plan_evaluator_dataset(
         "risk_index",
         "score_weight",
         "cost_weight",
+        "reliability_score",
+        "backup_coverage_ratio",
+        "resource_cost_to_budget_ratio",
     ]
     profiles = [
         {
@@ -1049,6 +1052,8 @@ def _build_plan_evaluator_dataset(
             "risk_bias": 0.00,
             "score_weight": 1.00,
             "cost_weight": 0.020,
+            "reliability_score": 0.55,
+            "backup_coverage_ratio": 0.60,
         },
         {
             "name": "low_cost",
@@ -1058,24 +1063,30 @@ def _build_plan_evaluator_dataset(
             "risk_bias": 0.08,
             "score_weight": 0.84,
             "cost_weight": 0.045,
+            "reliability_score": 0.32,
+            "backup_coverage_ratio": 0.35,
         },
         {
             "name": "reliability_first",
             "coverage_ratio": 0.99,
             "cost_multiplier": 1.10,
-            "duration_multiplier": 0.95,
-            "risk_bias": -0.06,
+            "duration_multiplier": 0.90,
+            "risk_bias": -0.10,
             "score_weight": 1.20,
             "cost_weight": 0.015,
+            "reliability_score": 0.88,
+            "backup_coverage_ratio": 0.82,
         },
         {
             "name": "coverage_guarded",
             "coverage_ratio": 0.985,
             "cost_multiplier": 1.05,
-            "duration_multiplier": 0.98,
-            "risk_bias": -0.03,
+            "duration_multiplier": 0.94,
+            "risk_bias": -0.06,
             "score_weight": 1.14,
             "cost_weight": 0.018,
+            "reliability_score": 0.72,
+            "backup_coverage_ratio": 0.95,
         },
     ]
 
@@ -1128,13 +1139,25 @@ def _build_plan_evaluator_dataset(
                     1.00,
                 )
             )
+            reliability_score = float(profile["reliability_score"])
+            backup_coverage_ratio = float(profile["backup_coverage_ratio"])
+            resource_cost_to_budget_ratio = float(
+                _clamp(
+                    (base_cost * profile["cost_multiplier"]) / max((attendee * 55.0), 1.0),
+                    0.01,
+                    0.80,
+                )
+            )
 
             quality_score = 100.0
-            quality_score -= (cost_index * 0.55)
+            quality_score -= (cost_index * 0.38)
+            quality_score -= (resource_cost_to_budget_ratio * 11.0)
             quality_score -= (duration_index * 1.20)
-            quality_score -= (risk_index * 42.0)
+            quality_score -= (risk_index * 46.0)
             quality_score -= (unassigned_ratio * 28.0)
             quality_score += (coverage_ratio * 6.0)
+            quality_score += (reliability_score * 14.0)
+            quality_score += (backup_coverage_ratio * 8.0)
             quality_score = float(_clamp(quality_score, 0.0, 100.0))
 
             vector = [
@@ -1153,6 +1176,9 @@ def _build_plan_evaluator_dataset(
                 risk_index,
                 float(profile["score_weight"]),
                 float(profile["cost_weight"]),
+                reliability_score,
+                backup_coverage_ratio,
+                resource_cost_to_budget_ratio,
             ]
             dataset.append({"x": vector, "target": quality_score, "profile": profile["name"]})
 

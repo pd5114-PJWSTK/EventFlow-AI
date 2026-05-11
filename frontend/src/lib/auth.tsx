@@ -1,21 +1,11 @@
-import { createContext, useContext, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { ApiClient } from "./api";
+import { AuthContext } from "./auth-context";
+import type { AuthContextValue } from "./auth-context";
 import { clearTokens, getStoredTokens, storeTokens } from "./session";
 import type { AuthTokens, UserMe } from "../types/api";
-
-interface AuthContextValue {
-  api: ApiClient;
-  tokens: AuthTokens | null;
-  me: UserMe | null;
-  isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  loadMe: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const tokensRef = useRef<AuthTokens | null>(getStoredTokens());
@@ -72,12 +62,4 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth must be used inside AuthProvider");
-  }
-  return ctx;
 }

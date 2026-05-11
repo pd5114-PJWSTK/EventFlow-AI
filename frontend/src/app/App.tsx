@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 
-import { AuthProvider, useAuth } from "../lib/auth";
+import { AuthProvider } from "../lib/auth";
+import { useAuth } from "../lib/useAuth";
 import { theme } from "./theme";
 import { AppRoutes } from "./routes";
 

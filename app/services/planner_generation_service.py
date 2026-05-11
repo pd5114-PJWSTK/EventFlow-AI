@@ -665,8 +665,8 @@ def recommend_best_plan_with_ml(
         )
         profile_duration_multiplier = (
             Decimal("1")
-            - Decimal(str(profile["reliability_bias"])) * Decimal("0.08")
-            + Decimal(str(profile["risk_bias"])) * Decimal("0.04")
+            - Decimal(str(profile["reliability_bias"])) * Decimal("0.16")
+            + Decimal(str(profile["risk_bias"])) * Decimal("0.08")
         )
         predicted_duration_minutes = (
             predicted_duration_minutes * max(profile_duration_multiplier, Decimal("0.80"))
@@ -716,6 +716,9 @@ def recommend_best_plan_with_ml(
             predicted_duration_minutes=predicted_duration_minutes,
             predicted_risk=predicted_risk,
             profile=profile,
+            reliability_score=_assignment_reliability_score(solved.assignments, profiled_input),
+            backup_coverage_ratio=_backup_coverage_ratio(solved.assignments, profiled_input),
+            event_budget=event.budget_estimate,
             plan_evaluator_artifact=plan_evaluator_artifact,
         )
         plan_score = _plan_score(
@@ -773,6 +776,8 @@ def recommend_best_plan_with_ml(
                 "guardrail_reason": guardrail_reason,
                 "selection_explanation": selection_explanation,
                 "profiled_input": profiled_input,
+                "reliability_score": _assignment_reliability_score(solved.assignments, profiled_input),
+                "backup_coverage_ratio": _backup_coverage_ratio(solved.assignments, profiled_input),
             }
         )
 
@@ -877,7 +882,7 @@ def recommend_best_plan_with_ml(
         assignment_ids=assignment_ids,
         transport_leg_ids=transport_leg_ids,
         estimated_cost=_money(selected_result.estimated_cost),
-        metrics=_selected_plan_metrics(selected=selected, result=selected_result),
+        metrics=_selected_plan_metrics(event=event, selected=selected, result=selected_result),
         assignment_slots=_assignment_slots(
             db=db,
             event=event,
@@ -1742,13 +1747,25 @@ def _plan_metrics(
             ml_quality_score=Decimal("0"),
             profile={"reliability_bias": 0.0},
         )
+    resource_cost_to_budget_ratio = _resource_cost_to_budget_ratio(
+        estimated_cost=result.estimated_cost,
+        event_budget=event.budget_estimate,
+    )
     return PlanMetrics(
+        event_budget=_money(event.budget_estimate) if event.budget_estimate is not None else None,
+        resource_cost_to_budget_ratio=(
+            resource_cost_to_budget_ratio.quantize(Decimal("0.0001"))
+            if resource_cost_to_budget_ratio is not None
+            else None
+        ),
         estimated_cost=_money(result.estimated_cost),
         estimated_duration_minutes=estimated_duration.quantize(Decimal("0.0001")),
         predicted_delay_risk=delay_risk.quantize(Decimal("0.0001")),
         predicted_incident_risk=incident_risk.quantize(Decimal("0.0001")),
         predicted_sla_breach_risk=sla_risk.quantize(Decimal("0.0001")),
         coverage_ratio=coverage_ratio.quantize(Decimal("0.0001")),
+        reliability_score=_assignment_reliability_score(result.assignments, planner_input).quantize(Decimal("0.0001")),
+        backup_coverage_ratio=_backup_coverage_ratio(result.assignments, planner_input).quantize(Decimal("0.0001")),
         missing_resource_count=int(missing_count),
         assigned_resource_count=int(assigned_count),
         optimization_score=score.quantize(Decimal("0.0001")),
@@ -1765,21 +1782,40 @@ def _metric_delta(baseline: PlanMetrics | None, optimized: PlanMetrics | None) -
         predicted_incident_risk=optimized.predicted_incident_risk - baseline.predicted_incident_risk,
         predicted_sla_breach_risk=optimized.predicted_sla_breach_risk - baseline.predicted_sla_breach_risk,
         coverage_ratio=optimized.coverage_ratio - baseline.coverage_ratio,
+        resource_cost_to_budget_ratio=(
+            optimized.resource_cost_to_budget_ratio - baseline.resource_cost_to_budget_ratio
+            if optimized.resource_cost_to_budget_ratio is not None and baseline.resource_cost_to_budget_ratio is not None
+            else None
+        ),
+        reliability_score=optimized.reliability_score - baseline.reliability_score,
+        backup_coverage_ratio=optimized.backup_coverage_ratio - baseline.backup_coverage_ratio,
         missing_resource_count=optimized.missing_resource_count - baseline.missing_resource_count,
         assigned_resource_count=optimized.assigned_resource_count - baseline.assigned_resource_count,
         optimization_score=optimized.optimization_score - baseline.optimization_score,
     )
 
 
-def _selected_plan_metrics(*, selected: dict[str, Any], result: PlannerResult) -> PlanMetrics:
+def _selected_plan_metrics(*, event: Event, selected: dict[str, Any], result: PlannerResult) -> PlanMetrics:
     assigned_count = sum(len(assignment.resource_ids) for assignment in result.assignments)
+    resource_cost_to_budget_ratio = _resource_cost_to_budget_ratio(
+        estimated_cost=result.estimated_cost,
+        event_budget=event.budget_estimate,
+    )
     return PlanMetrics(
+        event_budget=_money(event.budget_estimate) if event.budget_estimate is not None else None,
+        resource_cost_to_budget_ratio=(
+            resource_cost_to_budget_ratio.quantize(Decimal("0.0001"))
+            if resource_cost_to_budget_ratio is not None
+            else None
+        ),
         estimated_cost=_money(result.estimated_cost),
         estimated_duration_minutes=selected["predicted_duration_minutes"].quantize(Decimal("0.0001")),
         predicted_delay_risk=selected["predicted_delay_risk"].quantize(Decimal("0.0001")),
         predicted_incident_risk=selected["predicted_incident_risk"].quantize(Decimal("0.0001")),
         predicted_sla_breach_risk=selected["predicted_sla_breach_risk"].quantize(Decimal("0.0001")),
         coverage_ratio=selected["coverage_ratio"].quantize(Decimal("0.0001")),
+        reliability_score=selected.get("reliability_score", Decimal("0")).quantize(Decimal("0.0001")),
+        backup_coverage_ratio=selected.get("backup_coverage_ratio", Decimal("0")).quantize(Decimal("0.0001")),
         missing_resource_count=int(selected["unassigned_count"]),
         assigned_resource_count=int(assigned_count),
         optimization_score=selected["plan_score"].quantize(Decimal("0.0001")),
@@ -1799,9 +1835,21 @@ def _assignment_slots(
     for requirement in planner_input.requirements:
         assignment = assignment_by_requirement.get(requirement.requirement_id)
         selected_ids = list(assignment.resource_ids if assignment else [])
-        per_selected_cost = _money(_resource_cost_share(assignment)) if assignment and assignment.resource_ids else Decimal("0.00")
+        candidate_options = [
+            _candidate_option(db=db, event=event, requirement=requirement, candidate=candidate)
+            for candidate in _ranked_slot_candidates(requirement)
+        ]
+        option_cost_by_id = {
+            option.resource_id: option.estimated_cost
+            for option in candidate_options
+        }
         for index in range(max(requirement.quantity, 1)):
             selected_resource_id = selected_ids[index] if index < len(selected_ids) else None
+            selected_estimated_cost = Decimal("0.00")
+            if selected_resource_id:
+                selected_estimated_cost = option_cost_by_id.get(selected_resource_id, Decimal("0.00"))
+                if selected_estimated_cost == Decimal("0.00") and assignment is not None:
+                    selected_estimated_cost = _money(_resource_cost_share(assignment))
             slots.append(
                 AssignmentSlot(
                     requirement_id=requirement.requirement_id,
@@ -1810,11 +1858,8 @@ def _assignment_slots(
                     business_label=_slot_label(requirement, index + 1),
                     selected_resource_id=selected_resource_id,
                     selected_resource_name=_resource_name(db, requirement.resource_type, selected_resource_id) if selected_resource_id else None,
-                    estimated_cost=per_selected_cost if selected_resource_id else Decimal("0.00"),
-                    candidate_options=[
-                        _candidate_option(db=db, event=event, requirement=requirement, candidate=candidate)
-                        for candidate in _ranked_slot_candidates(requirement)
-                    ],
+                    estimated_cost=selected_estimated_cost,
+                    candidate_options=candidate_options,
                 )
             )
     return slots
@@ -1951,6 +1996,71 @@ def _resource_cost_share(assignment: PlannerAssignment) -> Decimal:
     return assignment.estimated_cost / Decimal(len(assignment.resource_ids))
 
 
+def _resource_cost_to_budget_ratio(
+    *,
+    estimated_cost: Decimal,
+    event_budget: Decimal | None,
+) -> Decimal | None:
+    if event_budget is None or event_budget <= 0:
+        return None
+    return (estimated_cost / event_budget).quantize(Decimal("0.0001"))
+
+
+def _candidate_lookup(planner_input: PlannerInput) -> dict[str, dict[str, PlannerCandidate]]:
+    return {
+        requirement.requirement_id: {
+            candidate.resource_id: candidate
+            for candidate in requirement.candidates
+        }
+        for requirement in planner_input.requirements
+    }
+
+
+def _assignment_reliability_score(
+    assignments: list[PlannerAssignment],
+    planner_input: PlannerInput,
+) -> Decimal:
+    candidates_by_requirement = _candidate_lookup(planner_input)
+    values: list[Decimal] = []
+    for assignment in assignments:
+        candidates = candidates_by_requirement.get(assignment.requirement_id, {})
+        for resource_id in assignment.resource_ids:
+            candidate = candidates.get(resource_id)
+            if candidate is not None:
+                values.append(max(candidate.reliability_score, Decimal("0")))
+    if not values:
+        return Decimal("0.0000")
+    return (sum(values, Decimal("0")) / Decimal(len(values))).quantize(Decimal("0.0001"))
+
+
+def _backup_coverage_ratio(
+    assignments: list[PlannerAssignment],
+    planner_input: PlannerInput,
+) -> Decimal:
+    assignment_by_requirement = {
+        assignment.requirement_id: assignment
+        for assignment in assignments
+    }
+    backed_slots = Decimal("0")
+    total_slots = Decimal("0")
+    for requirement in planner_input.requirements:
+        required_quantity = max(requirement.quantity, 0)
+        if required_quantity <= 0:
+            continue
+        total_slots += Decimal(required_quantity)
+        assignment = assignment_by_requirement.get(requirement.requirement_id)
+        selected_ids = set(assignment.resource_ids if assignment else [])
+        backup_count = len([
+            candidate
+            for candidate in requirement.candidates
+            if candidate.resource_id not in selected_ids
+        ])
+        backed_slots += Decimal(min(required_quantity, backup_count))
+    if total_slots <= 0:
+        return Decimal("0.0000")
+    return (backed_slots / total_slots).quantize(Decimal("0.0001"))
+
+
 def _money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"))
 
@@ -2077,15 +2187,15 @@ def _proposal_profiles() -> list[dict[str, float | str]]:
             "name": "reliability_first",
             "score_weight": 1.24,
             "cost_weight": 0.015,
-            "reliability_bias": 0.14,
-            "risk_bias": -0.05,
+            "reliability_bias": 0.35,
+            "risk_bias": -0.10,
         },
         {
             "name": "coverage_guarded",
             "score_weight": 1.12,
             "cost_weight": 0.022,
-            "reliability_bias": 0.08,
-            "risk_bias": -0.02,
+            "reliability_bias": 0.18,
+            "risk_bias": -0.04,
         },
     ]
 
@@ -2258,7 +2368,10 @@ def _candidate_duration_minutes(
     estimated_cost: Decimal,
 ) -> Decimal:
     coverage_penalty = (Decimal("1") - coverage_ratio) * Decimal("0.28")
-    cost_pressure = min(estimated_cost / Decimal("50000"), Decimal("0.18"))
+    # Assignment cost alone should not dominate duration. Expensive senior
+    # resources often reduce execution time; budget pressure is shown as a
+    # separate business metric.
+    cost_pressure = min(estimated_cost / Decimal("120000"), Decimal("0.10"))
     multiplier = Decimal("1") + coverage_penalty + cost_pressure
     return (base_duration_minutes * multiplier).quantize(Decimal("0.0001"))
 
@@ -2292,8 +2405,15 @@ def _candidate_quality_score(
     predicted_duration_minutes: Decimal,
     predicted_risk: Decimal,
     profile: dict[str, float | str],
+    reliability_score: Decimal,
+    backup_coverage_ratio: Decimal,
+    event_budget: Decimal | None,
     plan_evaluator_artifact: dict[str, Any] | None,
 ) -> float:
+    resource_cost_ratio = _resource_cost_to_budget_ratio(
+        estimated_cost=estimated_cost,
+        event_budget=event_budget,
+    )
     if plan_evaluator_artifact is not None:
         model = plan_evaluator_artifact.get("model")
         if model is not None:
@@ -2313,21 +2433,30 @@ def _candidate_quality_score(
                 float(predicted_risk),
                 float(profile["score_weight"]),
                 float(profile["cost_weight"]),
+                float(reliability_score),
+                float(backup_coverage_ratio),
+                float(resource_cost_ratio or Decimal("0")),
             ]
-            score = float(model.predict([vector])[0])
-            return max(min(score, 100.0), 0.0)
+            expected_features = getattr(model, "n_features_in_", len(vector))
+            if int(expected_features) == len(vector):
+                score = float(model.predict([vector])[0])
+                return max(min(score, 100.0), 0.0)
 
     # Fallback if plan evaluator model is unavailable.
     cost_component = float(min(estimated_cost / Decimal("70000"), Decimal("1")))
     duration_component = float(min(predicted_duration_minutes / Decimal("900"), Decimal("1")))
     risk_component = float(predicted_risk)
     unassigned_component = float(min(Decimal(unassigned_count) / Decimal("10"), Decimal("1")))
+    budget_component = float(min(resource_cost_ratio or Decimal("0"), Decimal("1")))
     score = 100.0
-    score -= cost_component * 22.0
+    score -= cost_component * 16.0
+    score -= budget_component * 10.0
     score -= duration_component * 25.0
     score -= risk_component * 35.0
     score -= unassigned_component * 20.0
     score += float(coverage_ratio) * 6.0
+    score += float(reliability_score) * 14.0
+    score += float(backup_coverage_ratio) * 8.0
     return max(min(score, 100.0), 0.0)
 
 

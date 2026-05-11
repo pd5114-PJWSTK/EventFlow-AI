@@ -1,4 +1,4 @@
-﻿import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { IntakePage } from "../pages/IntakePage";
@@ -8,7 +8,7 @@ const apiMock = {
   request: requestMock,
 };
 
-vi.mock("../lib/auth", () => ({
+vi.mock("../lib/useAuth", () => ({
   useAuth: () => ({
     api: apiMock,
   }),
