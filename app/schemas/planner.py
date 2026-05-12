@@ -92,11 +92,58 @@ class PlanMetricDelta(BaseModel):
     optimization_score: Decimal = Field(default=Decimal("0.00"))
 
 
+class MetricExplanation(BaseModel):
+    metric_key: str
+    label: str
+    summary: str
+    drivers: list[str] = Field(default_factory=list)
+    delta_direction: Literal["better", "worse", "neutral"] = "neutral"
+
+
+class PlanStageBreakdown(BaseModel):
+    stage_key: Literal[
+        "outbound_transport",
+        "setup",
+        "event_support",
+        "teardown",
+        "return_transport",
+    ]
+    label: str
+    duration_minutes: Decimal = Field(default=Decimal("0.00"))
+    description: str
+    drivers: list[str] = Field(default_factory=list)
+
+
+class ResourceImpactItem(BaseModel):
+    resource_id: str
+    resource_name: str
+    resource_type: str
+    summary: str
+    distance_to_event_km: Decimal | None = None
+    travel_time_minutes: int | None = None
+    logistics_cost: Decimal = Field(default=Decimal("0.00"))
+    contribution: str
+
+
+class PlanBusinessExplanation(BaseModel):
+    source: Literal["deterministic", "llm"] = "deterministic"
+    summary: str
+    baseline_vs_optimized: str
+    drivers: list[str] = Field(default_factory=list)
+    metric_explanations: list[MetricExplanation] = Field(default_factory=list)
+    resource_impact_summary: list[ResourceImpactItem] = Field(default_factory=list)
+
+
 class AssignmentCandidateOption(BaseModel):
     resource_id: str
     resource_name: str
     recommendation_score: Decimal = Field(default=Decimal("0.00"))
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
+    distance_to_event_km: Decimal | None = None
+    travel_time_minutes: int | None = None
+    logistics_cost: Decimal = Field(default=Decimal("0.00"))
+    location_match_score: Decimal = Field(default=Decimal("1.00"))
+    location_note: str | None = None
     availability_note: str = "Available for this event window."
     why_recommended: str = "Recommended by planner scoring."
 
@@ -159,6 +206,7 @@ class GeneratePlanResponse(BaseModel):
     transport_leg_ids: list[str] = Field(default_factory=list)
     estimated_cost: Decimal = Field(default=Decimal("0.00"))
     metrics: PlanMetrics | None = None
+    stage_breakdown: list[PlanStageBreakdown] = Field(default_factory=list)
     assignment_slots: list[AssignmentSlot] = Field(default_factory=list)
     gap_resolution: GapResolutionGuidance | None = None
 
@@ -272,6 +320,7 @@ class RecommendBestPlanResponse(BaseModel):
     baseline_metrics: PlanMetrics | None = None
     optimized_metrics: PlanMetrics | None = None
     metric_deltas: PlanMetricDelta | None = None
+    business_explanation: PlanBusinessExplanation | None = None
     candidates: list[PlanCandidateEvaluation] = Field(default_factory=list)
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import json
 import pickle
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
@@ -47,15 +48,19 @@ from app.models.ops import (
 from app.schemas.planner import (
     AssignmentCandidateOption,
     AssignmentSlot,
+    MetricExplanation,
     GapResolutionPreviewResponse,
     GapResolutionGuidance,
     GapResolutionOption,
     GeneratedPlanAssignment,
     GeneratePlanResponse,
+    PlanBusinessExplanation,
     PlanCandidateEvaluation,
     PlanMetricDelta,
     PlanMetricComparison,
     PlanMetrics,
+    PlanStageBreakdown,
+    ResourceImpactItem,
     RequirementGapSummary,
     RecommendBestPlanResponse,
     ResolvePlanGapsRequest,
@@ -245,6 +250,13 @@ def generate_plan(
                 event_feature=_metric_feature_for_event(event),
                 result=result,
                 planner_input=original_model,
+            ),
+            stage_breakdown=_plan_stage_breakdown(
+                event=event,
+                event_feature=_metric_feature_for_event(event),
+                result=result,
+                planner_input=original_model,
+                total_duration_minutes=None,
             ),
             assignment_slots=_assignment_slots(
                 db=db,
@@ -671,6 +683,10 @@ def recommend_best_plan_with_ml(
         predicted_duration_minutes = (
             predicted_duration_minutes * max(profile_duration_multiplier, Decimal("0.80"))
         ).quantize(Decimal("0.0001"))
+        predicted_duration_minutes = (
+            predicted_duration_minutes
+            + _max_assignment_travel_minutes(solved.assignments, profiled_input) * Decimal("0.30")
+        ).quantize(Decimal("0.0001"))
         duration_breakdown = _duration_breakdown(
             event=event,
             event_feature=event_feature,
@@ -883,6 +899,13 @@ def recommend_best_plan_with_ml(
         transport_leg_ids=transport_leg_ids,
         estimated_cost=_money(selected_result.estimated_cost),
         metrics=_selected_plan_metrics(event=event, selected=selected, result=selected_result),
+        stage_breakdown=_plan_stage_breakdown(
+            event=event,
+            event_feature=event_feature,
+            result=selected_result,
+            planner_input=selected["profiled_input"],
+            total_duration_minutes=selected["predicted_duration_minutes"],
+        ),
         assignment_slots=_assignment_slots(
             db=db,
             event=event,
@@ -909,6 +932,17 @@ def recommend_best_plan_with_ml(
         baseline_metrics=baseline_metrics,
         optimized_metrics=selected_plan.metrics,
         metric_deltas=_metric_delta(baseline_metrics, selected_plan.metrics),
+        business_explanation=_build_business_explanation(
+            db=db,
+            event=event,
+            baseline_result=baseline_result,
+            optimized_result=selected_result,
+            baseline_metrics=baseline_metrics,
+            optimized_metrics=selected_plan.metrics,
+            metric_deltas=_metric_delta(baseline_metrics, selected_plan.metrics),
+            optimized_input=selected["profiled_input"],
+            selected_explanation=str(selected["selection_explanation"]),
+        ),
         candidates=[
             PlanCandidateEvaluation(
                 candidate_name=str(item["profile"]["name"]),
@@ -1070,15 +1104,36 @@ def _override_assignment_cost(
             person = db.get(ResourcePerson, resource_id)
             if person and person.cost_per_hour is not None:
                 total += person.cost_per_hour * duration_hours
+                total += _override_logistics_cost(db, event, person.current_location_id or person.home_base_location_id, Decimal("1.10"))
         elif resource_type == "equipment":
             equipment = db.get(Equipment, resource_id)
             if equipment and equipment.hourly_cost_estimate is not None:
                 total += equipment.hourly_cost_estimate * duration_hours
+                total += _override_logistics_cost(db, event, equipment.current_location_id or equipment.warehouse_location_id, Decimal("1.50"))
         elif resource_type == "vehicle":
             vehicle = db.get(Vehicle, resource_id)
             if vehicle and vehicle.cost_per_hour is not None:
                 total += vehicle.cost_per_hour * duration_hours
+                total += _override_logistics_cost(db, event, vehicle.current_location_id or vehicle.home_location_id, vehicle.cost_per_km or Decimal("2.80"))
     return _money(total) if total > 0 else fallback
+
+
+def _override_logistics_cost(
+    db: Session,
+    event: Event,
+    origin_location_id: str | None,
+    cost_per_km: Decimal,
+) -> Decimal:
+    if origin_location_id is None or event.location_id is None:
+        return Decimal("0")
+    origin = db.get(Location, origin_location_id)
+    destination = db.get(Location, event.location_id)
+    if origin is None or destination is None:
+        return Decimal("0")
+    distance = _distance_km(origin, destination)
+    if distance is None:
+        return Decimal("0")
+    return _money(distance * cost_per_km * Decimal("2"))
 
 
 def _commit_assignments(
@@ -1302,12 +1357,13 @@ def _create_transport_legs(
         if vehicle_id in existing_leg_by_vehicle:
             continue
         vehicle = db.get(Vehicle, vehicle_id)
-        if vehicle is None or vehicle.home_location_id is None:
+        if vehicle is None or (vehicle.current_location_id is None and vehicle.home_location_id is None):
             continue
-        if vehicle.home_location_id == event.location_id:
+        origin_location_id = vehicle.current_location_id or vehicle.home_location_id
+        if origin_location_id == event.location_id:
             continue
 
-        origin = db.get(Location, vehicle.home_location_id)
+        origin = db.get(Location, origin_location_id)
         destination = db.get(Location, event.location_id)
         if origin is None or destination is None:
             continue
@@ -1716,6 +1772,10 @@ def _plan_metrics(
         coverage_ratio=coverage_ratio,
         estimated_cost=result.estimated_cost,
     )
+    estimated_duration = (
+        estimated_duration
+        + _max_assignment_travel_minutes(result.assignments, planner_input) * Decimal("0.30")
+    ).quantize(Decimal("0.0001"))
     delay_risk = _candidate_delay_risk(
         predicted_duration_minutes=estimated_duration,
         event=event,
@@ -1795,6 +1855,98 @@ def _metric_delta(baseline: PlanMetrics | None, optimized: PlanMetrics | None) -
     )
 
 
+def _plan_stage_breakdown(
+    *,
+    event: Event,
+    event_feature,
+    result: PlannerResult,
+    planner_input: PlannerInput,
+    total_duration_minutes: Decimal | None,
+) -> list[PlanStageBreakdown]:
+    if total_duration_minutes is None:
+        total_required = sum(max(requirement.quantity, 0) for requirement in planner_input.requirements)
+        assigned_count = sum(len(assignment.resource_ids) for assignment in result.assignments)
+        coverage_ratio = Decimal("1.0000")
+        if total_required > 0:
+            coverage_ratio = _ratio_decimal(Decimal(assigned_count), Decimal(total_required))
+        total_duration_minutes = _candidate_duration_minutes(
+            base_duration_minutes=Decimal(max(_event_duration_minutes(event), 1)),
+            coverage_ratio=coverage_ratio,
+            estimated_cost=result.estimated_cost,
+        )
+
+    breakdown = _duration_breakdown(
+        event=event,
+        event_feature=event_feature,
+        total_duration_minutes=total_duration_minutes,
+    )
+    selected_candidates = _selected_candidates(result.assignments, planner_input)
+    max_travel = max(
+        [Decimal(candidate.travel_time_minutes or 0) for candidate in selected_candidates],
+        default=Decimal("0"),
+    )
+    transport_total = breakdown["transport_duration_minutes"]
+    outbound = max((transport_total * Decimal("0.55")).quantize(Decimal("0.0001")), max_travel)
+    inbound = max((transport_total * Decimal("0.45")).quantize(Decimal("0.0001")), (max_travel * Decimal("0.80")).quantize(Decimal("0.0001")))
+    setup = breakdown["setup_duration_minutes"]
+    teardown = breakdown["teardown_duration_minutes"]
+    support = max(total_duration_minutes - outbound - setup - teardown - inbound, Decimal("0")).quantize(Decimal("0.0001"))
+    complexity = getattr(event_feature, "feature_setup_complexity_score", None) or getattr(event.location, "setup_complexity_score", 1) or 1
+    access = getattr(event_feature, "feature_access_difficulty", None) or getattr(event.location, "access_difficulty", 1) or 1
+    return [
+        PlanStageBreakdown(
+            stage_key="outbound_transport",
+            label="Outbound transport",
+            duration_minutes=outbound,
+            description="Move crew, vehicles and equipment to the venue before setup starts.",
+            drivers=_compact_strings([
+                f"Longest selected resource travel estimate: {format(int(max_travel), 'd')} min" if max_travel > 0 else "Most selected resources are already close to the venue.",
+                f"Venue access difficulty: {access}/5.",
+            ]),
+        ),
+        PlanStageBreakdown(
+            stage_key="setup",
+            label="Setup",
+            duration_minutes=setup,
+            description="Unload, build the technical setup and prepare the venue for delivery.",
+            drivers=_compact_strings([
+                f"Setup complexity score: {complexity}/10.",
+                f"Assigned resources: {sum(len(item.resource_ids) for item in result.assignments)}.",
+            ]),
+        ),
+        PlanStageBreakdown(
+            stage_key="event_support",
+            label="Event support",
+            duration_minutes=support,
+            description="Operational support while the event is running.",
+            drivers=_compact_strings([
+                "Higher reliability resources reduce support friction and delay risk.",
+                f"Event window: {_event_duration_minutes(event)} min.",
+            ]),
+        ),
+        PlanStageBreakdown(
+            stage_key="teardown",
+            label="Teardown",
+            duration_minutes=teardown,
+            description="Pack down equipment, clear the venue and prepare assets for return.",
+            drivers=_compact_strings([
+                f"Setup complexity also affects teardown: {complexity}/10.",
+                "Replacement-ready equipment lowers incident handling overhead.",
+            ]),
+        ),
+        PlanStageBreakdown(
+            stage_key="return_transport",
+            label="Return transport",
+            duration_minutes=inbound,
+            description="Return people, vehicles and equipment to their next operating base.",
+            drivers=_compact_strings([
+                f"Return estimate follows outbound logistics with {format(int(inbound), 'd')} min.",
+                "Vehicle distance and venue access drive the transport window.",
+            ]),
+        ),
+    ]
+
+
 def _selected_plan_metrics(*, event: Event, selected: dict[str, Any], result: PlannerResult) -> PlanMetrics:
     assigned_count = sum(len(assignment.resource_ids) for assignment in result.assignments)
     resource_cost_to_budget_ratio = _resource_cost_to_budget_ratio(
@@ -1820,6 +1972,253 @@ def _selected_plan_metrics(*, event: Event, selected: dict[str, Any], result: Pl
         assigned_resource_count=int(assigned_count),
         optimization_score=selected["plan_score"].quantize(Decimal("0.0001")),
     )
+
+
+def _build_business_explanation(
+    *,
+    db: Session,
+    event: Event,
+    baseline_result: PlannerResult,
+    optimized_result: PlannerResult,
+    baseline_metrics: PlanMetrics | None,
+    optimized_metrics: PlanMetrics | None,
+    metric_deltas: PlanMetricDelta | None,
+    optimized_input: PlannerInput,
+    selected_explanation: str,
+) -> PlanBusinessExplanation:
+    deterministic = _deterministic_business_explanation(
+        db=db,
+        event=event,
+        baseline_result=baseline_result,
+        optimized_result=optimized_result,
+        baseline_metrics=baseline_metrics,
+        optimized_metrics=optimized_metrics,
+        metric_deltas=metric_deltas,
+        optimized_input=optimized_input,
+        selected_explanation=selected_explanation,
+    )
+    return _llm_enhanced_business_explanation(deterministic) or deterministic
+
+
+def _deterministic_business_explanation(
+    *,
+    db: Session,
+    event: Event,
+    baseline_result: PlannerResult,
+    optimized_result: PlannerResult,
+    baseline_metrics: PlanMetrics | None,
+    optimized_metrics: PlanMetrics | None,
+    metric_deltas: PlanMetricDelta | None,
+    optimized_input: PlannerInput,
+    selected_explanation: str,
+) -> PlanBusinessExplanation:
+    changed_resources = not _same_resource_sets(baseline_result.assignments, optimized_result.assignments)
+    cost_delta = metric_deltas.estimated_cost if metric_deltas else Decimal("0")
+    duration_delta = metric_deltas.estimated_duration_minutes if metric_deltas else Decimal("0")
+    risk_delta = metric_deltas.predicted_incident_risk if metric_deltas else Decimal("0")
+    summary = (
+        "The optimized plan changes resource selection and logistics to improve delivery risk."
+        if changed_resources
+        else "The optimized plan keeps the same resources because baseline assignments are already strong for this data."
+    )
+    baseline_vs_optimized = (
+        f"Compared with baseline, optimized changes resource cost by {_signed_money(cost_delta)}, "
+        f"duration by {_signed_minutes(duration_delta)} and incident risk by {_signed_percentage_points(risk_delta)}. "
+        f"{selected_explanation}"
+    )
+    drivers = _compact_strings([
+        "Resource assignments changed." if changed_resources else "Resource assignments stayed the same.",
+        "Higher reliability resources reduce operational delay risk." if metric_deltas and metric_deltas.reliability_score > 0 else None,
+        "Closer current locations reduce travel and logistics friction." if any((candidate.travel_time_minutes or 0) > 0 for candidate in _selected_candidates(optimized_result.assignments, optimized_input)) else None,
+        "Backup coverage protects the plan if a selected resource becomes unavailable." if optimized_metrics and optimized_metrics.backup_coverage_ratio > 0 else None,
+    ])
+    return PlanBusinessExplanation(
+        source="deterministic",
+        summary=summary,
+        baseline_vs_optimized=baseline_vs_optimized,
+        drivers=drivers,
+        metric_explanations=_metric_explanations(metric_deltas),
+        resource_impact_summary=_resource_impact_summary(
+            db=db,
+            assignments=optimized_result.assignments,
+            planner_input=optimized_input,
+        ),
+    )
+
+
+def _llm_enhanced_business_explanation(
+    explanation: PlanBusinessExplanation,
+) -> PlanBusinessExplanation | None:
+    settings = get_settings()
+    if not settings.ai_azure_llm_enabled:
+        return None
+    try:
+        from app.services.ai_prompt_templates import PromptTemplate
+        from app.services.azure_openai_service import AzureOpenAIClient
+
+        payload = explanation.model_dump(mode="json")
+        prompt = PromptTemplate(
+            system=(
+                "You rewrite event planning explanations for an operations manager. "
+                "Return strict JSON only with keys: summary, baseline_vs_optimized, drivers."
+            ),
+            user=(
+                "Rewrite these explanations in clear business English. Keep numbers and meaning unchanged. "
+                "Return drivers as an array of short strings.\n\n"
+                f"INPUT:\n{json.dumps(payload, ensure_ascii=False)}"
+            ),
+        )
+        client = AzureOpenAIClient(settings=settings)
+        try:
+            completion = client.chat_completion(prompt, max_output_tokens=700)
+        finally:
+            client.close()
+        data = json.loads(completion.content)
+        return explanation.model_copy(
+            update={
+                "source": "llm",
+                "summary": str(data.get("summary") or explanation.summary),
+                "baseline_vs_optimized": str(data.get("baseline_vs_optimized") or explanation.baseline_vs_optimized),
+                "drivers": [
+                    str(item)
+                    for item in data.get("drivers", explanation.drivers)
+                    if str(item).strip()
+                ][:6],
+            }
+        )
+    except Exception:
+        return None
+
+
+def _metric_explanations(metric_deltas: PlanMetricDelta | None) -> list[MetricExplanation]:
+    return [
+        MetricExplanation(
+            metric_key="estimated_cost",
+            label="Planned resource cost",
+            summary="Assignable people, equipment and vehicle cost for this plan. It does not include the full commercial event budget.",
+            drivers=["Hourly rates", "travel/logistics cost", "number of assigned slots"],
+            delta_direction=_cost_direction(metric_deltas.estimated_cost if metric_deltas else Decimal("0")),
+        ),
+        MetricExplanation(
+            metric_key="estimated_duration_minutes",
+            label="Estimated duration",
+            summary="Operational time needed for transport, setup, live support, teardown and return logistics.",
+            drivers=["venue complexity", "resource travel time", "resource reliability", "coverage gaps"],
+            delta_direction=_negative_is_better(metric_deltas.estimated_duration_minutes if metric_deltas else Decimal("0")),
+        ),
+        MetricExplanation(
+            metric_key="predicted_delay_risk",
+            label="Delay risk",
+            summary="Probability-like signal that the plan may run late versus the event window.",
+            drivers=["travel distance", "setup complexity", "unassigned resources", "historical reliability"],
+            delta_direction=_negative_is_better(metric_deltas.predicted_delay_risk if metric_deltas else Decimal("0")),
+        ),
+        MetricExplanation(
+            metric_key="predicted_incident_risk",
+            label="Incident risk",
+            summary="Operational risk of issues such as equipment failure, staff pressure or venue friction.",
+            drivers=["backup coverage", "resource reliability", "access difficulty", "parking difficulty"],
+            delta_direction=_negative_is_better(metric_deltas.predicted_incident_risk if metric_deltas else Decimal("0")),
+        ),
+        MetricExplanation(
+            metric_key="coverage_ratio",
+            label="Requirement coverage",
+            summary="Share of required resource slots that were assigned.",
+            drivers=["available people", "available equipment", "available vehicles"],
+            delta_direction=_positive_is_better(metric_deltas.coverage_ratio if metric_deltas else Decimal("0")),
+        ),
+        MetricExplanation(
+            metric_key="reliability_score",
+            label="Reliability score",
+            summary="Average reliability signal of selected resources based on notes and historical operating patterns.",
+            drivers=["seniority", "replacement readiness", "low incident history"],
+            delta_direction=_positive_is_better(metric_deltas.reliability_score if metric_deltas else Decimal("0")),
+        ),
+        MetricExplanation(
+            metric_key="backup_coverage_ratio",
+            label="Backup coverage",
+            summary="How many required slots have realistic alternative resources available if the selected resource fails.",
+            drivers=["candidate pool depth", "availability windows", "resource category"],
+            delta_direction=_positive_is_better(metric_deltas.backup_coverage_ratio if metric_deltas else Decimal("0")),
+        ),
+    ]
+
+
+def _resource_impact_summary(
+    *,
+    db: Session,
+    assignments: list[PlannerAssignment],
+    planner_input: PlannerInput,
+) -> list[ResourceImpactItem]:
+    requirement_by_id = {requirement.requirement_id: requirement for requirement in planner_input.requirements}
+    candidates_by_requirement = _candidate_lookup(planner_input)
+    rows: list[ResourceImpactItem] = []
+    for assignment in assignments:
+        requirement = requirement_by_id.get(assignment.requirement_id)
+        if requirement is None:
+            continue
+        for resource_id in assignment.resource_ids:
+            candidate = candidates_by_requirement.get(assignment.requirement_id, {}).get(resource_id)
+            if candidate is None:
+                continue
+            rows.append(
+                ResourceImpactItem(
+                    resource_id=resource_id,
+                    resource_name=_resource_name(db, requirement.resource_type, resource_id),
+                    resource_type=requirement.resource_type,
+                    distance_to_event_km=candidate.distance_to_event_km,
+                    travel_time_minutes=candidate.travel_time_minutes,
+                    logistics_cost=_money(candidate.logistics_cost),
+                    summary=_resource_impact_sentence(candidate),
+                    contribution=_candidate_rationale(candidate),
+                )
+            )
+    rows.sort(key=lambda item: (-(item.travel_time_minutes or 0), -float(item.logistics_cost)))
+    return rows[:8]
+
+
+def _same_resource_sets(left: list[PlannerAssignment], right: list[PlannerAssignment]) -> bool:
+    left_set = sorted(sorted(item.resource_ids) for item in left)
+    right_set = sorted(sorted(item.resource_ids) for item in right)
+    return left_set == right_set
+
+
+def _resource_impact_sentence(candidate: PlannerCandidate) -> str:
+    parts = []
+    if candidate.distance_to_event_km is not None:
+        parts.append(f"{candidate.distance_to_event_km} km from venue")
+    if candidate.travel_time_minutes is not None:
+        parts.append(f"{candidate.travel_time_minutes} min travel")
+    if candidate.logistics_cost > 0:
+        parts.append(f"{_money(candidate.logistics_cost)} PLN logistics")
+    if candidate.reliability_score > 0:
+        parts.append("positive reliability signal")
+    return "; ".join(parts) if parts else "No material logistics impact."
+
+
+def _cost_direction(delta: Decimal) -> str:
+    return "better" if delta < 0 else "worse" if delta > 0 else "neutral"
+
+
+def _negative_is_better(delta: Decimal) -> str:
+    return "better" if delta < 0 else "worse" if delta > 0 else "neutral"
+
+
+def _positive_is_better(delta: Decimal) -> str:
+    return "better" if delta > 0 else "worse" if delta < 0 else "neutral"
+
+
+def _signed_money(value: Decimal) -> str:
+    return f"{'+' if value > 0 else ''}{_money(value)} PLN"
+
+
+def _signed_minutes(value: Decimal) -> str:
+    return f"{'+' if value > 0 else ''}{value.quantize(Decimal('0.0001'))} min"
+
+
+def _signed_percentage_points(value: Decimal) -> str:
+    points = (value * Decimal("100")).quantize(Decimal("0.01"))
+    return f"{'+' if points > 0 else ''}{points} pp"
 
 
 def _assignment_slots(
@@ -1883,17 +2282,25 @@ def _candidate_option(
         resource_name=_resource_name(db, requirement.resource_type, candidate.resource_id),
         recommendation_score=score.quantize(Decimal("0.01")),
         estimated_cost=cost,
+        distance_to_event_km=candidate.distance_to_event_km,
+        travel_time_minutes=candidate.travel_time_minutes,
+        logistics_cost=_money(candidate.logistics_cost),
+        location_match_score=candidate.location_match_score.quantize(Decimal("0.0001")),
+        location_note=candidate.location_note,
         availability_note="Available for the required event window.",
         why_recommended=_candidate_rationale(candidate),
     )
 
 
 def _candidate_rationale(candidate: PlannerCandidate) -> str:
+    location = ""
+    if candidate.travel_time_minutes is not None:
+        location = f" Travel estimate: {candidate.travel_time_minutes} min."
     if candidate.reliability_score >= Decimal("0.20"):
-        return "Strong reliability history for event-critical work."
+        return f"Strong reliability history for event-critical work.{location}"
     if candidate.reliability_score > Decimal("0"):
-        return "Good reliability profile with acceptable cost."
-    return "Cost-effective available resource for this requirement."
+        return f"Good reliability profile with acceptable cost.{location}"
+    return f"Cost-effective available resource for this requirement.{location}"
 
 
 def _slot_label(requirement: PlannerRequirement, slot_index: int) -> str:
@@ -2033,6 +2440,31 @@ def _assignment_reliability_score(
     return (sum(values, Decimal("0")) / Decimal(len(values))).quantize(Decimal("0.0001"))
 
 
+def _selected_candidates(
+    assignments: list[PlannerAssignment],
+    planner_input: PlannerInput,
+) -> list[PlannerCandidate]:
+    candidates_by_requirement = _candidate_lookup(planner_input)
+    selected: list[PlannerCandidate] = []
+    for assignment in assignments:
+        candidates = candidates_by_requirement.get(assignment.requirement_id, {})
+        for resource_id in assignment.resource_ids:
+            candidate = candidates.get(resource_id)
+            if candidate is not None:
+                selected.append(candidate)
+    return selected
+
+
+def _max_assignment_travel_minutes(
+    assignments: list[PlannerAssignment],
+    planner_input: PlannerInput,
+) -> Decimal:
+    return max(
+        [Decimal(candidate.travel_time_minutes or 0) for candidate in _selected_candidates(assignments, planner_input)],
+        default=Decimal("0"),
+    )
+
+
 def _backup_coverage_ratio(
     assignments: list[PlannerAssignment],
     planner_input: PlannerInput,
@@ -2059,6 +2491,10 @@ def _backup_coverage_ratio(
     if total_slots <= 0:
         return Decimal("0.0000")
     return (backed_slots / total_slots).quantize(Decimal("0.0001"))
+
+
+def _compact_strings(values: list[str | None]) -> list[str]:
+    return [value for value in values if value]
 
 
 def _money(value: Decimal) -> Decimal:
@@ -2215,10 +2651,13 @@ def _apply_profile_to_planner_input(
             base_score = float(candidate.score)
             reliability_score = float(candidate.reliability_score)
             cost_penalty = (float(candidate.cost_per_hour) / 100.0) * cost_weight
+            location_score = float(candidate.location_match_score or Decimal("1"))
             reliability_weight = max(0.0, 0.15 + reliability_bias * 2.5 - risk_bias * 0.4)
+            logistics_weight = max(0.0, 0.10 + reliability_bias * 0.55 - risk_bias * 0.20)
             adjusted_score = max(
                 base_score * score_weight
                 + reliability_score * reliability_weight
+                + location_score * logistics_weight
                 - cost_penalty,
                 0.0001,
             )
@@ -2228,6 +2667,11 @@ def _apply_profile_to_planner_input(
                     cost_per_hour=candidate.cost_per_hour,
                     score=Decimal(str(round(adjusted_score, 6))),
                     reliability_score=candidate.reliability_score,
+                    distance_to_event_km=candidate.distance_to_event_km,
+                    travel_time_minutes=candidate.travel_time_minutes,
+                    logistics_cost=candidate.logistics_cost,
+                    location_match_score=candidate.location_match_score,
+                    location_note=candidate.location_note,
                     available_from=candidate.available_from,
                     available_to=candidate.available_to,
                 )

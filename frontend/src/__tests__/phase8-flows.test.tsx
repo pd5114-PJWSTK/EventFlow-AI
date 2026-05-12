@@ -96,14 +96,52 @@ describe("Phase 8 CP-07 operator flows", () => {
       if (path.startsWith("/api/resources/vehicles")) return Promise.resolve(vehicleList);
       if (path.startsWith("/api/resources/skills")) return Promise.resolve(emptyList);
       if (path === "/api/planner/generate-plan") {
-        return Promise.resolve({ event_id: "event-123", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [{ requirement_id: "req-1", resource_type: "person", resource_ids: ["person-audio"], unassigned_count: 0, estimated_cost: 720 }], estimated_cost: 10000 });
+        return Promise.resolve({
+          event_id: "event-123",
+          planner_run_id: "run",
+          recommendation_id: "rec",
+          plan_id: "plan",
+          solver: "fallback",
+          is_fully_assigned: true,
+          assignments: [{ requirement_id: "req-1", resource_type: "person", resource_ids: ["person-audio"], unassigned_count: 0, estimated_cost: 720 }],
+          estimated_cost: 10000,
+          stage_breakdown: [{ stage_key: "outbound_transport", label: "Outbound transport", duration_minutes: 45, description: "Crew arrives at venue.", drivers: ["Close team base"] }],
+        });
       }
       if (path === "/api/planner/recommend-best-plan") {
         return Promise.resolve({
           event_id: "event-123",
           selected_candidate_name: "balanced",
           selected_explanation: "Lowest cost with full requirement coverage.",
-          selected_plan: { event_id: "event-123", planner_run_id: "run", recommendation_id: "rec", plan_id: "plan", solver: "fallback", is_fully_assigned: true, assignments: [{ requirement_id: "req-1", resource_type: "person", resource_ids: ["person-audio"], unassigned_count: 0, estimated_cost: 720 }], estimated_cost: 10000 },
+          business_explanation: {
+            source: "deterministic",
+            summary: "Optimized plan uses a closer and more reliable team.",
+            baseline_vs_optimized: "Delay risk is lower because travel is shorter.",
+            drivers: ["Closer current location", "Higher reliability"],
+            metric_explanations: [{ metric_key: "predicted_delay_risk", label: "Delay risk", summary: "Risk of late delivery.", drivers: ["travel time"], delta_direction: "better" }],
+            resource_impact_summary: [{ resource_id: "person-audio", resource_name: "Audio Technician", resource_type: "person", summary: "Close to venue.", distance_to_event_km: 4.2, travel_time_minutes: 12, logistics_cost: 20, contribution: "Fast arrival" }],
+          },
+          selected_plan: {
+            event_id: "event-123",
+            planner_run_id: "run",
+            recommendation_id: "rec",
+            plan_id: "plan",
+            solver: "fallback",
+            is_fully_assigned: true,
+            assignments: [{ requirement_id: "req-1", resource_type: "person", resource_ids: ["person-audio"], unassigned_count: 0, estimated_cost: 720 }],
+            estimated_cost: 10000,
+            stage_breakdown: [{ stage_key: "outbound_transport", label: "Outbound transport", duration_minutes: 30, description: "Crew arrives from nearby base.", drivers: ["Short travel"] }],
+            assignment_slots: [{
+              requirement_id: "req-1",
+              slot_index: 1,
+              resource_type: "person",
+              business_label: "Coordinator 1",
+              selected_resource_id: "person-audio",
+              selected_resource_name: "Audio Technician",
+              estimated_cost: 720,
+              candidate_options: [{ resource_id: "person-audio", resource_name: "Audio Technician", recommendation_score: 92, estimated_cost: 720, distance_to_event_km: 4.2, travel_time_minutes: 12, logistics_cost: 20, location_match_score: 0.98, location_note: "Close to venue.", availability_note: "Available.", why_recommended: "Strong reliability and short travel." }],
+            }],
+          },
           candidates: [
             { candidate_name: "balanced", solver: "fallback", estimated_cost: 10000, estimated_duration_minutes: 480, predicted_delay_risk: 0.1, coverage_ratio: 1, plan_score: 90, selection_explanation: "Best cost and risk balance." },
             { candidate_name: "cost_guarded", solver: "fallback", estimated_cost: 9000, estimated_duration_minutes: 510, predicted_delay_risk: 0.15, coverage_ratio: 0.95, plan_score: 84, selection_explanation: "Lower cost with a little more risk." },
@@ -119,8 +157,11 @@ describe("Phase 8 CP-07 operator flows", () => {
     fireEvent.click(screen.getByRole("button", { name: "Plan event" }));
 
     await waitFor(() => expect(screen.getByText("Optimized plan")).toBeInTheDocument());
+    expect(screen.getByText("Why optimized is different")).toBeInTheDocument();
+    expect(screen.getByText("Timeline")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next: review resources" }));
     await waitFor(() => expect(screen.getByText("Review resource assignments before final approval")).toBeInTheDocument());
+    expect(screen.getByText(/Close to venue/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Approve final plan" }));
 
     await waitFor(() => {

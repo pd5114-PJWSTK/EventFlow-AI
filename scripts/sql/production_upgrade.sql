@@ -1666,3 +1666,127 @@ SET finished_on_time = EXCLUDED.finished_on_time,
     closed_at = EXCLUDED.closed_at;
 
 COMMIT;
+
+-- CP-13 final location-aware demo calibration (runs after all prior CP seed blocks).
+BEGIN;
+
+ALTER TABLE core.resources_people
+    ADD COLUMN IF NOT EXISTS current_location_id UUID REFERENCES core.locations(location_id) ON DELETE SET NULL;
+ALTER TABLE core.equipment
+    ADD COLUMN IF NOT EXISTS current_location_id UUID REFERENCES core.locations(location_id) ON DELETE SET NULL;
+ALTER TABLE core.vehicles
+    ADD COLUMN IF NOT EXISTS current_location_id UUID REFERENCES core.locations(location_id) ON DELETE SET NULL;
+
+UPDATE core.resources_people
+SET current_location_id = COALESCE(current_location_id, home_base_location_id)
+WHERE current_location_id IS NULL;
+
+UPDATE core.equipment
+SET current_location_id = COALESCE(current_location_id, warehouse_location_id)
+WHERE current_location_id IS NULL;
+
+UPDATE core.vehicles
+SET current_location_id = COALESCE(current_location_id, home_location_id)
+WHERE current_location_id IS NULL;
+
+INSERT INTO core.locations (
+    location_id, name, city, address_line, postal_code, country_code,
+    location_type, latitude, longitude, parking_difficulty, access_difficulty,
+    setup_complexity_score, notes
+)
+VALUES
+    ('82000000-0000-0000-0000-000000000901', 'Demo Arena Main Hall', 'Krakow', 'ul. Demonstracyjna 11', '30-901', 'PL', 'conference_center'::core.location_type, 50.067000, 19.945000, 4, 4, 8, 'Demo venue with demanding audio setup and limited loading access.'),
+    ('82000000-0000-0000-0000-000000000910', 'Krakow Operations Hub', 'Krakow', 'ul. Bliska 4', '30-910', 'PL', 'office'::core.location_type, 50.072000, 19.955000, 2, 2, 3, 'Close crew and vehicle base for optimized demo assignments.'),
+    ('82000000-0000-0000-0000-000000000911', 'Warsaw Budget Depot', 'Warsaw', 'ul. Magazynowa 21', '01-911', 'PL', 'warehouse'::core.location_type, 52.229700, 21.012200, 3, 3, 4, 'Far lower-cost depot used to show baseline logistics friction.'),
+    ('82000000-0000-0000-0000-000000000912', 'Katowice Backup Warehouse', 'Katowice', 'ul. Rezerwowa 7', '40-912', 'PL', 'warehouse'::core.location_type, 50.264900, 19.023800, 2, 2, 4, 'Regional warehouse with reliable backup audio equipment.')
+ON CONFLICT (location_id) DO UPDATE
+SET name = EXCLUDED.name,
+    city = EXCLUDED.city,
+    address_line = EXCLUDED.address_line,
+    postal_code = EXCLUDED.postal_code,
+    country_code = EXCLUDED.country_code,
+    location_type = EXCLUDED.location_type,
+    latitude = EXCLUDED.latitude,
+    longitude = EXCLUDED.longitude,
+    parking_difficulty = EXCLUDED.parking_difficulty,
+    access_difficulty = EXCLUDED.access_difficulty,
+    setup_complexity_score = EXCLUDED.setup_complexity_score,
+    notes = EXCLUDED.notes;
+
+UPDATE core.resources_people
+SET current_location_id = CASE
+        WHEN person_id IN ('87000000-0000-0000-0000-000000000901','87000000-0000-0000-0000-000000000902','87000000-0000-0000-0000-000000000903') THEN '82000000-0000-0000-0000-000000000911'::uuid
+        ELSE '82000000-0000-0000-0000-000000000910'::uuid
+    END,
+    home_base_location_id = CASE
+        WHEN person_id IN ('87000000-0000-0000-0000-000000000901','87000000-0000-0000-0000-000000000902','87000000-0000-0000-0000-000000000903') THEN '82000000-0000-0000-0000-000000000911'::uuid
+        ELSE '82000000-0000-0000-0000-000000000910'::uuid
+    END,
+    updated_at = NOW()
+WHERE person_id IN (
+    '87000000-0000-0000-0000-000000000901', '87000000-0000-0000-0000-000000000902',
+    '87000000-0000-0000-0000-000000000903', '87000000-0000-0000-0000-000000000904',
+    '87000000-0000-0000-0000-000000000905', '87000000-0000-0000-0000-000000000906'
+);
+
+UPDATE core.equipment
+SET current_location_id = CASE
+        WHEN equipment_id IN ('88000000-0000-0000-0000-000000000901','88000000-0000-0000-0000-000000000902') THEN '82000000-0000-0000-0000-000000000911'::uuid
+        WHEN equipment_id = '88000000-0000-0000-0000-000000000903' THEN '82000000-0000-0000-0000-000000000912'::uuid
+        ELSE '82000000-0000-0000-0000-000000000910'::uuid
+    END,
+    warehouse_location_id = CASE
+        WHEN equipment_id IN ('88000000-0000-0000-0000-000000000901','88000000-0000-0000-0000-000000000902') THEN '82000000-0000-0000-0000-000000000911'::uuid
+        WHEN equipment_id = '88000000-0000-0000-0000-000000000903' THEN '82000000-0000-0000-0000-000000000912'::uuid
+        ELSE '82000000-0000-0000-0000-000000000910'::uuid
+    END,
+    updated_at = NOW()
+WHERE equipment_id IN (
+    '88000000-0000-0000-0000-000000000901', '88000000-0000-0000-0000-000000000902',
+    '88000000-0000-0000-0000-000000000903', '88000000-0000-0000-0000-000000000904'
+);
+
+INSERT INTO core.vehicles (
+    vehicle_id, vehicle_name, vehicle_type, registration_number, capacity_notes,
+    status, home_location_id, current_location_id, cost_per_km, cost_per_hour, active
+)
+VALUES
+    ('89000000-0000-0000-0000-000000000901', 'Demo Budget Long-Route Van', 'van'::core.vehicle_type, 'WA901DE', 'Low hourly rate but starts from Warsaw, adding travel risk and logistics time.', 'available'::core.resource_status, '82000000-0000-0000-0000-000000000911', '82000000-0000-0000-0000-000000000911', 1.00, 20.00, true),
+    ('89000000-0000-0000-0000-000000000902', 'Demo Krakow Rapid Van', 'van'::core.vehicle_type, 'KR902DE', 'Close vehicle with faster dispatch for optimized plans.', 'available'::core.resource_status, '82000000-0000-0000-0000-000000000910', '82000000-0000-0000-0000-000000000910', 3.40, 145.00, true)
+ON CONFLICT (vehicle_id) DO UPDATE
+SET vehicle_name = EXCLUDED.vehicle_name,
+    vehicle_type = EXCLUDED.vehicle_type,
+    registration_number = EXCLUDED.registration_number,
+    capacity_notes = EXCLUDED.capacity_notes,
+    status = EXCLUDED.status,
+    home_location_id = EXCLUDED.home_location_id,
+    current_location_id = EXCLUDED.current_location_id,
+    cost_per_km = EXCLUDED.cost_per_km,
+    cost_per_hour = EXCLUDED.cost_per_hour,
+    active = EXCLUDED.active,
+    updated_at = NOW();
+
+INSERT INTO core.vehicle_availability (availability_id, vehicle_id, available_from, available_to, is_available, source, notes)
+VALUES
+    ('89100000-0000-0000-0000-000000000902', '89000000-0000-0000-0000-000000000902', '2026-09-18 08:00:00+00'::timestamptz, '2026-09-19 02:00:00+00'::timestamptz, true, 'demo_cp13', 'Close rapid van available for Demo-plan-event.'),
+    ('89100000-0000-0000-0000-000000000903', '89000000-0000-0000-0000-000000000901', '2026-09-18 08:00:00+00'::timestamptz, '2026-09-19 02:00:00+00'::timestamptz, true, 'demo_cp13', 'Far low-cost van available for Demo-plan-event.')
+ON CONFLICT (availability_id) DO UPDATE
+SET vehicle_id = EXCLUDED.vehicle_id,
+    available_from = EXCLUDED.available_from,
+    available_to = EXCLUDED.available_to,
+    is_available = EXCLUDED.is_available,
+    source = EXCLUDED.source,
+    notes = EXCLUDED.notes;
+
+UPDATE core.events
+SET status = 'validated'::core.event_status,
+    location_id = '82000000-0000-0000-0000-000000000901',
+    notes = 'CP-13 demo: baseline can prefer far low-cost resources; optimized should explain why closer and more reliable resources reduce time, logistics friction and operational risk.',
+    updated_at = NOW()
+WHERE event_id = '80000000-0000-0000-0000-000000000901';
+
+DELETE FROM core.assignments
+WHERE event_id = '80000000-0000-0000-0000-000000000901'
+  AND is_manual_override IS FALSE;
+
+COMMIT;

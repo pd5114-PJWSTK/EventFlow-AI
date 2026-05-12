@@ -118,6 +118,11 @@ def test_cp11_planner_metrics_slots_and_optimized_resource_difference(api_client
         assert key in baseline_payload["metrics"]
         assert key in recommended_payload["optimized_metrics"]
     assert len(recommended_payload["selected_plan"]["assignment_slots"]) == 3
+    assert len(baseline_payload["stage_breakdown"]) == 5
+    assert len(recommended_payload["selected_plan"]["stage_breakdown"]) == 5
+    assert recommended_payload["business_explanation"]["summary"]
+    assert recommended_payload["business_explanation"]["metric_explanations"]
+    assert recommended_payload["business_explanation"]["resource_impact_summary"]
     for slot in recommended_payload["selected_plan"]["assignment_slots"]:
         selected_option = next(
             option
@@ -125,6 +130,9 @@ def test_cp11_planner_metrics_slots_and_optimized_resource_difference(api_client
             if option["resource_id"] == slot["selected_resource_id"]
         )
         assert slot["estimated_cost"] == selected_option["estimated_cost"]
+        assert "distance_to_event_km" in selected_option
+        assert "travel_time_minutes" in selected_option
+        assert "logistics_cost" in selected_option
     assert recommended_payload["metric_deltas"] is not None
     assert "reliability_score" in recommended_payload["metric_deltas"]
     assert "backup_coverage_ratio" in recommended_payload["metric_deltas"]
@@ -157,6 +165,8 @@ def test_cp11_production_upgrade_contains_demo_plan_event() -> None:
     assert "Demo-plan-event" in patch
     assert "source_channel" in patch
     assert "demo_cp11" in patch
+    assert "current_location_id" in patch
+    assert "demo_cp13" in patch
     assert "'validated'::core.event_status" in patch
 
 

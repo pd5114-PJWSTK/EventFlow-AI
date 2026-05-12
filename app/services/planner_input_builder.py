@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, ROUND_CEILING
+from math import asin, cos, radians, sin, sqrt
 from typing import Iterable, Mapping, Sequence, TYPE_CHECKING
 
 from app.services.ortools_service import (
@@ -37,6 +38,7 @@ def build_planner_input(
     locked_people_windows: Mapping[str, Sequence] | None = None,
     locked_equipment_windows: Mapping[str, Sequence] | None = None,
     locked_vehicle_windows: Mapping[str, Sequence] | None = None,
+    locations_by_id: Mapping[str, object] | None = None,
 ) -> PlannerInput:
     """Build a planner input payload without importing ORM models."""
     planner_requirements: list[PlannerRequirement] = []
@@ -57,6 +59,8 @@ def build_planner_input(
                 required_end=req_end,
                 required_hours=req_hours,
                 locked_windows=locked_people_windows or {},
+                event=event,
+                locations_by_id=locations_by_id or {},
             )
             if not candidates:
                 candidates = _fallback_people_candidates(
@@ -66,6 +70,8 @@ def build_planner_input(
                     required_end=req_end,
                     required_hours=req_hours,
                     locked_windows=locked_people_windows or {},
+                    event=event,
+                    locations_by_id=locations_by_id or {},
                 )
             resource_type = "person"
         elif req_type == "equipment_type":
@@ -76,6 +82,8 @@ def build_planner_input(
                 required_start=req_start,
                 required_end=req_end,
                 locked_windows=locked_equipment_windows or {},
+                event=event,
+                locations_by_id=locations_by_id or {},
             )
             if not candidates:
                 candidates = _fallback_equipment_candidates(
@@ -84,6 +92,8 @@ def build_planner_input(
                     required_start=req_start,
                     required_end=req_end,
                     locked_windows=locked_equipment_windows or {},
+                    event=event,
+                    locations_by_id=locations_by_id or {},
                 )
             resource_type = "equipment"
         elif req_type == "vehicle_type":
@@ -94,6 +104,8 @@ def build_planner_input(
                 required_start=req_start,
                 required_end=req_end,
                 locked_windows=locked_vehicle_windows or {},
+                event=event,
+                locations_by_id=locations_by_id or {},
             )
             if not candidates:
                 candidates = _fallback_vehicle_candidates(
@@ -102,6 +114,8 @@ def build_planner_input(
                     required_start=req_start,
                     required_end=req_end,
                     locked_windows=locked_vehicle_windows or {},
+                    event=event,
+                    locations_by_id=locations_by_id or {},
                 )
             resource_type = "vehicle"
         else:
@@ -136,6 +150,7 @@ def load_planner_input(db: Session, event_id: str) -> PlannerInput:
         ResourcePerson,
         Vehicle,
         VehicleAvailability,
+        Location,
     )
 
     event = db.get(Event, event_id)
@@ -160,6 +175,10 @@ def load_planner_input(db: Session, event_id: str) -> PlannerInput:
     vehicles = (
         db.execute(select(Vehicle).where(Vehicle.active.is_(True))).scalars().all()
     )
+    locations_by_id = {
+        location.location_id: location
+        for location in db.execute(select(Location)).scalars().all()
+    }
 
     skills_by_person: dict[str, set[str]] = {}
     for link in db.execute(select(PersonSkill)).scalars().all():
@@ -215,6 +234,7 @@ def load_planner_input(db: Session, event_id: str) -> PlannerInput:
         locked_people_windows=locked_people_windows,
         locked_equipment_windows=locked_equipment_windows,
         locked_vehicle_windows=locked_vehicle_windows,
+        locations_by_id=locations_by_id,
     )
 
 
@@ -236,6 +256,110 @@ def _window_hours(start: datetime, end: datetime) -> Decimal:
     return Decimal(str(max(seconds, 0) / 3600.0))
 
 
+def _resource_logistics(
+    *,
+    event,
+    resource,
+    resource_type: str,
+    base_cost_per_hour: Decimal,
+    required_hours: Decimal,
+    locations_by_id: Mapping[str, object],
+) -> dict[str, Decimal | int | str | None]:
+    event_location = locations_by_id.get(getattr(event, "location_id", None))
+    fallback_attr = {
+        "person": "home_base_location_id",
+        "equipment": "warehouse_location_id",
+        "vehicle": "home_location_id",
+    }[resource_type]
+    current_location_id = getattr(resource, "current_location_id", None) or getattr(resource, fallback_attr, None)
+    current_location = locations_by_id.get(current_location_id)
+
+    if event_location is None or current_location is None:
+        return {
+            "distance_to_event_km": None,
+            "travel_time_minutes": None,
+            "logistics_cost": Decimal("0.00"),
+            "cost_per_hour_addition": Decimal("0.00"),
+            "location_match_score": Decimal("0.82"),
+            "location_note": "Current location missing; planner used a conservative logistics score.",
+        }
+    if current_location_id == getattr(event, "location_id", None):
+        return {
+            "distance_to_event_km": Decimal("0.00"),
+            "travel_time_minutes": 0,
+            "logistics_cost": Decimal("0.00"),
+            "cost_per_hour_addition": Decimal("0.00"),
+            "location_match_score": Decimal("1.00"),
+            "location_note": "Already at the event location.",
+        }
+
+    distance = _distance_km(current_location, event_location)
+    if distance is None:
+        return {
+            "distance_to_event_km": None,
+            "travel_time_minutes": 45,
+            "logistics_cost": Decimal("0.00"),
+            "cost_per_hour_addition": Decimal("0.00"),
+            "location_match_score": Decimal("0.78"),
+            "location_note": "Location coordinates missing; planner assumed medium travel friction.",
+        }
+
+    travel_minutes = _transport_duration_minutes(distance)
+    travel_hours = Decimal(travel_minutes) / Decimal("60")
+    km_cost = Decimal("0.00")
+    if resource_type == "vehicle":
+        km_cost = _decimal_or_zero(getattr(resource, "cost_per_km", None)) * distance * Decimal("2")
+    handling_multiplier = {
+        "person": Decimal("0.35"),
+        "equipment": Decimal("0.55"),
+        "vehicle": Decimal("0.25"),
+    }[resource_type]
+    handling_cost = base_cost_per_hour * travel_hours * handling_multiplier
+    logistics_cost = (km_cost + handling_cost).quantize(Decimal("0.01"))
+    cost_per_hour_addition = Decimal("0.00")
+    if required_hours > 0:
+        cost_per_hour_addition = (logistics_cost / required_hours).quantize(Decimal("0.0001"))
+    location_match_score = max(
+        Decimal("0.25"),
+        Decimal("1.00") - min(distance / Decimal("450"), Decimal("0.75")),
+    ).quantize(Decimal("0.0001"))
+    return {
+        "distance_to_event_km": distance.quantize(Decimal("0.01")),
+        "travel_time_minutes": travel_minutes,
+        "logistics_cost": logistics_cost,
+        "cost_per_hour_addition": cost_per_hour_addition,
+        "location_match_score": location_match_score,
+        "location_note": f"Located {distance.quantize(Decimal('0.1'))} km from the venue; estimated travel {travel_minutes} min.",
+    }
+
+
+def _distance_km(origin, destination) -> Decimal | None:
+    if (
+        getattr(origin, "latitude", None) is None
+        or getattr(origin, "longitude", None) is None
+        or getattr(destination, "latitude", None) is None
+        or getattr(destination, "longitude", None) is None
+    ):
+        return None
+
+    lat1 = radians(float(origin.latitude))
+    lon1 = radians(float(origin.longitude))
+    lat2 = radians(float(destination.latitude))
+    lon2 = radians(float(destination.longitude))
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    haversine = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    distance = 6371.0 * 2 * asin(sqrt(haversine))
+    return Decimal(str(round(distance, 2)))
+
+
+def _transport_duration_minutes(distance: Decimal | None) -> int:
+    if distance is None:
+        return 45
+    return max(int((distance / Decimal("50")) * Decimal("60")), 10)
+
+
 def _people_candidates(
     *,
     requirement,
@@ -246,6 +370,8 @@ def _people_candidates(
     required_end: datetime,
     required_hours: Decimal,
     locked_windows: Mapping[str, Sequence],
+    event,
+    locations_by_id: Mapping[str, object],
 ) -> list[PlannerCandidate]:
     role_required = _enum_value(getattr(requirement, "role_required", None))
     skill_id = getattr(requirement, "skill_id", None)
@@ -279,13 +405,26 @@ def _people_candidates(
             continue
 
         cost = _decimal_or_zero(getattr(person, "cost_per_hour", None))
+        logistics = _resource_logistics(
+            event=event,
+            resource=person,
+            resource_type="person",
+            base_cost_per_hour=cost,
+            required_hours=required_hours,
+            locations_by_id=locations_by_id,
+        )
         reliability_score = _reliability_bonus(getattr(person, "reliability_notes", None))
         candidates.append(
             PlannerCandidate(
                 resource_id=person.person_id,
-                cost_per_hour=cost,
-                score=_score_from_cost(cost),
+                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                score=(_score_from_cost(cost) * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=reliability_score,
+                distance_to_event_km=logistics["distance_to_event_km"],
+                travel_time_minutes=logistics["travel_time_minutes"],
+                logistics_cost=logistics["logistics_cost"],
+                location_match_score=logistics["location_match_score"],
+                location_note=logistics["location_note"],
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -302,6 +441,8 @@ def _fallback_people_candidates(
     required_end: datetime,
     required_hours: Decimal,
     locked_windows: Mapping[str, Sequence],
+    event,
+    locations_by_id: Mapping[str, object],
 ) -> list[PlannerCandidate]:
     candidates: list[PlannerCandidate] = []
     for person in people:
@@ -319,12 +460,25 @@ def _fallback_people_candidates(
         if _has_lock_overlap(locked_windows.get(person.person_id, ()), required_start, required_end):
             continue
         cost = _decimal_or_zero(getattr(person, "cost_per_hour", None))
+        logistics = _resource_logistics(
+            event=event,
+            resource=person,
+            resource_type="person",
+            base_cost_per_hour=cost,
+            required_hours=required_hours,
+            locations_by_id=locations_by_id,
+        )
         candidates.append(
             PlannerCandidate(
                 resource_id=person.person_id,
-                cost_per_hour=cost,
-                score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                score=(_score_from_cost(cost) * Decimal("0.35") * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=_reliability_bonus(getattr(person, "reliability_notes", None)),
+                distance_to_event_km=logistics["distance_to_event_km"],
+                travel_time_minutes=logistics["travel_time_minutes"],
+                logistics_cost=logistics["logistics_cost"],
+                location_match_score=logistics["location_match_score"],
+                location_note=logistics["location_note"],
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -340,6 +494,8 @@ def _equipment_candidates(
     required_start: datetime,
     required_end: datetime,
     locked_windows: Mapping[str, Sequence],
+    event,
+    locations_by_id: Mapping[str, object],
 ) -> list[PlannerCandidate]:
     equipment_type_id = getattr(requirement, "equipment_type_id", None)
 
@@ -365,12 +521,25 @@ def _equipment_candidates(
             continue
 
         cost = _decimal_or_zero(getattr(item, "hourly_cost_estimate", None))
+        logistics = _resource_logistics(
+            event=event,
+            resource=item,
+            resource_type="equipment",
+            base_cost_per_hour=cost,
+            required_hours=_window_hours(required_start, required_end),
+            locations_by_id=locations_by_id,
+        )
         candidates.append(
             PlannerCandidate(
                 resource_id=item.equipment_id,
-                cost_per_hour=cost,
-                score=_score_from_cost(cost),
+                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                score=(_score_from_cost(cost) * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.08") if getattr(item, "replacement_available", False) else Decimal("0"),
+                distance_to_event_km=logistics["distance_to_event_km"],
+                travel_time_minutes=logistics["travel_time_minutes"],
+                logistics_cost=logistics["logistics_cost"],
+                location_match_score=logistics["location_match_score"],
+                location_note=logistics["location_note"],
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -386,6 +555,8 @@ def _fallback_equipment_candidates(
     required_start: datetime,
     required_end: datetime,
     locked_windows: Mapping[str, Sequence],
+    event,
+    locations_by_id: Mapping[str, object],
 ) -> list[PlannerCandidate]:
     candidates: list[PlannerCandidate] = []
     for item in equipment:
@@ -401,12 +572,25 @@ def _fallback_equipment_candidates(
         if _has_lock_overlap(locked_windows.get(item.equipment_id, ()), required_start, required_end):
             continue
         cost = _decimal_or_zero(getattr(item, "hourly_cost_estimate", None))
+        logistics = _resource_logistics(
+            event=event,
+            resource=item,
+            resource_type="equipment",
+            base_cost_per_hour=cost,
+            required_hours=_window_hours(required_start, required_end),
+            locations_by_id=locations_by_id,
+        )
         candidates.append(
             PlannerCandidate(
                 resource_id=item.equipment_id,
-                cost_per_hour=cost,
-                score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                score=(_score_from_cost(cost) * Decimal("0.35") * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.08") if getattr(item, "replacement_available", False) else Decimal("0"),
+                distance_to_event_km=logistics["distance_to_event_km"],
+                travel_time_minutes=logistics["travel_time_minutes"],
+                logistics_cost=logistics["logistics_cost"],
+                location_match_score=logistics["location_match_score"],
+                location_note=logistics["location_note"],
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -422,6 +606,8 @@ def _vehicle_candidates(
     required_start: datetime,
     required_end: datetime,
     locked_windows: Mapping[str, Sequence],
+    event,
+    locations_by_id: Mapping[str, object],
 ) -> list[PlannerCandidate]:
     vehicle_type_required = _enum_value(
         getattr(requirement, "vehicle_type_required", None)
@@ -457,12 +643,25 @@ def _vehicle_candidates(
         cost = _decimal_or_zero(getattr(vehicle, "cost_per_hour", None))
         if cost == Decimal("0"):
             cost = _decimal_or_zero(getattr(vehicle, "cost_per_km", None))
+        logistics = _resource_logistics(
+            event=event,
+            resource=vehicle,
+            resource_type="vehicle",
+            base_cost_per_hour=cost,
+            required_hours=_window_hours(required_start, required_end),
+            locations_by_id=locations_by_id,
+        )
         candidates.append(
             PlannerCandidate(
                 resource_id=vehicle.vehicle_id,
-                cost_per_hour=cost,
-                score=_score_from_cost(cost),
+                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                score=(_score_from_cost(cost) * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.05"),
+                distance_to_event_km=logistics["distance_to_event_km"],
+                travel_time_minutes=logistics["travel_time_minutes"],
+                logistics_cost=logistics["logistics_cost"],
+                location_match_score=logistics["location_match_score"],
+                location_note=logistics["location_note"],
                 available_from=window.available_from,
                 available_to=window.available_to,
             )
@@ -478,6 +677,8 @@ def _fallback_vehicle_candidates(
     required_start: datetime,
     required_end: datetime,
     locked_windows: Mapping[str, Sequence],
+    event,
+    locations_by_id: Mapping[str, object],
 ) -> list[PlannerCandidate]:
     candidates: list[PlannerCandidate] = []
     for vehicle in vehicles:
@@ -495,12 +696,25 @@ def _fallback_vehicle_candidates(
         cost = _decimal_or_zero(getattr(vehicle, "cost_per_hour", None))
         if cost == Decimal("0"):
             cost = _decimal_or_zero(getattr(vehicle, "cost_per_km", None))
+        logistics = _resource_logistics(
+            event=event,
+            resource=vehicle,
+            resource_type="vehicle",
+            base_cost_per_hour=cost,
+            required_hours=_window_hours(required_start, required_end),
+            locations_by_id=locations_by_id,
+        )
         candidates.append(
             PlannerCandidate(
                 resource_id=vehicle.vehicle_id,
-                cost_per_hour=cost,
-                score=(_score_from_cost(cost) * Decimal("0.35")).quantize(Decimal("0.000001")),
+                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                score=(_score_from_cost(cost) * Decimal("0.35") * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.05"),
+                distance_to_event_km=logistics["distance_to_event_km"],
+                travel_time_minutes=logistics["travel_time_minutes"],
+                logistics_cost=logistics["logistics_cost"],
+                location_match_score=logistics["location_match_score"],
+                location_note=logistics["location_note"],
                 available_from=window.available_from,
                 available_to=window.available_to,
             )

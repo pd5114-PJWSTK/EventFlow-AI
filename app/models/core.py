@@ -188,9 +188,18 @@ class Location(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     events: Mapped[list[Event]] = relationship(back_populates="location")
-    people_home_base: Mapped[list[ResourcePerson]] = relationship(back_populates="home_base_location")
-    equipment_warehoused: Mapped[list[Equipment]] = relationship(back_populates="warehouse_location")
-    vehicles_home_base: Mapped[list[Vehicle]] = relationship(back_populates="home_location")
+    people_home_base: Mapped[list[ResourcePerson]] = relationship(
+        back_populates="home_base_location",
+        foreign_keys="ResourcePerson.home_base_location_id",
+    )
+    equipment_warehoused: Mapped[list[Equipment]] = relationship(
+        back_populates="warehouse_location",
+        foreign_keys="Equipment.warehouse_location_id",
+    )
+    vehicles_home_base: Mapped[list[Vehicle]] = relationship(
+        back_populates="home_location",
+        foreign_keys="Vehicle.home_location_id",
+    )
 
 
 class Event(Base):
@@ -270,6 +279,9 @@ class ResourcePerson(Base):
     home_base_location_id: Mapped[str | None] = mapped_column(
         Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
     )
+    current_location_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
+    )
     availability_status: Mapped[ResourceStatus] = mapped_column(
         SAEnum(ResourceStatus, native_enum=False), default=ResourceStatus.available, nullable=False
     )
@@ -283,7 +295,10 @@ class ResourcePerson(Base):
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
-    home_base_location: Mapped[Location | None] = relationship(back_populates="people_home_base")
+    home_base_location: Mapped[Location | None] = relationship(
+        back_populates="people_home_base",
+        foreign_keys=[home_base_location_id],
+    )
     skills: Mapped[list[PersonSkill]] = relationship(back_populates="person", cascade="all,delete-orphan")
     availability_windows: Mapped[list[PeopleAvailability]] = relationship(
         back_populates="person",
@@ -340,6 +355,9 @@ class Equipment(Base):
     warehouse_location_id: Mapped[str | None] = mapped_column(
         Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
     )
+    current_location_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
+    )
     transport_requirements: Mapped[str | None] = mapped_column(Text)
     replacement_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     hourly_cost_estimate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
@@ -352,7 +370,10 @@ class Equipment(Base):
     )
 
     equipment_type: Mapped[EquipmentType] = relationship(back_populates="equipment_items")
-    warehouse_location: Mapped[Location | None] = relationship(back_populates="equipment_warehoused")
+    warehouse_location: Mapped[Location | None] = relationship(
+        back_populates="equipment_warehoused",
+        foreign_keys=[warehouse_location_id],
+    )
     availability_windows: Mapped[list[EquipmentAvailability]] = relationship(
         back_populates="equipment",
         cascade="all,delete-orphan",
@@ -374,6 +395,9 @@ class Vehicle(Base):
     home_location_id: Mapped[str | None] = mapped_column(
         Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
     )
+    current_location_id: Mapped[str | None] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey(_core_table("locations.location_id"), ondelete="SET NULL")
+    )
     cost_per_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     cost_per_hour: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -382,7 +406,10 @@ class Vehicle(Base):
         DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
 
-    home_location: Mapped[Location | None] = relationship(back_populates="vehicles_home_base")
+    home_location: Mapped[Location | None] = relationship(
+        back_populates="vehicles_home_base",
+        foreign_keys=[home_location_id],
+    )
     availability_windows: Mapped[list[VehicleAvailability]] = relationship(
         back_populates="vehicle",
         cascade="all,delete-orphan",

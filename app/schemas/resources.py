@@ -35,6 +35,7 @@ class PersonCreate(BaseModel):
     role: PersonRole
     employment_type: EmploymentType = EmploymentType.employee
     home_base_location_id: str | None = None
+    current_location_id: str | None = None
     availability_status: ResourceStatus = ResourceStatus.available
     max_daily_hours: Decimal = Field(default=Decimal("8.0"), gt=0)
     max_weekly_hours: Decimal = Field(default=Decimal("40.0"), gt=0)
@@ -48,6 +49,7 @@ class PersonUpdate(BaseModel):
     role: PersonRole | None = None
     employment_type: EmploymentType | None = None
     home_base_location_id: str | None = None
+    current_location_id: str | None = None
     availability_status: ResourceStatus | None = None
     max_daily_hours: Decimal | None = Field(default=None, gt=0)
     max_weekly_hours: Decimal | None = Field(default=None, gt=0)
@@ -81,6 +83,7 @@ class PersonRead(BaseModel):
     role: PersonRole
     employment_type: EmploymentType
     home_base_location_id: str | None
+    current_location_id: str | None
     availability_status: ResourceStatus
     max_daily_hours: Decimal
     max_weekly_hours: Decimal
@@ -130,6 +133,7 @@ class EquipmentCreate(BaseModel):
     serial_number: str | None = None
     status: ResourceStatus = ResourceStatus.available
     warehouse_location_id: str | None = None
+    current_location_id: str | None = None
     transport_requirements: str | None = None
     replacement_available: bool = False
     hourly_cost_estimate: Decimal | None = Field(default=None, ge=0)
@@ -144,6 +148,7 @@ class EquipmentUpdate(BaseModel):
     serial_number: str | None = None
     status: ResourceStatus | None = None
     warehouse_location_id: str | None = None
+    current_location_id: str | None = None
     transport_requirements: str | None = None
     replacement_available: bool | None = None
     hourly_cost_estimate: Decimal | None = Field(default=None, ge=0)
@@ -161,6 +166,7 @@ class EquipmentRead(BaseModel):
     serial_number: str | None
     status: ResourceStatus
     warehouse_location_id: str | None
+    current_location_id: str | None
     transport_requirements: str | None
     replacement_available: bool
     hourly_cost_estimate: Decimal | None
@@ -185,6 +191,7 @@ class VehicleCreate(BaseModel):
     capacity_notes: str | None = None
     status: ResourceStatus = ResourceStatus.available
     home_location_id: str | None = None
+    current_location_id: str | None = None
     cost_per_km: Decimal | None = Field(default=None, ge=0)
     cost_per_hour: Decimal | None = Field(default=None, ge=0)
     active: bool = True
@@ -197,6 +204,7 @@ class VehicleUpdate(BaseModel):
     capacity_notes: str | None = None
     status: ResourceStatus | None = None
     home_location_id: str | None = None
+    current_location_id: str | None = None
     cost_per_km: Decimal | None = Field(default=None, ge=0)
     cost_per_hour: Decimal | None = Field(default=None, ge=0)
     active: bool | None = None
@@ -212,6 +220,7 @@ class VehicleRead(BaseModel):
     capacity_notes: str | None
     status: ResourceStatus
     home_location_id: str | None
+    current_location_id: str | None
     cost_per_km: Decimal | None
     cost_per_hour: Decimal | None
     active: bool

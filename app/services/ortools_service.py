@@ -15,6 +15,11 @@ class PlannerCandidate:
     cost_per_hour: Decimal = Decimal("0")
     score: Decimal = Decimal("0")
     reliability_score: Decimal = Decimal("0")
+    distance_to_event_km: Decimal | None = None
+    travel_time_minutes: int | None = None
+    logistics_cost: Decimal = Decimal("0")
+    location_match_score: Decimal = Decimal("1")
+    location_note: str | None = None
     available_from: datetime | None = None
     available_to: datetime | None = None
 

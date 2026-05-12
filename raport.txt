@@ -1828,3 +1828,33 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Backend Docker tests -> 90 passed, 5 warnings.
   - Frontend Docker checks -> typecheck passed, lint passed with no React Refresh warning, tests 14 passed, production build passed.
   - Live smoke Demo-plan-event after container restart -> selected reliability_first, cost delta +3996 PLN, duration delta -19.4914 min, delay risk delta -0.0155, incident risk delta -0.1000, plan quality delta +9.5302, slots 6.
+
+## CP-13 - Business explanations, stage timing and location-aware planning
+
+- Extended planner contracts and backend responses:
+  - baseline and optimized plan responses now include `stage_breakdown` for outbound transport, setup, event support, teardown and return transport.
+  - optimized recommendations now include `business_explanation` with baseline-vs-optimized summary, metric explanations, decision drivers and resource impact rows.
+  - assignment candidate options now expose distance to venue, estimated travel time, logistics cost, location match score and a readable location note.
+- Added resource current positions:
+  - people, equipment and vehicles now have nullable `current_location_id` columns.
+  - SQLAlchemy relationships were disambiguated with explicit `foreign_keys` so existing home/warehouse relationships still work after adding current-location FKs.
+  - planner input uses `current_location_id` first, then falls back to home base / warehouse / vehicle home location.
+- Added location-aware optimization:
+  - candidate scoring now factors distance, travel time, logistics cost and location match.
+  - predicted duration and timeline now include travel friction from selected resources.
+  - manual resource review costs now include logistics estimates and display travel/distance notes for resource options.
+- Improved Event Planning UI:
+  - metric cards are aligned in a stable grid and include info tooltips explaining what each metric means and what influenced it.
+  - added panels: `Why optimized is different`, `Timeline`, and `Resource impact`.
+  - manual assignment review now shows recommendation score, cost, distance, travel time and logistics cost in resource options.
+- Updated demo seed:
+  - `scripts/sql/production_upgrade.sql` now contains a final CP-13 calibration block for demo venue coordinates, Krakow/Warsaw/Katowice resource positions and two demo vans.
+  - `Demo-plan-event` remains `validated` and now demonstrates visible location-driven baseline-vs-optimized differences.
+- Validation:
+  - SQL upgrade applied successfully to the running Docker PostgreSQL database without resetting the volume.
+  - Targeted CP-11/CP-13 backend test file -> 4 passed, 3 warnings.
+  - Frontend Docker quality check -> typecheck, lint, tests and build passed.
+  - Full quality gate `powershell -ExecutionPolicy Bypass -File .\scripts\run-quality-gates.ps1` -> passed.
+  - Backend Docker tests -> 90 passed, 5 warnings.
+  - Frontend Docker checks -> typecheck passed, lint passed, tests 14 passed, production build passed.
+  - Live smoke `Demo-plan-event` after backend rebuild -> login 200, generate-plan 200, recommend-best-plan 200, baseline stages 5, optimized stages 5, assignment slots 6, resource impact rows 6, cost delta `+6295.94 PLN`, duration delta `-99.6740 min`.

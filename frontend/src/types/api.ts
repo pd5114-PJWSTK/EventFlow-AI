@@ -280,11 +280,52 @@ export interface PlanMetricDelta {
   optimization_score: string | number;
 }
 
+export interface MetricExplanation {
+  metric_key: string;
+  label: string;
+  summary: string;
+  drivers: string[];
+  delta_direction: "better" | "worse" | "neutral";
+}
+
+export interface PlanStageBreakdown {
+  stage_key: "outbound_transport" | "setup" | "event_support" | "teardown" | "return_transport";
+  label: string;
+  duration_minutes: string | number;
+  description: string;
+  drivers: string[];
+}
+
+export interface ResourceImpactItem {
+  resource_id: string;
+  resource_name: string;
+  resource_type: string;
+  summary: string;
+  distance_to_event_km?: string | number | null;
+  travel_time_minutes?: number | null;
+  logistics_cost: string | number;
+  contribution: string;
+}
+
+export interface PlanBusinessExplanation {
+  source: "deterministic" | "llm";
+  summary: string;
+  baseline_vs_optimized: string;
+  drivers: string[];
+  metric_explanations: MetricExplanation[];
+  resource_impact_summary: ResourceImpactItem[];
+}
+
 export interface AssignmentCandidateOption {
   resource_id: string;
   resource_name: string;
   recommendation_score: string | number;
   estimated_cost: string | number;
+  distance_to_event_km?: string | number | null;
+  travel_time_minutes?: number | null;
+  logistics_cost: string | number;
+  location_match_score: string | number;
+  location_note?: string | null;
   availability_note: string;
   why_recommended: string;
 }
@@ -310,6 +351,7 @@ export interface GeneratedPlanResponse {
   assignments: GeneratedPlanAssignment[];
   estimated_cost: string | number;
   metrics?: PlanMetrics | null;
+  stage_breakdown?: PlanStageBreakdown[];
   assignment_slots?: AssignmentSlot[];
 }
 
@@ -340,6 +382,7 @@ export interface RecommendBestPlanResponse {
   baseline_metrics?: PlanMetrics | null;
   optimized_metrics?: PlanMetrics | null;
   metric_deltas?: PlanMetricDelta | null;
+  business_explanation?: PlanBusinessExplanation | null;
   candidates: PlanCandidate[];
 }
 

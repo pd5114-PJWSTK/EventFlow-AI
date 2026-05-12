@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, Switch, TextField, Typography } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import TimelineIcon from "@mui/icons-material/Timeline";
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Grid, IconButton, MenuItem, Paper, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
 
 import { AnimatedPipeline } from "../components/AnimatedPipeline";
 import { BackCornerButton } from "../components/BackCornerButton";
@@ -21,10 +23,13 @@ import type {
   GeneratedPlanAssignment,
   GeneratedPlanResponse,
   ListResponse,
+  MetricExplanation,
   PersonItem,
+  PlanBusinessExplanation,
   PlanCandidate,
   PlanMetricDelta,
   PlanMetrics,
+  PlanStageBreakdown,
   RecommendBestPlanResponse,
   SkillItem,
   VehicleItem,
@@ -40,12 +45,21 @@ function humanize(value?: string | null): string {
   return value ? value.replace(/_/g, " ") : "Not specified";
 }
 
-function Metric({ label, value, helper }: { label: string; value: string; helper?: string }): JSX.Element {
+function Metric({ label, value, helper, direction }: { label: string; value: string; helper?: string; direction?: "better" | "worse" | "neutral" }): JSX.Element {
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 999, height: "100%" }}>
-      <Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography>
+    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, height: "100%", minHeight: 118, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+        <Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography>
+        {helper && (
+          <Tooltip arrow title={<Box sx={{ maxWidth: 340, whiteSpace: "pre-line" }}>{helper}</Box>}>
+            <IconButton size="small" aria-label={`${label} explanation`} sx={{ p: 0.25 }}>
+              <InfoOutlinedIcon fontSize="inherit" />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Stack>
       <Typography fontWeight={900}>{value}</Typography>
-      {helper && <Typography variant="caption" color="text.secondary">{helper}</Typography>}
+      {direction && direction !== "neutral" && <Chip size="small" color={direction === "better" ? "success" : "warning"} variant="outlined" label={direction === "better" ? "Improved" : "Watch"} sx={{ alignSelf: "flex-start" }} />}
     </Paper>
   );
 }
@@ -124,23 +138,33 @@ function fallbackMetrics(plan: GeneratedPlanResponse | null): PlanMetrics | null
   };
 }
 
-function metricRows(metrics: PlanMetrics | null | undefined): Array<{ label: string; value: string; helper?: string }> {
+function metricRows(metrics: PlanMetrics | null | undefined): Array<{ key: string; label: string; value: string; helper?: string }> {
   if (!metrics) return [];
   return [
-    { label: "Event budget", value: metrics.event_budget ? formatMoney(metrics.event_budget) : "Not provided" },
-    { label: "Planned resource cost", value: formatMoney(metrics.estimated_cost) },
-    { label: "Resource cost vs budget", value: metrics.resource_cost_to_budget_ratio != null ? formatPercent(metrics.resource_cost_to_budget_ratio) : "No budget data" },
-    { label: "Estimated duration", value: Number(metrics.estimated_duration_minutes) > 0 ? formatDurationMinutes(metrics.estimated_duration_minutes) : "Calculated in optimized run" },
-    { label: "Delay risk", value: formatPercent(metrics.predicted_delay_risk) },
-    { label: "Incident risk", value: formatPercent(metrics.predicted_incident_risk) },
-    { label: "SLA breach risk", value: formatPercent(metrics.predicted_sla_breach_risk) },
-    { label: "Requirement coverage", value: formatPercent(metrics.coverage_ratio), helper: "Share of required resource slots that are assigned." },
-    { label: "Reliability score", value: formatPercent(metrics.reliability_score), helper: "Average reliability of the assigned resources based on operational history." },
-    { label: "Backup coverage", value: formatPercent(metrics.backup_coverage_ratio), helper: "Share of slots with at least one alternative resource available." },
-    { label: "Missing resources", value: formatNumber(metrics.missing_resource_count) },
-    { label: "Assigned resources", value: formatNumber(metrics.assigned_resource_count) },
-    { label: "Plan quality", value: Number(metrics.optimization_score) > 0 ? `${formatNumber(metrics.optimization_score, 1)} / 100` : "Baseline" },
+    { key: "event_budget", label: "Event budget", value: metrics.event_budget ? formatMoney(metrics.event_budget) : "Not provided" },
+    { key: "estimated_cost", label: "Planned resource cost", value: formatMoney(metrics.estimated_cost) },
+    { key: "resource_cost_to_budget_ratio", label: "Resource cost vs budget", value: metrics.resource_cost_to_budget_ratio != null ? formatPercent(metrics.resource_cost_to_budget_ratio) : "No budget data" },
+    { key: "estimated_duration_minutes", label: "Estimated duration", value: Number(metrics.estimated_duration_minutes) > 0 ? formatDurationMinutes(metrics.estimated_duration_minutes) : "Calculated in optimized run" },
+    { key: "predicted_delay_risk", label: "Delay risk", value: formatPercent(metrics.predicted_delay_risk) },
+    { key: "predicted_incident_risk", label: "Incident risk", value: formatPercent(metrics.predicted_incident_risk) },
+    { key: "predicted_sla_breach_risk", label: "SLA breach risk", value: formatPercent(metrics.predicted_sla_breach_risk) },
+    { key: "coverage_ratio", label: "Requirement coverage", value: formatPercent(metrics.coverage_ratio), helper: "Share of required resource slots that are assigned." },
+    { key: "reliability_score", label: "Reliability score", value: formatPercent(metrics.reliability_score), helper: "Average reliability of the assigned resources based on operational history." },
+    { key: "backup_coverage_ratio", label: "Backup coverage", value: formatPercent(metrics.backup_coverage_ratio), helper: "Share of slots with at least one alternative resource available." },
+    { key: "missing_resource_count", label: "Missing resources", value: formatNumber(metrics.missing_resource_count) },
+    { key: "assigned_resource_count", label: "Assigned resources", value: formatNumber(metrics.assigned_resource_count) },
+    { key: "optimization_score", label: "Plan quality", value: Number(metrics.optimization_score) > 0 ? `${formatNumber(metrics.optimization_score, 1)} / 100` : "Baseline" },
   ];
+}
+
+function explanationMap(explanations?: MetricExplanation[]): Record<string, MetricExplanation> {
+  return Object.fromEntries((explanations || []).map((item) => [item.metric_key, item]));
+}
+
+function metricHelper(row: { helper?: string }, explanation?: MetricExplanation): string | undefined {
+  if (!explanation) return row.helper;
+  const drivers = explanation.drivers.length > 0 ? `\n\nWhat influenced it:\n${explanation.drivers.map((driver) => `- ${driver}`).join("\n")}` : "";
+  return `${explanation.summary}${drivers}`;
 }
 
 function deltaRows(delta?: PlanMetricDelta | null): Array<{ label: string; value: string; goodWhen: "negative" | "positive" }> {
@@ -192,6 +216,21 @@ function optimizationNarrative(candidate: PlanCandidate | undefined): string {
   return "The optimizer selected a balanced plan because it offers the best mix of cost, coverage and risk for the current event data.";
 }
 
+function explanationSourceLabel(source?: PlanBusinessExplanation["source"]): string {
+  return source === "llm" ? "Text source: LLM enhanced" : "Text source: deterministic fallback";
+}
+
+function stageDurationLabel(stage: PlanStageBreakdown): string {
+  return formatDurationMinutes(stage.duration_minutes);
+}
+
+function optionLogisticsLabel(option: { distance?: string | number | null; travelMinutes?: number | null; logisticsCost: string | number }): string {
+  const distance = option.distance != null ? `${formatNumber(option.distance, 1)} km` : "distance unknown";
+  const travel = option.travelMinutes != null ? `${formatNumber(option.travelMinutes, 0)} min travel` : "travel time unknown";
+  const logistics = Number(option.logisticsCost || 0) > 0 ? `logistics ${formatMoney(option.logisticsCost)}` : "no extra logistics cost";
+  return `${distance}, ${travel}, ${logistics}`;
+}
+
 function sameAssignments(baseline: GeneratedPlanResponse | null, optimized: GeneratedPlanResponse | null): boolean {
   if (!baseline || !optimized) return false;
   return JSON.stringify(baseline.assignments.map((item) => [...item.resource_ids].sort()).sort()) === JSON.stringify(optimized.assignments.map((item) => [...item.resource_ids].sort()).sort());
@@ -202,7 +241,7 @@ function resourceOptions(
   index: number,
   assignmentDraft: AssignmentSlot[],
   existingAssignments: EventAssignmentItem[],
-): Array<{ id: string; label: string; score: number; cost: string | number; note: string }> {
+): Array<{ id: string; label: string; score: number; cost: string | number; note: string; distance?: string | number | null; travelMinutes?: number | null; logisticsCost: string | number; locationNote?: string | null }> {
   const usedInDraft = new Set(
     assignmentDraft.map((item, itemIndex) => itemIndex === index ? "" : item.selected_resource_id || "").filter(Boolean),
   );
@@ -216,6 +255,10 @@ function resourceOptions(
       score: Number(option.recommendation_score),
       cost: option.estimated_cost,
       note: option.why_recommended,
+      distance: option.distance_to_event_km,
+      travelMinutes: option.travel_time_minutes,
+      logisticsCost: option.logistics_cost,
+      locationNote: option.location_note,
     }))
     .filter((row) => row.id === slot.selected_resource_id || (!usedInDraft.has(row.id) && !usedInEvent.has(row.id)))
     .sort((a, b) => b.score - a.score);
@@ -237,6 +280,11 @@ function fallbackSlotsFromAssignments(plan: GeneratedPlanResponse, resourceMap: 
         resource_name: resourceMap[resourceId] || "Unnamed resource",
         recommendation_score: 100,
         estimated_cost: assignment.estimated_cost,
+        distance_to_event_km: null,
+        travel_time_minutes: null,
+        logistics_cost: 0,
+        location_match_score: 1,
+        location_note: "No logistics data available for this fallback slot.",
         availability_note: "Selected by planner.",
         why_recommended: "Selected by planner.",
       }] : [],
@@ -281,6 +329,8 @@ export function PlannerPage(): JSX.Element {
   const baselinePlanMetrics = recommendation?.baseline_metrics || previewPlan?.metrics || fallbackMetrics(previewPlan);
   const optimizedPlanMetrics = recommendation?.optimized_metrics || recommendation?.selected_plan.metrics || fallbackMetrics(recommendation?.selected_plan || null);
   const metricsInView = showOptimized && recommendation ? optimizedPlanMetrics : baselinePlanMetrics;
+  const metricExplanations = explanationMap(recommendation?.business_explanation?.metric_explanations);
+  const stagesInView = (showOptimized && recommendation ? recommendation.selected_plan.stage_breakdown : previewPlan?.stage_breakdown) || [];
   const reviewEstimate = assignmentDraft.reduce((sum, item) => sum + Number(item.estimated_cost || 0), 0);
   const assignmentsIdentical = sameAssignments(previewPlan, recommendation?.selected_plan || null);
 
@@ -425,13 +475,75 @@ export function PlannerPage(): JSX.Element {
               <Alert severity="info">
                 The cost shown here is the planned resource assignment cost. It is compared with the event budget to show whether the operational plan is heavy or light relative to the full event value.
               </Alert>
+              {recommendation.business_explanation && (
+                <Grid container spacing={1.5}>
+                  <Grid item xs={12} md={6}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: "100%" }}>
+                      <Stack spacing={1}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                          <Typography fontWeight={900}>Why optimized is different</Typography>
+                          <Chip size="small" variant="outlined" label={explanationSourceLabel(recommendation.business_explanation.source)} />
+                        </Stack>
+                        <Typography color="text.secondary">{recommendation.business_explanation.summary}</Typography>
+                        <Typography color="text.secondary">{recommendation.business_explanation.baseline_vs_optimized}</Typography>
+                        <Stack direction="row" flexWrap="wrap" gap={1}>
+                          {recommendation.business_explanation.drivers.map((driver) => <Chip key={driver} label={driver} variant="outlined" />)}
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: "100%" }}>
+                      <Stack spacing={1}>
+                        <Typography fontWeight={900}>Resource impact</Typography>
+                        {recommendation.business_explanation.resource_impact_summary.length === 0 && <Typography color="text.secondary">No individual resource driver dominated this recommendation.</Typography>}
+                        {recommendation.business_explanation.resource_impact_summary.map((item) => (
+                          <Box key={`${item.resource_id}-${item.contribution}`}>
+                            <Typography fontWeight={800}>{item.resource_name}</Typography>
+                            <Typography variant="body2" color="text.secondary">{item.summary}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {item.distance_to_event_km != null ? `${formatNumber(item.distance_to_event_km, 1)} km from venue` : "Distance unknown"} · {item.travel_time_minutes != null ? `${formatNumber(item.travel_time_minutes)} min travel` : "travel time unknown"} · {item.contribution}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Stack>
+                    </Paper>
+                  </Grid>
+                </Grid>
+              )}
               <Grid container spacing={1.5}>
                 {metricRows(metricsInView).map((metric) => (
                   <Grid item xs={12} sm={6} md={4} key={metric.label}>
-                    <Metric label={metric.label} value={metric.value} helper={metric.helper} />
+                    <Metric label={metric.label} value={metric.value} helper={metricHelper(metric, metricExplanations[metric.key])} direction={metricExplanations[metric.key]?.delta_direction} />
                   </Grid>
                 ))}
               </Grid>
+              {stagesInView.length > 0 && (
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+                  <Stack spacing={1.5}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <TimelineIcon color="primary" />
+                      <Typography fontWeight={900}>Timeline</Typography>
+                    </Stack>
+                    <Grid container spacing={1.5}>
+                      {stagesInView.map((stage) => (
+                        <Grid item xs={12} md={stage.stage_key === "event_support" ? 4 : 2} key={stage.stage_key}>
+                          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, height: "100%", bgcolor: stage.stage_key === "event_support" ? "rgba(14, 165, 233, 0.06)" : "background.paper" }}>
+                            <Typography variant="caption" color="text.secondary" fontWeight={800}>{stage.label}</Typography>
+                            <Typography fontWeight={900}>{stageDurationLabel(stage)}</Typography>
+                            <Typography variant="body2" color="text.secondary">{stage.description}</Typography>
+                            {stage.drivers.length > 0 && (
+                              <Typography variant="caption" color="text.secondary">
+                                Drivers: {stage.drivers.join("; ")}
+                              </Typography>
+                            )}
+                          </Paper>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Stack>
+                </Paper>
+              )}
               {recommendation.metric_deltas && (
                 <Stack spacing={1}>
                   <Typography fontWeight={900}>Difference versus baseline</Typography>
@@ -498,9 +610,18 @@ export function PlannerPage(): JSX.Element {
                     <Grid item xs={12} md={6}>
                       <TextField select label="Assigned resource" value={slot.selected_resource_id || ""} onChange={(event) => updateAssignmentResource(index, event.target.value)} fullWidth>
                         <MenuItem value="">No resource assigned yet</MenuItem>
-                        {options.map((option) => <MenuItem key={option.id} value={option.id}>{option.label} - recommendation {formatNumber(option.score, 0)}% - {formatMoney(option.cost)}</MenuItem>)}
+                        {options.map((option) => (
+                          <MenuItem key={option.id} value={option.id}>
+                            {option.label} - {formatNumber(option.score, 0)}% fit - {formatMoney(option.cost)} - {optionLogisticsLabel(option)}
+                          </MenuItem>
+                        ))}
                       </TextField>
-                      {slot.selected_resource_id && <Typography variant="caption" color="text.secondary">{options.find((option) => option.id === slot.selected_resource_id)?.note}</Typography>}
+                      {slot.selected_resource_id && (
+                        <Typography variant="caption" color="text.secondary">
+                          {options.find((option) => option.id === slot.selected_resource_id)?.note}
+                          {options.find((option) => option.id === slot.selected_resource_id)?.locationNote ? ` ${options.find((option) => option.id === slot.selected_resource_id)?.locationNote}` : ""}
+                        </Typography>
+                      )}
                     </Grid>
                     <Grid item xs={12} md={3}>
                       <Typography variant="caption" color="text.secondary">Estimated cost impact</Typography>
