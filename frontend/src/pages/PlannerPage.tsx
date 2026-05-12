@@ -4,7 +4,7 @@ import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import TimelineIcon from "@mui/icons-material/Timeline";
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Grid, IconButton, MenuItem, Paper, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Chip, Divider, Grid, IconButton, MenuItem, Paper, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
 
 import { AnimatedPipeline } from "../components/AnimatedPipeline";
 import { BackCornerButton } from "../components/BackCornerButton";
@@ -45,20 +45,61 @@ function humanize(value?: string | null): string {
   return value ? value.replace(/_/g, " ") : "Not specified";
 }
 
-function Metric({ label, value, helper, direction }: { label: string; value: string; helper?: string; direction?: "better" | "worse" | "neutral" }): JSX.Element {
+function InfoTip({ title, body, drivers, source }: { title: string; body?: string; drivers?: string[]; source?: PlanBusinessExplanation["source"] }): JSX.Element | null {
+  if (!body && (!drivers || drivers.length === 0)) return null;
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, height: "100%", minHeight: 118, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+    <Tooltip
+      arrow
+      placement="top"
+      title={(
+        <Box sx={{ maxWidth: 360, p: 0.5 }}>
+          <Typography fontWeight={900} sx={{ mb: 0.75 }}>{title}</Typography>
+          {body && <Typography variant="body2" sx={{ lineHeight: 1.55 }}>{body}</Typography>}
+          {drivers && drivers.length > 0 && (
+            <>
+              <Divider sx={{ my: 1, borderColor: "rgba(255,255,255,0.22)" }} />
+              <Stack spacing={0.5}>
+                {drivers.map((driver) => (
+                  <Typography key={driver} variant="caption" sx={{ display: "block", lineHeight: 1.45 }}>- {driver}</Typography>
+                ))}
+              </Stack>
+            </>
+          )}
+          {source && (
+            <Typography variant="caption" sx={{ display: "block", mt: 1, opacity: 0.78 }}>
+              {explanationSourceLabel(source)}
+            </Typography>
+          )}
+        </Box>
+      )}
+      componentsProps={{
+        tooltip: {
+          sx: {
+            bgcolor: "#10201d",
+            color: "#f8fffc",
+            borderRadius: 2.5,
+            boxShadow: "0 18px 48px rgba(15, 23, 42, 0.28)",
+            p: 1.25,
+          },
+        },
+        arrow: { sx: { color: "#10201d" } },
+      }}
+    >
+      <IconButton size="small" aria-label={`${title} explanation`} sx={{ p: 0.35, color: "primary.main", bgcolor: "rgba(13, 148, 136, 0.10)", border: "1px solid rgba(13, 148, 136, 0.18)", "&:hover": { bgcolor: "rgba(13, 148, 136, 0.18)" } }}>
+        <InfoOutlinedIcon fontSize="inherit" />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function Metric({ label, value, explanation, direction, source }: { label: string; value: string; explanation?: MetricExplanation; direction?: "better" | "worse" | "neutral"; source?: PlanBusinessExplanation["source"] }): JSX.Element {
+  return (
+    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: "100%", minHeight: 132, display: "flex", flexDirection: "column", justifyContent: "space-between", alignItems: "stretch" }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
         <Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography>
-        {helper && (
-          <Tooltip arrow title={<Box sx={{ maxWidth: 340, whiteSpace: "pre-line" }}>{helper}</Box>}>
-            <IconButton size="small" aria-label={`${label} explanation`} sx={{ p: 0.25 }}>
-              <InfoOutlinedIcon fontSize="inherit" />
-            </IconButton>
-          </Tooltip>
-        )}
+        <InfoTip title={label} body={explanation?.summary} drivers={explanation?.drivers} source={source} />
       </Stack>
-      <Typography fontWeight={900}>{value}</Typography>
+      <Typography fontWeight={950} variant="h6" sx={{ letterSpacing: -0.2 }}>{value}</Typography>
       {direction && direction !== "neutral" && <Chip size="small" color={direction === "better" ? "success" : "warning"} variant="outlined" label={direction === "better" ? "Improved" : "Watch"} sx={{ alignSelf: "flex-start" }} />}
     </Paper>
   );
@@ -161,12 +202,6 @@ function explanationMap(explanations?: MetricExplanation[]): Record<string, Metr
   return Object.fromEntries((explanations || []).map((item) => [item.metric_key, item]));
 }
 
-function metricHelper(row: { helper?: string }, explanation?: MetricExplanation): string | undefined {
-  if (!explanation) return row.helper;
-  const drivers = explanation.drivers.length > 0 ? `\n\nWhat influenced it:\n${explanation.drivers.map((driver) => `- ${driver}`).join("\n")}` : "";
-  return `${explanation.summary}${drivers}`;
-}
-
 function deltaRows(delta?: PlanMetricDelta | null): Array<{ label: string; value: string; goodWhen: "negative" | "positive" }> {
   if (!delta) return [];
   return [
@@ -180,6 +215,27 @@ function deltaRows(delta?: PlanMetricDelta | null): Array<{ label: string; value
     { label: "Backup coverage", value: signedPercent(delta.backup_coverage_ratio), goodWhen: "positive" },
     { label: "Plan quality", value: signedNumber(delta.optimization_score), goodWhen: "positive" },
   ];
+}
+
+function deltaExplanation(label: string, goodWhen: "negative" | "positive"): string {
+  if (goodWhen === "negative") {
+    return `${label} is better when the optimized value is lower than baseline. The card shows the optimized change versus the first feasible plan.`;
+  }
+  return `${label} is better when the optimized value is higher than baseline. The card shows the optimized change versus the first feasible plan.`;
+}
+
+function DeltaCard({ label, value, goodWhen, source }: { label: string; value: string; goodWhen: "negative" | "positive"; source?: PlanBusinessExplanation["source"] }): JSX.Element {
+  const improved = (value.startsWith("-") && goodWhen === "negative") || (value.startsWith("+") && goodWhen === "positive");
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, minHeight: 92, borderColor: improved ? "success.light" : "divider", bgcolor: improved ? "rgba(22, 163, 74, 0.06)" : "background.paper" }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+        <Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography>
+        <InfoTip title={`${label} delta`} body={deltaExplanation(label, goodWhen)} source={source} />
+      </Stack>
+      <Typography fontWeight={950} sx={{ mt: 0.5 }}>{value}</Typography>
+      <Typography variant="caption" color={improved ? "success.main" : "text.secondary"}>{improved ? "Improves plan" : "Monitor change"}</Typography>
+    </Paper>
+  );
 }
 
 function signedNumber(value: string | number): string {
@@ -217,7 +273,7 @@ function optimizationNarrative(candidate: PlanCandidate | undefined): string {
 }
 
 function explanationSourceLabel(source?: PlanBusinessExplanation["source"]): string {
-  return source === "llm" ? "Text source: LLM enhanced" : "Text source: deterministic fallback";
+  return source === "llm" ? "LLM-written explanation" : "Static fallback description";
 }
 
 function stageDurationLabel(stage: PlanStageBreakdown): string {
@@ -225,10 +281,127 @@ function stageDurationLabel(stage: PlanStageBreakdown): string {
 }
 
 function optionLogisticsLabel(option: { distance?: string | number | null; travelMinutes?: number | null; logisticsCost: string | number }): string {
-  const distance = option.distance != null ? `${formatNumber(option.distance, 1)} km` : "distance unknown";
+  const distance = formatDistance(option.distance);
   const travel = option.travelMinutes != null ? `${formatNumber(option.travelMinutes, 0)} min travel` : "travel time unknown";
-  const logistics = Number(option.logisticsCost || 0) > 0 ? `logistics ${formatMoney(option.logisticsCost)}` : "no extra logistics cost";
+  const logistics = Number(option.logisticsCost || 0) > 0 ? `travel and handling ${formatMoney(option.logisticsCost)}` : "no extra travel and handling cost";
   return `${distance}, ${travel}, ${logistics}`;
+}
+
+function formatDistance(value?: string | number | null): string {
+  if (value === undefined || value === null) return "distance unknown";
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "distance unknown";
+  if (numeric <= 0) return "on-site";
+  if (numeric < 1) return `${formatNumber(numeric * 1000, 0)} m`;
+  return `${formatNumber(numeric, 1)} km`;
+}
+
+function BusinessExplanationPanel({ explanation }: { explanation: PlanBusinessExplanation }): JSX.Element {
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 4, background: "linear-gradient(135deg, rgba(13, 148, 136, 0.08), rgba(14, 165, 233, 0.05))" }}>
+      <Stack spacing={1.5}>
+        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }} spacing={1}>
+          <Stack spacing={0.4}>
+            <Typography variant="overline" color="primary" fontWeight={900}>Planning explanation</Typography>
+            <Typography variant="h6" fontWeight={950}>Why optimized is different</Typography>
+          </Stack>
+          <Chip size="small" variant="outlined" color={explanation.source === "llm" ? "success" : "warning"} label={explanationSourceLabel(explanation.source)} />
+        </Stack>
+        <Typography color="text.secondary" sx={{ maxWidth: 980 }}>{explanation.summary}</Typography>
+        <Typography color="text.secondary" sx={{ maxWidth: 980 }}>{explanation.baseline_vs_optimized}</Typography>
+        <Grid container spacing={1.25}>
+          {explanation.drivers.map((driver) => (
+            <Grid item xs={12} md={4} key={driver}>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, height: "100%", bgcolor: "background.paper" }}>
+                <Typography variant="caption" color="text.secondary" fontWeight={800}>Decision driver</Typography>
+                <Typography fontWeight={800}>{driver}</Typography>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      </Stack>
+    </Paper>
+  );
+}
+
+function TimelineRail({ stages, source }: { stages: PlanStageBreakdown[]; source?: PlanBusinessExplanation["source"] }): JSX.Element {
+  return (
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 4 }}>
+      <Stack spacing={2}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TimelineIcon color="primary" />
+          <Typography fontWeight={950}>Timeline</Typography>
+        </Stack>
+        <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "flex-start", width: "100%" }}>
+          {stages.map((stage, index) => (
+            <Box key={stage.stage_key} sx={{ display: "flex", alignItems: "flex-start", flex: index === stages.length - 1 ? "0 0 auto" : 1, minWidth: 0 }}>
+              <Stack alignItems="center" spacing={0.75} sx={{ width: 126, flexShrink: 0 }}>
+                <Box sx={{ width: 18, height: 18, borderRadius: "50%", bgcolor: "primary.main", boxShadow: "0 0 0 6px rgba(13, 148, 136, 0.12)" }} />
+                <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
+                  <Typography fontWeight={900} textAlign="center">{stage.label}</Typography>
+                  <InfoTip title={stage.label} body={stage.description} drivers={stage.drivers} source={source} />
+                </Stack>
+              </Stack>
+              {index < stages.length - 1 && (
+                <Box sx={{ flex: 1, minWidth: 90, pt: "8px" }}>
+                  <Box sx={{ height: 2, bgcolor: "rgba(13, 148, 136, 0.35)", position: "relative" }}>
+                    <Box sx={{ position: "absolute", left: "50%", top: -18, transform: "translateX(-50%)", px: 1.1, py: 0.35, borderRadius: 1.75, bgcolor: "background.paper", border: "1px solid", borderColor: "divider", boxShadow: "0 6px 18px rgba(15, 23, 42, 0.08)", whiteSpace: "nowrap" }}>
+                      <Typography variant="caption" fontWeight={900}>{stageDurationLabel(stage)}</Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          ))}
+        </Box>
+        <Stack spacing={1.25} sx={{ display: { xs: "flex", md: "none" } }}>
+          {stages.map((stage) => (
+            <Paper key={stage.stage_key} variant="outlined" sx={{ p: 1.5, borderRadius: 3 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Stack>
+                  <Typography fontWeight={900}>{stage.label}</Typography>
+                  <Typography variant="caption" color="text.secondary">{stageDurationLabel(stage)}</Typography>
+                </Stack>
+                <InfoTip title={stage.label} body={stage.description} drivers={stage.drivers} source={source} />
+              </Stack>
+            </Paper>
+          ))}
+        </Stack>
+      </Stack>
+    </Paper>
+  );
+}
+
+function ResourceImpactPanel({ explanation }: { explanation?: PlanBusinessExplanation | null }): JSX.Element | null {
+  const items = explanation?.resource_impact_summary || [];
+  if (items.length === 0) return null;
+  return (
+    <Paper variant="outlined" sx={{ p: 2, borderRadius: 4 }}>
+      <Stack spacing={1.5}>
+        <Typography fontWeight={950}>Resource impact</Typography>
+        <Grid container spacing={1.25}>
+          {items.map((item) => (
+            <Grid item xs={12} md={6} key={`${item.resource_id}-${item.contribution}`}>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, height: "100%" }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                  <Stack spacing={0.5}>
+                    <Typography fontWeight={900}>{item.resource_name}</Typography>
+                    <Typography variant="caption" color="text.secondary">{humanize(item.resource_type)}</Typography>
+                  </Stack>
+                  <InfoTip title={item.resource_name} body={item.summary} drivers={[item.contribution]} source={explanation?.source} />
+                </Stack>
+                <Grid container spacing={1} sx={{ mt: 1 }}>
+                  <Grid item xs={12} sm={4}><Typography variant="caption" color="text.secondary">Distance</Typography><Typography fontWeight={800}>{formatDistance(item.distance_to_event_km)}</Typography></Grid>
+                  <Grid item xs={12} sm={4}><Typography variant="caption" color="text.secondary">Travel</Typography><Typography fontWeight={800}>{item.travel_time_minutes != null ? `${formatNumber(item.travel_time_minutes)} min` : "No data"}</Typography></Grid>
+                  <Grid item xs={12} sm={4}><Typography variant="caption" color="text.secondary">Travel & handling</Typography><Typography fontWeight={800}>{formatMoney(item.logistics_cost)}</Typography></Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      </Stack>
+    </Paper>
+  );
 }
 
 function sameAssignments(baseline: GeneratedPlanResponse | null, optimized: GeneratedPlanResponse | null): boolean {
@@ -284,7 +457,7 @@ function fallbackSlotsFromAssignments(plan: GeneratedPlanResponse, resourceMap: 
         travel_time_minutes: null,
         logistics_cost: 0,
         location_match_score: 1,
-        location_note: "No logistics data available for this fallback slot.",
+        location_note: "No travel and handling data available for this fallback slot.",
         availability_note: "Selected by planner.",
         why_recommended: "Selected by planner.",
       }] : [],
@@ -456,14 +629,15 @@ export function PlannerPage(): JSX.Element {
 
       {previewPlan && recommendation && !reviewAssignments && (
         <Stack spacing={2}>
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, position: "relative", bgcolor: "rgba(15, 118, 110, 0.05)" }}>
+          {recommendation.business_explanation && <BusinessExplanationPanel explanation={recommendation.business_explanation} />}
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 4, position: "relative", bgcolor: "rgba(15, 118, 110, 0.04)" }}>
             <Stack spacing={2}>
               <BackCornerButton onClick={clearPlanState} />
               <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }} spacing={1.5}>
                 <Stack spacing={0.5}>
-                  <Typography variant="h6">{showOptimized ? "Optimized plan" : "Baseline ORM planner plan"}</Typography>
+                  <Typography variant="h6">{showOptimized ? "Optimized plan" : "Baseline planning draft"}</Typography>
                   <Typography color="text.secondary">
-                    {showOptimized ? optimizationNarrative(chosenCandidate) : "This is the first feasible plan produced by the ORM planner before ML ranking and profile optimization."}
+                    {showOptimized ? optimizationNarrative(chosenCandidate) : "This is the first feasible plan before resource ranking, risk tuning and travel-aware improvements."}
                   </Typography>
                 </Stack>
                 <Stack direction="row" spacing={1} alignItems="center">
@@ -475,87 +649,33 @@ export function PlannerPage(): JSX.Element {
               <Alert severity="info">
                 The cost shown here is the planned resource assignment cost. It is compared with the event budget to show whether the operational plan is heavy or light relative to the full event value.
               </Alert>
-              {recommendation.business_explanation && (
-                <Grid container spacing={1.5}>
-                  <Grid item xs={12} md={6}>
-                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: "100%" }}>
-                      <Stack spacing={1}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                          <Typography fontWeight={900}>Why optimized is different</Typography>
-                          <Chip size="small" variant="outlined" label={explanationSourceLabel(recommendation.business_explanation.source)} />
-                        </Stack>
-                        <Typography color="text.secondary">{recommendation.business_explanation.summary}</Typography>
-                        <Typography color="text.secondary">{recommendation.business_explanation.baseline_vs_optimized}</Typography>
-                        <Stack direction="row" flexWrap="wrap" gap={1}>
-                          {recommendation.business_explanation.drivers.map((driver) => <Chip key={driver} label={driver} variant="outlined" />)}
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: "100%" }}>
-                      <Stack spacing={1}>
-                        <Typography fontWeight={900}>Resource impact</Typography>
-                        {recommendation.business_explanation.resource_impact_summary.length === 0 && <Typography color="text.secondary">No individual resource driver dominated this recommendation.</Typography>}
-                        {recommendation.business_explanation.resource_impact_summary.map((item) => (
-                          <Box key={`${item.resource_id}-${item.contribution}`}>
-                            <Typography fontWeight={800}>{item.resource_name}</Typography>
-                            <Typography variant="body2" color="text.secondary">{item.summary}</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {item.distance_to_event_km != null ? `${formatNumber(item.distance_to_event_km, 1)} km from venue` : "Distance unknown"} · {item.travel_time_minutes != null ? `${formatNumber(item.travel_time_minutes)} min travel` : "travel time unknown"} · {item.contribution}
-                            </Typography>
-                          </Box>
-                        ))}
-                      </Stack>
-                    </Paper>
-                  </Grid>
-                </Grid>
-              )}
               <Grid container spacing={1.5}>
                 {metricRows(metricsInView).map((metric) => (
                   <Grid item xs={12} sm={6} md={4} key={metric.label}>
-                    <Metric label={metric.label} value={metric.value} helper={metricHelper(metric, metricExplanations[metric.key])} direction={metricExplanations[metric.key]?.delta_direction} />
+                    <Metric
+                      label={metric.label}
+                      value={metric.value}
+                      explanation={metricExplanations[metric.key] || (metric.helper ? { metric_key: metric.key, label: metric.label, summary: metric.helper, drivers: [], delta_direction: "neutral" } : undefined)}
+                      direction={metricExplanations[metric.key]?.delta_direction}
+                      source={recommendation.business_explanation?.source}
+                    />
                   </Grid>
                 ))}
               </Grid>
-              {stagesInView.length > 0 && (
-                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
-                  <Stack spacing={1.5}>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <TimelineIcon color="primary" />
-                      <Typography fontWeight={900}>Timeline</Typography>
-                    </Stack>
-                    <Grid container spacing={1.5}>
-                      {stagesInView.map((stage) => (
-                        <Grid item xs={12} md={stage.stage_key === "event_support" ? 4 : 2} key={stage.stage_key}>
-                          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, height: "100%", bgcolor: stage.stage_key === "event_support" ? "rgba(14, 165, 233, 0.06)" : "background.paper" }}>
-                            <Typography variant="caption" color="text.secondary" fontWeight={800}>{stage.label}</Typography>
-                            <Typography fontWeight={900}>{stageDurationLabel(stage)}</Typography>
-                            <Typography variant="body2" color="text.secondary">{stage.description}</Typography>
-                            {stage.drivers.length > 0 && (
-                              <Typography variant="caption" color="text.secondary">
-                                Drivers: {stage.drivers.join("; ")}
-                              </Typography>
-                            )}
-                          </Paper>
-                        </Grid>
-                      ))}
-                    </Grid>
-                  </Stack>
-                </Paper>
-              )}
+              {stagesInView.length > 0 && <TimelineRail stages={stagesInView} source={recommendation.business_explanation?.source} />}
               {recommendation.metric_deltas && (
                 <Stack spacing={1}>
                   <Typography fontWeight={900}>Difference versus baseline</Typography>
-                  <Grid container spacing={1}>
+                  <Grid container spacing={1.25}>
                     {deltaRows(recommendation.metric_deltas).map((metric) => (
-                      <Grid item xs={12} sm={6} md={2} key={metric.label}>
-                        <Chip label={`${metric.label}: ${metric.value}`} color={metric.value.startsWith("-") && metric.goodWhen === "negative" ? "success" : metric.value.startsWith("+") && metric.goodWhen === "positive" ? "success" : "default"} variant="outlined" />
+                      <Grid item xs={12} sm={6} md={4} lg={3} key={metric.label}>
+                        <DeltaCard label={metric.label} value={metric.value} goodWhen={metric.goodWhen} source={recommendation.business_explanation?.source} />
                       </Grid>
                     ))}
                   </Grid>
                 </Stack>
               )}
+              <ResourceImpactPanel explanation={recommendation.business_explanation} />
               <Stack spacing={0.75}>
                 <Typography fontWeight={900}>{showOptimized ? "Optimized resource assignment" : "Baseline resource assignment"}</Typography>
                 {planUsage(planInView, resourceMap, labelByRequirement).map((sentence) => <Typography key={sentence} color="text.secondary">{sentence}</Typography>)}
@@ -600,32 +720,55 @@ export function PlannerPage(): JSX.Element {
             <Alert severity="info">Current review estimate: {formatMoney(reviewEstimate)}. This estimate updates when you change resources.</Alert>
             {assignmentDraft.map((slot, index) => {
               const options = resourceOptions(slot, index, assignmentDraft, existingAssignments);
+              const selectedOption = options.find((option) => option.id === slot.selected_resource_id);
               return (
-                <Paper key={`${slot.requirement_id}-${slot.slot_index}-${index}`} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                  <Grid container spacing={2} alignItems="center">
+                <Paper key={`${slot.requirement_id}-${slot.slot_index}-${index}`} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+                  <Grid container spacing={2} alignItems="flex-start">
                     <Grid item xs={12} md={3}>
                       <Typography variant="caption" color="text.secondary">Resource slot</Typography>
                       <Typography fontWeight={800}>{slot.business_label || `${labelByRequirement[slot.requirement_id] || humanize(slot.resource_type)} ${slot.slot_index}`}</Typography>
                     </Grid>
-                    <Grid item xs={12} md={6}>
+                    <Grid item xs={12} md={5}>
                       <TextField select label="Assigned resource" value={slot.selected_resource_id || ""} onChange={(event) => updateAssignmentResource(index, event.target.value)} fullWidth>
                         <MenuItem value="">No resource assigned yet</MenuItem>
                         {options.map((option) => (
                           <MenuItem key={option.id} value={option.id}>
-                            {option.label} - {formatNumber(option.score, 0)}% fit - {formatMoney(option.cost)} - {optionLogisticsLabel(option)}
+                            {option.label} - {formatNumber(option.score, 0)}% fit - {formatMoney(option.cost)}
                           </MenuItem>
                         ))}
                       </TextField>
-                      {slot.selected_resource_id && (
-                        <Typography variant="caption" color="text.secondary">
-                          {options.find((option) => option.id === slot.selected_resource_id)?.note}
-                          {options.find((option) => option.id === slot.selected_resource_id)?.locationNote ? ` ${options.find((option) => option.id === slot.selected_resource_id)?.locationNote}` : ""}
-                        </Typography>
-                      )}
                     </Grid>
-                    <Grid item xs={12} md={3}>
-                      <Typography variant="caption" color="text.secondary">Estimated cost impact</Typography>
-                      <Typography fontWeight={800}>{formatMoney(slot.estimated_cost)}</Typography>
+                    <Grid item xs={12} md={4}>
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.5 }}>
+                            <Typography variant="caption" color="text.secondary">Fit</Typography>
+                            <Typography fontWeight={900}>{selectedOption ? `${formatNumber(selectedOption.score, 0)}%` : "No data"}</Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.5 }}>
+                            <Typography variant="caption" color="text.secondary">Assignment cost</Typography>
+                            <Typography fontWeight={900}>{formatMoney(slot.estimated_cost)}</Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.5 }}>
+                            <Typography variant="caption" color="text.secondary">Travel</Typography>
+                            <Typography fontWeight={900}>{selectedOption?.travelMinutes != null ? `${formatNumber(selectedOption.travelMinutes)} min` : "No data"}</Typography>
+                            <Typography variant="caption" color="text.secondary">{selectedOption ? formatDistance(selectedOption.distance) : "Distance unknown"}</Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.5 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.5}>
+                              <Typography variant="caption" color="text.secondary">Travel & handling</Typography>
+                              {selectedOption && <InfoTip title={selectedOption.label} body={selectedOption.note} drivers={[selectedOption.locationNote || optionLogisticsLabel(selectedOption)]} source={recommendation.business_explanation?.source} />}
+                            </Stack>
+                            <Typography fontWeight={900}>{selectedOption ? formatMoney(selectedOption.logisticsCost) : "No data"}</Typography>
+                          </Paper>
+                        </Grid>
+                      </Grid>
                     </Grid>
                   </Grid>
                 </Paper>

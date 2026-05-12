@@ -126,7 +126,7 @@ class ResourceImpactItem(BaseModel):
 
 
 class PlanBusinessExplanation(BaseModel):
-    source: Literal["deterministic", "llm"] = "deterministic"
+    source: Literal["llm", "static_fallback"] = "static_fallback"
     summary: str
     baseline_vs_optimized: str
     drivers: list[str] = Field(default_factory=list)

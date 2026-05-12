@@ -1858,3 +1858,33 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Backend Docker tests -> 90 passed, 5 warnings.
   - Frontend Docker checks -> typecheck passed, lint passed, tests 14 passed, production build passed.
   - Live smoke `Demo-plan-event` after backend rebuild -> login 200, generate-plan 200, recommend-best-plan 200, baseline stages 5, optimized stages 5, assignment slots 6, resource impact rows 6, cost delta `+6295.94 PLN`, duration delta `-99.6740 min`.
+
+## CP-14 - LLM-first planning explanations and Event Planning UX polish
+
+- Backend explanation flow:
+  - planner business explanations are now LLM-first when Azure LLM is enabled; deterministic text is used only as `static_fallback` when LLM is disabled or fails.
+  - LLM prompt receives a plan snapshot with event name, venue, baseline/optimized metrics, deltas, stages, resource names, travel distance/time and travel-and-handling cost.
+  - public explanation cleaning removes technical optimizer wording such as `plan_score`, `coverage_ratio`, `reliability_first`, `solver` and `ORM` from business text.
+  - renamed user-facing logistics language to `travel and handling cost`.
+  - small-distance handling now renders meters/on-site cases consistently and avoids impossible `0 km / 10 min` style output.
+- Event Planning UI polish:
+  - `Why optimized is different` now appears above the baseline/optimized comparison.
+  - metric cards use equal grid cards with info buttons; longer metric explanations and drivers are hidden in styled tooltips.
+  - `Difference versus baseline` is now an equal-card delta grid with info buttons instead of uneven chips.
+  - timeline was changed to a horizontal rail with stage dots, segment duration labels and stage explanations behind info buttons.
+  - resource impact and manual assignment review show short values inline, with full rationale behind info buttons.
+  - manual review labels now use `Travel & handling`, distance formatting and source-aware explanations.
+- Tests updated:
+  - added backend tests for LLM-first personalized explanation generation using a mocked Azure client.
+  - added fallback test for LLM failure and small-distance formatting test.
+  - updated frontend flow tests to assert info-button based explanations instead of inline long copy.
+  - updated CP-08/CP-11 regression tests to match the CP-14 business wording and public-text rules.
+- Validation:
+  - Python compile for planner services and schemas -> passed.
+  - Targeted backend CP-08/CP-11/CP-14 tests -> 11 passed, 3 warnings.
+  - Frontend Docker quality check -> typecheck, lint, tests and build passed; 14 tests passed.
+  - Full quality gate `powershell -ExecutionPolicy Bypass -File .\scripts\run-quality-gates.ps1` -> passed.
+  - Backend Docker tests -> 93 passed, 5 warnings.
+  - Frontend Docker checks -> typecheck passed, lint passed, tests 14 passed, production build passed.
+  - Live smoke `Demo-plan-event` -> login 200, events 200, generate-plan 200, recommend-best-plan 200, stage_breakdown 5, assignment_slots 6, resource_impact_summary 6.
+  - Live smoke explanation source was `static_fallback` in the current local container, which indicates Azure LLM was disabled or unavailable for that runtime; planning remains functional and the UI surfaces this status.

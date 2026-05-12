@@ -329,7 +329,7 @@ def _resource_logistics(
         "logistics_cost": logistics_cost,
         "cost_per_hour_addition": cost_per_hour_addition,
         "location_match_score": location_match_score,
-        "location_note": f"Located {distance.quantize(Decimal('0.1'))} km from the venue; estimated travel {travel_minutes} min.",
+        "location_note": f"Located {_distance_label(distance)} from the venue; estimated travel {travel_minutes} min.",
     }
 
 
@@ -357,7 +357,22 @@ def _distance_km(origin, destination) -> Decimal | None:
 def _transport_duration_minutes(distance: Decimal | None) -> int:
     if distance is None:
         return 45
+    if distance <= Decimal("0"):
+        return 0
+    if distance < Decimal("0.25"):
+        return 3
+    if distance < Decimal("1"):
+        return 5
     return max(int((distance / Decimal("50")) * Decimal("60")), 10)
+
+
+def _distance_label(distance: Decimal) -> str:
+    if distance <= Decimal("0"):
+        return "the same venue"
+    if distance < Decimal("1"):
+        meters = int((distance * Decimal("1000")).quantize(Decimal("1")))
+        return f"{meters} m"
+    return f"{distance.quantize(Decimal('0.1'))} km"
 
 
 def _people_candidates(

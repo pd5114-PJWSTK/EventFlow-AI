@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
+from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from app.schemas.planner import PlanBusinessExplanation, ResourceImpactItem
+from app.services import planner_generation_service as planner_service
+from app.services import planner_input_builder
 from tests.helpers import future_window
 
 
@@ -123,6 +129,25 @@ def test_cp11_planner_metrics_slots_and_optimized_resource_difference(api_client
     assert recommended_payload["business_explanation"]["summary"]
     assert recommended_payload["business_explanation"]["metric_explanations"]
     assert recommended_payload["business_explanation"]["resource_impact_summary"]
+    assert recommended_payload["business_explanation"]["source"] == "static_fallback"
+    explanation = recommended_payload["business_explanation"]
+    public_text = json.dumps(
+        {
+            "summary": explanation["summary"],
+            "baseline_vs_optimized": explanation["baseline_vs_optimized"],
+            "drivers": explanation["drivers"],
+            "metric_text": [
+                {"summary": item["summary"], "drivers": item["drivers"]}
+                for item in explanation["metric_explanations"]
+            ],
+            "resource_text": [
+                {"summary": item["summary"], "contribution": item["contribution"]}
+                for item in explanation["resource_impact_summary"]
+            ],
+        }
+    )
+    for forbidden in ("plan_score", "coverage_ratio", "reliability_first"):
+        assert forbidden not in public_text
     for slot in recommended_payload["selected_plan"]["assignment_slots"]:
         selected_option = next(
             option
@@ -168,6 +193,110 @@ def test_cp11_production_upgrade_contains_demo_plan_event() -> None:
     assert "current_location_id" in patch
     assert "demo_cp13" in patch
     assert "'validated'::core.event_status" in patch
+
+
+def test_cp14_llm_first_business_explanation_personalizes_plan_text(monkeypatch) -> None:
+    class FakeCompletion:
+        content = json.dumps(
+            {
+                "summary": "Demo-plan-event at Demo Arena Main Hall uses Demo Krakow Rapid Van for faster dispatch.",
+                "baseline_vs_optimized": "Demo Krakow Rapid Van reduces travel exposure versus the baseline vehicle.",
+                "drivers": ["Demo Krakow Rapid Van starts near Demo Arena Main Hall."],
+                "metric_explanations": [
+                    {
+                        "metric_key": "estimated_duration_minutes",
+                        "summary": "Duration is lower because Demo Krakow Rapid Van starts close to the venue.",
+                        "drivers": ["shorter travel from Krakow Operations Hub"],
+                    }
+                ],
+                "resource_impact_summary": [
+                    {
+                        "resource_id": "van-1",
+                        "summary": "Demo Krakow Rapid Van is preferred because it starts near Demo Arena Main Hall.",
+                        "contribution": "Shorter dispatch route lowers travel pressure.",
+                    }
+                ],
+            }
+        )
+
+    class FakeClient:
+        def __init__(self, *, settings) -> None:
+            self.settings = settings
+
+        def chat_completion(self, _prompt, *, max_output_tokens=None):
+            return FakeCompletion()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        planner_service,
+        "get_settings",
+        lambda: SimpleNamespace(ai_azure_llm_enabled=True),
+    )
+    monkeypatch.setattr("app.services.azure_openai_service.AzureOpenAIClient", FakeClient)
+
+    fallback = PlanBusinessExplanation(
+        source="static_fallback",
+        summary="Static text.",
+        baseline_vs_optimized="Static comparison.",
+        drivers=["Static driver."],
+        metric_explanations=planner_service._metric_explanations(None),
+        resource_impact_summary=[
+            ResourceImpactItem(
+                resource_id="van-1",
+                resource_name="Demo Krakow Rapid Van",
+                resource_type="vehicle",
+                summary="Static resource text.",
+                logistics_cost=Decimal("0.00"),
+                contribution="Static contribution.",
+            )
+        ],
+    )
+
+    result = planner_service._llm_business_explanation(
+        snapshot={
+            "event": {"name": "Demo-plan-event", "venue": "Demo Arena Main Hall"},
+            "optimized": {"resources": [{"resource_id": "van-1", "resource_name": "Demo Krakow Rapid Van"}]},
+        },
+        fallback=fallback,
+    )
+
+    assert result is not None
+    assert result.source == "llm"
+    assert "Demo-plan-event" in result.summary
+    assert "Demo Krakow Rapid Van" in result.resource_impact_summary[0].summary
+
+
+def test_cp14_llm_failure_uses_static_fallback(monkeypatch) -> None:
+    class BrokenClient:
+        def __init__(self, *, settings) -> None:
+            self.settings = settings
+
+        def chat_completion(self, _prompt, *, max_output_tokens=None):
+            raise RuntimeError("LLM unavailable")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        planner_service,
+        "get_settings",
+        lambda: SimpleNamespace(ai_azure_llm_enabled=True),
+    )
+    monkeypatch.setattr("app.services.azure_openai_service.AzureOpenAIClient", BrokenClient)
+    fallback = PlanBusinessExplanation(
+        source="static_fallback",
+        summary="Static fallback description for Demo-plan-event.",
+        baseline_vs_optimized="Static comparison.",
+    )
+
+    assert planner_service._llm_business_explanation(snapshot={}, fallback=fallback) is None
+
+
+def test_cp14_small_distance_uses_meters_and_short_travel_time() -> None:
+    assert planner_input_builder._transport_duration_minutes(Decimal("0.10")) == 3
+    assert planner_input_builder._distance_label(Decimal("0.10")) == "100 m"
 
 
 def test_cp12_plan_evaluator_features_and_calibrated_seed() -> None:

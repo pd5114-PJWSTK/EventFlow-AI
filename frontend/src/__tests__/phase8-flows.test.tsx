@@ -114,7 +114,7 @@ describe("Phase 8 CP-07 operator flows", () => {
           selected_candidate_name: "balanced",
           selected_explanation: "Lowest cost with full requirement coverage.",
           business_explanation: {
-            source: "deterministic",
+            source: "static_fallback",
             summary: "Optimized plan uses a closer and more reliable team.",
             baseline_vs_optimized: "Delay risk is lower because travel is shorter.",
             drivers: ["Closer current location", "Higher reliability"],
@@ -161,7 +161,8 @@ describe("Phase 8 CP-07 operator flows", () => {
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next: review resources" }));
     await waitFor(() => expect(screen.getByText("Review resource assignments before final approval")).toBeInTheDocument());
-    expect(screen.getByText(/Close to venue/i)).toBeInTheDocument();
+    expect(screen.getByText("Travel & handling")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Audio Technician explanation" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Approve final plan" }));
 
     await waitFor(() => {

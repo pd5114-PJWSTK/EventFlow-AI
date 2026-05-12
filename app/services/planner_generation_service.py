@@ -1940,7 +1940,7 @@ def _plan_stage_breakdown(
             duration_minutes=inbound,
             description="Return people, vehicles and equipment to their next operating base.",
             drivers=_compact_strings([
-                f"Return estimate follows outbound logistics with {format(int(inbound), 'd')} min.",
+                f"Return estimate follows outbound travel and handling with {format(int(inbound), 'd')} min.",
                 "Vehicle distance and venue access drive the transport window.",
             ]),
         ),
@@ -1986,7 +1986,7 @@ def _build_business_explanation(
     optimized_input: PlannerInput,
     selected_explanation: str,
 ) -> PlanBusinessExplanation:
-    deterministic = _deterministic_business_explanation(
+    fallback = _static_fallback_business_explanation(
         db=db,
         event=event,
         baseline_result=baseline_result,
@@ -1997,10 +1997,21 @@ def _build_business_explanation(
         optimized_input=optimized_input,
         selected_explanation=selected_explanation,
     )
-    return _llm_enhanced_business_explanation(deterministic) or deterministic
+    snapshot = _business_explanation_snapshot(
+        db=db,
+        event=event,
+        baseline_result=baseline_result,
+        optimized_result=optimized_result,
+        baseline_metrics=baseline_metrics,
+        optimized_metrics=optimized_metrics,
+        metric_deltas=metric_deltas,
+        optimized_input=optimized_input,
+        fallback=fallback,
+    )
+    return _llm_business_explanation(snapshot=snapshot, fallback=fallback) or fallback
 
 
-def _deterministic_business_explanation(
+def _static_fallback_business_explanation(
     *,
     db: Session,
     event: Event,
@@ -2012,28 +2023,28 @@ def _deterministic_business_explanation(
     optimized_input: PlannerInput,
     selected_explanation: str,
 ) -> PlanBusinessExplanation:
+    del selected_explanation
     changed_resources = not _same_resource_sets(baseline_result.assignments, optimized_result.assignments)
     cost_delta = metric_deltas.estimated_cost if metric_deltas else Decimal("0")
     duration_delta = metric_deltas.estimated_duration_minutes if metric_deltas else Decimal("0")
     risk_delta = metric_deltas.predicted_incident_risk if metric_deltas else Decimal("0")
     summary = (
-        "The optimized plan changes resource selection and logistics to improve delivery risk."
+        "The optimized plan changes resource selection and travel and handling assumptions to improve delivery risk."
         if changed_resources
         else "The optimized plan keeps the same resources because baseline assignments are already strong for this data."
     )
     baseline_vs_optimized = (
-        f"Compared with baseline, optimized changes resource cost by {_signed_money(cost_delta)}, "
-        f"duration by {_signed_minutes(duration_delta)} and incident risk by {_signed_percentage_points(risk_delta)}. "
-        f"{selected_explanation}"
+        f"Compared with baseline, the optimized plan changes assignment cost by {_signed_money(cost_delta)}, "
+        f"operating time by {_signed_minutes(duration_delta)} and incident exposure by {_signed_percentage_points(risk_delta)}."
     )
     drivers = _compact_strings([
         "Resource assignments changed." if changed_resources else "Resource assignments stayed the same.",
         "Higher reliability resources reduce operational delay risk." if metric_deltas and metric_deltas.reliability_score > 0 else None,
-        "Closer current locations reduce travel and logistics friction." if any((candidate.travel_time_minutes or 0) > 0 for candidate in _selected_candidates(optimized_result.assignments, optimized_input)) else None,
+        "Closer current locations reduce travel and handling friction." if any((candidate.travel_time_minutes or 0) > 0 for candidate in _selected_candidates(optimized_result.assignments, optimized_input)) else None,
         "Backup coverage protects the plan if a selected resource becomes unavailable." if optimized_metrics and optimized_metrics.backup_coverage_ratio > 0 else None,
     ])
     return PlanBusinessExplanation(
-        source="deterministic",
+        source="static_fallback",
         summary=summary,
         baseline_vs_optimized=baseline_vs_optimized,
         drivers=drivers,
@@ -2046,8 +2057,45 @@ def _deterministic_business_explanation(
     )
 
 
-def _llm_enhanced_business_explanation(
-    explanation: PlanBusinessExplanation,
+def _business_explanation_snapshot(
+    *,
+    db: Session,
+    event: Event,
+    baseline_result: PlannerResult,
+    optimized_result: PlannerResult,
+    baseline_metrics: PlanMetrics | None,
+    optimized_metrics: PlanMetrics | None,
+    metric_deltas: PlanMetricDelta | None,
+    optimized_input: PlannerInput,
+    fallback: PlanBusinessExplanation,
+) -> dict[str, Any]:
+    return {
+        "event": {
+            "name": event.event_name,
+            "type": event.event_type,
+            "subtype": event.event_subtype,
+            "attendees": event.attendee_count,
+            "priority": event.priority.value if hasattr(event.priority, "value") else str(event.priority),
+            "venue": _location_label(event.location),
+            "budget": str(event.budget_estimate) if event.budget_estimate is not None else None,
+        },
+        "baseline": {
+            "metrics": _jsonable(baseline_metrics.model_dump(mode="json") if baseline_metrics else {}),
+            "resources": _assignment_resource_rows(db, baseline_result.assignments, optimized_input),
+        },
+        "optimized": {
+            "metrics": _jsonable(optimized_metrics.model_dump(mode="json") if optimized_metrics else {}),
+            "resources": _assignment_resource_rows(db, optimized_result.assignments, optimized_input),
+        },
+        "metric_deltas": _jsonable(metric_deltas.model_dump(mode="json") if metric_deltas else {}),
+        "fallback_payload": fallback.model_dump(mode="json"),
+    }
+
+
+def _llm_business_explanation(
+    *,
+    snapshot: dict[str, Any],
+    fallback: PlanBusinessExplanation,
 ) -> PlanBusinessExplanation | None:
     settings = get_settings()
     if not settings.ai_azure_llm_enabled:
@@ -2056,38 +2104,157 @@ def _llm_enhanced_business_explanation(
         from app.services.ai_prompt_templates import PromptTemplate
         from app.services.azure_openai_service import AzureOpenAIClient
 
-        payload = explanation.model_dump(mode="json")
         prompt = PromptTemplate(
             system=(
-                "You rewrite event planning explanations for an operations manager. "
-                "Return strict JSON only with keys: summary, baseline_vs_optimized, drivers."
+                "You generate personalized event planning explanations for an operations manager. "
+                "Return strict JSON only. Use concrete event, venue and resource names from the input. "
+                "Do not use technical optimizer terms such as profile, plan_score, coverage_ratio, "
+                "reliability_first, solver or ORM. Use business language instead."
             ),
             user=(
-                "Rewrite these explanations in clear business English. Keep numbers and meaning unchanged. "
-                "Return drivers as an array of short strings.\n\n"
-                f"INPUT:\n{json.dumps(payload, ensure_ascii=False)}"
+                "Create concise business copy for the planning UI. Required JSON shape:\n"
+                "{"
+                "\"summary\": string, "
+                "\"baseline_vs_optimized\": string, "
+                "\"drivers\": string[], "
+                "\"metric_explanations\": [{\"metric_key\": string, \"summary\": string, \"drivers\": string[]}], "
+                "\"resource_impact_summary\": [{\"resource_id\": string, \"summary\": string, \"contribution\": string}]"
+                "}.\n"
+                "Keep all numbers consistent with the input. Mention real resource names in resource summaries. "
+                "Replace 'logistics cost' with 'travel and handling cost'.\n\n"
+                f"INPUT:\n{json.dumps(snapshot, ensure_ascii=False)}"
             ),
         )
         client = AzureOpenAIClient(settings=settings)
         try:
-            completion = client.chat_completion(prompt, max_output_tokens=700)
+            completion = client.chat_completion(prompt, max_output_tokens=1200)
         finally:
             client.close()
         data = json.loads(completion.content)
-        return explanation.model_copy(
+        return fallback.model_copy(
             update={
                 "source": "llm",
-                "summary": str(data.get("summary") or explanation.summary),
-                "baseline_vs_optimized": str(data.get("baseline_vs_optimized") or explanation.baseline_vs_optimized),
+                "summary": _clean_public_explanation(str(data.get("summary") or fallback.summary)),
+                "baseline_vs_optimized": _clean_public_explanation(str(data.get("baseline_vs_optimized") or fallback.baseline_vs_optimized)),
                 "drivers": [
-                    str(item)
-                    for item in data.get("drivers", explanation.drivers)
+                    _clean_public_explanation(str(item))
+                    for item in data.get("drivers", fallback.drivers)
                     if str(item).strip()
                 ][:6],
+                "metric_explanations": _merge_llm_metric_explanations(
+                    fallback.metric_explanations,
+                    data.get("metric_explanations", []),
+                ),
+                "resource_impact_summary": _merge_llm_resource_impacts(
+                    fallback.resource_impact_summary,
+                    data.get("resource_impact_summary", []),
+                ),
             }
         )
     except Exception:
         return None
+
+
+def _location_label(location: Location | None) -> str:
+    if location is None:
+        return "unknown venue"
+    parts = [location.name, location.city]
+    return ", ".join(str(part) for part in parts if part)
+
+
+def _assignment_resource_rows(
+    db: Session,
+    assignments: list[PlannerAssignment],
+    planner_input: PlannerInput,
+) -> list[dict[str, Any]]:
+    requirement_by_id = {
+        requirement.requirement_id: requirement for requirement in planner_input.requirements
+    }
+    candidates_by_requirement = _candidate_lookup(planner_input)
+    rows: list[dict[str, Any]] = []
+    for assignment in assignments:
+        requirement = requirement_by_id.get(assignment.requirement_id)
+        if requirement is None:
+            continue
+        candidates = candidates_by_requirement.get(assignment.requirement_id, {})
+        for resource_id in assignment.resource_ids:
+            candidate = candidates.get(resource_id)
+            rows.append(
+                {
+                    "resource_id": resource_id,
+                    "resource_name": _resource_name(db, requirement.resource_type, resource_id),
+                    "resource_type": requirement.resource_type,
+                    "distance_to_event_km": str(candidate.distance_to_event_km) if candidate and candidate.distance_to_event_km is not None else None,
+                    "travel_time_minutes": candidate.travel_time_minutes if candidate else None,
+                    "travel_and_handling_cost": str(_money(candidate.logistics_cost)) if candidate else "0.00",
+                    "recommendation_score": str(candidate.score) if candidate else None,
+                    "reliability_score": str(candidate.reliability_score) if candidate else None,
+                    "location_note": candidate.location_note if candidate else None,
+                }
+            )
+    return rows
+
+
+def _merge_llm_metric_explanations(
+    fallback_items: list[MetricExplanation],
+    llm_items: Any,
+) -> list[MetricExplanation]:
+    by_key = {
+        str(item.get("metric_key")): item
+        for item in llm_items
+        if isinstance(item, dict) and item.get("metric_key")
+    } if isinstance(llm_items, list) else {}
+    merged: list[MetricExplanation] = []
+    for fallback in fallback_items:
+        item = by_key.get(fallback.metric_key, {})
+        summary = _clean_public_explanation(str(item.get("summary") or fallback.summary))
+        drivers = [
+            _clean_public_explanation(str(driver))
+            for driver in item.get("drivers", fallback.drivers)
+            if str(driver).strip()
+        ] if isinstance(item.get("drivers", fallback.drivers), list) else fallback.drivers
+        merged.append(fallback.model_copy(update={"summary": summary, "drivers": drivers[:5]}))
+    return merged
+
+
+def _merge_llm_resource_impacts(
+    fallback_items: list[ResourceImpactItem],
+    llm_items: Any,
+) -> list[ResourceImpactItem]:
+    by_id = {
+        str(item.get("resource_id")): item
+        for item in llm_items
+        if isinstance(item, dict) and item.get("resource_id")
+    } if isinstance(llm_items, list) else {}
+    merged: list[ResourceImpactItem] = []
+    for fallback in fallback_items:
+        item = by_id.get(fallback.resource_id, {})
+        summary = _clean_public_explanation(str(item.get("summary") or fallback.summary))
+        contribution = _clean_public_explanation(str(item.get("contribution") or fallback.contribution))
+        merged.append(fallback.model_copy(update={"summary": summary, "contribution": contribution}))
+    return merged
+
+
+def _clean_public_explanation(value: str) -> str:
+    replacements = {
+        "profile reliability_first": "the reliability-focused option",
+        "profile balanced": "the balanced option",
+        "profile low_cost": "the cost-conscious option",
+        "profile coverage_guarded": "the coverage-focused option",
+        "reliability_first": "the reliability-focused option",
+        "coverage_guarded": "the coverage-focused option",
+        "low_cost": "the cost-conscious option",
+        "plan_score": "plan quality",
+        "coverage_ratio": "requirement coverage",
+        "logistics cost": "travel and handling cost",
+        "logistics": "travel and handling",
+        "solver": "planning method",
+        "ORM": "baseline planning draft",
+    }
+    cleaned = value
+    for source, replacement in replacements.items():
+        cleaned = cleaned.replace(source, replacement)
+    return cleaned.strip()
 
 
 def _metric_explanations(metric_deltas: PlanMetricDelta | None) -> list[MetricExplanation]:
@@ -2096,13 +2263,13 @@ def _metric_explanations(metric_deltas: PlanMetricDelta | None) -> list[MetricEx
             metric_key="estimated_cost",
             label="Planned resource cost",
             summary="Assignable people, equipment and vehicle cost for this plan. It does not include the full commercial event budget.",
-            drivers=["Hourly rates", "travel/logistics cost", "number of assigned slots"],
+            drivers=["Hourly rates", "travel and handling cost", "number of assigned slots"],
             delta_direction=_cost_direction(metric_deltas.estimated_cost if metric_deltas else Decimal("0")),
         ),
         MetricExplanation(
             metric_key="estimated_duration_minutes",
             label="Estimated duration",
-            summary="Operational time needed for transport, setup, live support, teardown and return logistics.",
+            summary="Operational time needed for transport, setup, live support, teardown and return travel and handling.",
             drivers=["venue complexity", "resource travel time", "resource reliability", "coverage gaps"],
             delta_direction=_negative_is_better(metric_deltas.estimated_duration_minutes if metric_deltas else Decimal("0")),
         ),
@@ -2186,14 +2353,23 @@ def _same_resource_sets(left: list[PlannerAssignment], right: list[PlannerAssign
 def _resource_impact_sentence(candidate: PlannerCandidate) -> str:
     parts = []
     if candidate.distance_to_event_km is not None:
-        parts.append(f"{candidate.distance_to_event_km} km from venue")
+        parts.append(f"{_distance_label(candidate.distance_to_event_km)} from venue")
     if candidate.travel_time_minutes is not None:
         parts.append(f"{candidate.travel_time_minutes} min travel")
     if candidate.logistics_cost > 0:
-        parts.append(f"{_money(candidate.logistics_cost)} PLN logistics")
+        parts.append(f"{_money(candidate.logistics_cost)} PLN travel and handling cost")
     if candidate.reliability_score > 0:
         parts.append("positive reliability signal")
-    return "; ".join(parts) if parts else "No material logistics impact."
+    return "; ".join(parts) if parts else "No material travel or handling impact."
+
+
+def _distance_label(distance_km: Decimal) -> str:
+    if distance_km <= Decimal("0"):
+        return "on-site"
+    if distance_km < Decimal("1"):
+        meters = int((distance_km * Decimal("1000")).quantize(Decimal("1")))
+        return f"{meters} m"
+    return f"{distance_km} km"
 
 
 def _cost_direction(delta: Decimal) -> str:
@@ -2584,6 +2760,12 @@ def _distance_km(origin: Location, destination: Location) -> Decimal | None:
 def _transport_duration_minutes(distance: Decimal | None) -> int:
     if distance is None:
         return 60
+    if distance <= Decimal("0"):
+        return 0
+    if distance < Decimal("0.25"):
+        return 3
+    if distance < Decimal("1"):
+        return 5
     return max(int((distance / Decimal("50")) * Decimal("60")), 15)
 
 

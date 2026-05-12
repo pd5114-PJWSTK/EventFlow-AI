@@ -21,7 +21,7 @@ def test_phase8_frontend_cp08_frontend_hides_resource_ids_in_operational_views()
     details = Path("frontend/src/components/EventDetailsCard.tsx").read_text(encoding="utf-8")
     intake = Path("frontend/src/pages/IntakePage.tsx").read_text(encoding="utf-8")
 
-    assert "Baseline ORM planner plan" in planner
+    assert "Baseline planning draft" in planner
     assert "Optimized plan" in planner
     assert "requirement_id.slice" not in planner
     assert "equipment type ${String" not in details

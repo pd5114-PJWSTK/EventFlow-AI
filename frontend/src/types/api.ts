@@ -308,7 +308,7 @@ export interface ResourceImpactItem {
 }
 
 export interface PlanBusinessExplanation {
-  source: "deterministic" | "llm";
+  source: "llm" | "static_fallback";
   summary: string;
   baseline_vs_optimized: string;
   drivers: string[];
