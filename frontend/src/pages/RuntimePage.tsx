@@ -225,7 +225,7 @@ export function RuntimePage(): JSX.Element {
       {error && <Alert severity="error">{error}</Alert>}
 
       {!sheet && (
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 1 }}>
           <Stack spacing={2}>
             <EventSelect label="Event for incident" value={eventId} onChange={handleEventChange} scope="runtime" error={Boolean(fieldErrors.eventId)} helperText={fieldErrors.eventId} />
             {eventId && <EventDetailsCard eventId={eventId} title="Event context and assigned resources" />}
@@ -236,7 +236,7 @@ export function RuntimePage(): JSX.Element {
       )}
 
       {sheet && !replanResult && (
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, position: "relative" }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 1, position: "relative" }}>
           <Stack spacing={2}>
             <BackCornerButton onClick={() => setSheet(null)} />
             <Stack direction="row" spacing={1} alignItems="center"><Typography variant="h6">Incident sheet</Typography><Chip label={parserSourceLabel(sheet.parser_mode)} variant="outlined" color={sheet.parser_mode === "llm" ? "success" : "warning"} /></Stack>
@@ -260,7 +260,7 @@ export function RuntimePage(): JSX.Element {
       {(isWorking || replanResult) && <AnimatedPipeline title={isWorking ? "Replanning in progress" : "Replan decision"} steps={replanSteps} activeStep={activeStep} />}
 
       {replanResult && (
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, position: "relative" }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 1, position: "relative" }}>
           <Stack spacing={2}>
             <BackCornerButton onClick={() => setReplanResult(null)} />
             <Typography variant="h6">Replan recommendation</Typography>
@@ -272,7 +272,7 @@ export function RuntimePage(): JSX.Element {
               <Grid item xs={12} md={3}><Typography variant="caption" color="text.secondary">Budget change</Typography><Typography fontWeight={900}>{formatMoney(replanResult.comparison.cost_delta)}</Typography></Grid>
               <Grid item xs={12} md={3}><Typography variant="caption" color="text.secondary">Assigned resources in proposal</Typography><Typography fontWeight={900}>{replanResult.generated_plan.assignments.reduce((sum, item) => sum + item.resource_ids.length, 0)}</Typography></Grid>
             </Grid>
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "rgba(15, 118, 110, 0.05)" }}>
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 1, bgcolor: "rgba(15, 118, 110, 0.05)" }}>
               <Stack spacing={1.5}>
                 <Typography fontWeight={800}>Operator action plan</Typography>
                 <Typography variant="body2" color="text.secondary">These structured actions are sent as `operator_actions`. Resource actions create manual event assignments on approval and are included in the before/after cost impact. Timing actions update the replan comparison so the decision is visible before approval.</Typography>

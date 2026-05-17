@@ -151,7 +151,7 @@ export function MePage(): JSX.Element {
       </Box>
 
       {activeTab === 0 && (
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 1 }}>
           <Grid container spacing={2}>
             <Grid item xs={12} md={4}>
               <Typography color="text.secondary">User</Typography>
@@ -185,7 +185,7 @@ export function MePage(): JSX.Element {
             />
           )}
 
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 1 }}>
             <Stack spacing={2}>
               <Box>
                 <Typography variant="h6">Operational model</Typography>

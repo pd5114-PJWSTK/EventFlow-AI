@@ -208,7 +208,7 @@ export function IntakePage(): JSX.Element {
       {success && <StatusBanner severity="success" title="Event saved" message={success} />}
       {error && <Alert severity="error">{error}</Alert>}
       {!draft && (
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 1 }}>
           <Stack spacing={2}>
             <TextField
               label="Event description"
@@ -225,7 +225,7 @@ export function IntakePage(): JSX.Element {
         </Paper>
       )}
       {draft && (
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, position: "relative" }}>
+        <Paper variant="outlined" sx={{ p: 3, borderRadius: 1, position: "relative" }}>
           <Stack spacing={2.5}>
             <BackCornerButton onClick={() => setDraft(null)} />
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }}>
@@ -233,7 +233,7 @@ export function IntakePage(): JSX.Element {
               {source && <Chip label={source} color={source.includes("LLM") ? "success" : "warning"} variant="outlined" />}
               {requiredErrorCount > 0 && <Chip label={`Missing: ${requiredErrorCount}`} color="error" />}
             </Stack>
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "rgba(15, 118, 110, 0.04)" }}>
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 1, bgcolor: "rgba(15, 118, 110, 0.04)" }}>
               <Typography variant="caption" color="text.secondary" fontWeight={800}>Original text entered by operator</Typography>
               <Typography sx={{ whiteSpace: "pre-wrap" }}>{rawInput}</Typography>
             </Paper>
@@ -259,7 +259,7 @@ export function IntakePage(): JSX.Element {
               </Stack>
               {fieldErrors.requirements && <Alert severity="warning">{fieldErrors.requirements}</Alert>}
               {draft.requirements.map((requirement, index) => (
-                <Paper key={index} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Paper key={index} variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
                   <Grid container spacing={2}>
                     <Grid item xs={12} md={3}>
                       <TextField

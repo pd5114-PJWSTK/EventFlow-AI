@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import json
+import logging
 import pickle
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
@@ -90,6 +91,9 @@ class PlanGenerationError(ValueError):
     pass
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass(frozen=True)
 class ConsumedAssignment:
     assignment_id: str
@@ -105,6 +109,15 @@ class _MetricEventFeature:
     feature_setup_complexity_score: int | None
     feature_access_difficulty: int | None
     feature_parking_difficulty: int | None
+
+
+@dataclass(frozen=True)
+class _TransportRouteEstimate:
+    distance_km: Decimal = Decimal("0.00")
+    duration_minutes: Decimal = Decimal("0.00")
+    cost: Decimal = Decimal("0.00")
+    vehicle_count: int = 0
+    pickup_count: int = 0
 
 
 _PRIORITY_LOCK_EVENT_STATUSES = {"planned", "confirmed", "in_progress"}
@@ -169,6 +182,7 @@ def generate_plan(
                 original_input=original_model,
                 consumed_assignments=consumed_assignments,
             )
+        result = _with_transport_route_cost(result, original_model)
         requirement_by_id = {
             requirement.requirement_id: requirement
             for requirement in original_model.requirements
@@ -661,6 +675,7 @@ def recommend_best_plan_with_ml(
             risk_bias=profile["risk_bias"],
         )
         solved = PlannerService(policy=policy).solve(profiled_input)
+        solved = _with_transport_route_cost(solved, profiled_input)
         total_required = sum(max(requirement.quantity, 0) for requirement in profiled_input.requirements)
         unassigned_count = sum(item.unassigned_count for item in solved.assignments)
         coverage_ratio = Decimal("1.0000")
@@ -686,6 +701,7 @@ def recommend_best_plan_with_ml(
         predicted_duration_minutes = (
             predicted_duration_minutes
             + _max_assignment_travel_minutes(solved.assignments, profiled_input) * Decimal("0.30")
+            + _transport_route_estimate(solved.assignments, profiled_input).duration_minutes * Decimal("0.15")
         ).quantize(Decimal("0.0001"))
         duration_breakdown = _duration_breakdown(
             event=event,
@@ -803,6 +819,7 @@ def recommend_best_plan_with_ml(
     candidate_results.sort(key=lambda item: item["plan_score"], reverse=True)
     selected = candidate_results[0]
     baseline_result = PlannerService(policy=policy).solve(planner_input)
+    baseline_result = _with_transport_route_cost(baseline_result, planner_input)
     baseline_metrics = _plan_metrics(
         event=event,
         event_feature=event_feature,
@@ -817,6 +834,7 @@ def recommend_best_plan_with_ml(
             result=selected_result,
             overrides=assignment_overrides,
         )
+        selected_result = _with_transport_route_cost(selected_result, selected["profiled_input"])
     recommendation = _create_recommendation(
         db=db,
         event=event,
@@ -1885,9 +1903,11 @@ def _plan_stage_breakdown(
         [Decimal(candidate.travel_time_minutes or 0) for candidate in selected_candidates],
         default=Decimal("0"),
     )
+    route = _transport_route_estimate(result.assignments, planner_input)
+    route_travel = route.duration_minutes
     transport_total = breakdown["transport_duration_minutes"]
-    outbound = max((transport_total * Decimal("0.55")).quantize(Decimal("0.0001")), max_travel)
-    inbound = max((transport_total * Decimal("0.45")).quantize(Decimal("0.0001")), (max_travel * Decimal("0.80")).quantize(Decimal("0.0001")))
+    outbound = max((transport_total * Decimal("0.55")).quantize(Decimal("0.0001")), max_travel, (route_travel * Decimal("0.60")).quantize(Decimal("0.0001")))
+    inbound = max((transport_total * Decimal("0.45")).quantize(Decimal("0.0001")), (max_travel * Decimal("0.80")).quantize(Decimal("0.0001")), (route_travel * Decimal("0.40")).quantize(Decimal("0.0001")))
     setup = breakdown["setup_duration_minutes"]
     teardown = breakdown["teardown_duration_minutes"]
     support = max(total_duration_minutes - outbound - setup - teardown - inbound, Decimal("0")).quantize(Decimal("0.0001"))
@@ -1901,6 +1921,7 @@ def _plan_stage_breakdown(
             description="Move crew, vehicles and equipment to the venue before setup starts.",
             drivers=_compact_strings([
                 f"Longest selected resource travel estimate: {format(int(max_travel), 'd')} min" if max_travel > 0 else "Most selected resources are already close to the venue.",
+                f"Vehicle collection route covers about {route.distance_km} km for {route.pickup_count} pickup(s)." if route.vehicle_count > 0 else None,
                 f"Venue access difficulty: {access}/5.",
             ]),
         ),
@@ -1941,6 +1962,7 @@ def _plan_stage_breakdown(
             description="Return people, vehicles and equipment to their next operating base.",
             drivers=_compact_strings([
                 f"Return estimate follows outbound travel and handling with {format(int(inbound), 'd')} min.",
+                f"Return leg includes selected vehicle route back from the venue." if route.vehicle_count > 0 else None,
                 "Vehicle distance and venue access drive the transport window.",
             ]),
         ),
@@ -2104,6 +2126,8 @@ def _llm_business_explanation(
         from app.services.ai_prompt_templates import PromptTemplate
         from app.services.azure_openai_service import AzureOpenAIClient
 
+        compact_snapshot = _compact_llm_snapshot(snapshot)
+        output_limit = min(1600, settings.ai_azure_llm_max_output_tokens)
         prompt = PromptTemplate(
             system=(
                 "You generate personalized event planning explanations for an operations manager. "
@@ -2122,15 +2146,15 @@ def _llm_business_explanation(
                 "}.\n"
                 "Keep all numbers consistent with the input. Mention real resource names in resource summaries. "
                 "Replace 'logistics cost' with 'travel and handling cost'.\n\n"
-                f"INPUT:\n{json.dumps(snapshot, ensure_ascii=False)}"
+                f"INPUT:\n{json.dumps(compact_snapshot, ensure_ascii=False)}"
             ),
         )
         client = AzureOpenAIClient(settings=settings)
         try:
-            completion = client.chat_completion(prompt, max_output_tokens=1200)
+            completion = client.chat_completion(prompt, max_output_tokens=output_limit)
         finally:
             client.close()
-        data = json.loads(completion.content)
+        data = _parse_llm_json(completion.content)
         return fallback.model_copy(
             update={
                 "source": "llm",
@@ -2151,8 +2175,45 @@ def _llm_business_explanation(
                 ),
             }
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("Planner LLM business explanation failed; using static fallback: %s", exc)
         return None
+
+
+def _parse_llm_json(content: str) -> dict[str, Any]:
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        lines = [line for line in cleaned.splitlines() if not line.strip().startswith("```")]
+        cleaned = "\n".join(lines).strip()
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end >= start:
+        cleaned = cleaned[start : end + 1]
+    parsed = json.loads(cleaned)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _compact_llm_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    fallback = snapshot.get("fallback_payload") or {}
+    return {
+        "event": snapshot.get("event") or {},
+        "baseline": {
+            "metrics": (snapshot.get("baseline") or {}).get("metrics") or {},
+            "resources": ((snapshot.get("baseline") or {}).get("resources") or [])[:8],
+        },
+        "optimized": {
+            "metrics": (snapshot.get("optimized") or {}).get("metrics") or {},
+            "resources": ((snapshot.get("optimized") or {}).get("resources") or [])[:8],
+        },
+        "metric_deltas": snapshot.get("metric_deltas") or {},
+        "fallback_summary": {
+            "summary": fallback.get("summary"),
+            "baseline_vs_optimized": fallback.get("baseline_vs_optimized"),
+            "drivers": (fallback.get("drivers") or [])[:6],
+            "metric_keys": [item.get("metric_key") for item in (fallback.get("metric_explanations") or [])],
+            "resource_ids": [item.get("resource_id") for item in (fallback.get("resource_impact_summary") or [])[:8]],
+        },
+    }
 
 
 def _location_label(location: Location | None) -> str:
@@ -2423,7 +2484,7 @@ def _assignment_slots(
             selected_estimated_cost = Decimal("0.00")
             if selected_resource_id:
                 selected_estimated_cost = option_cost_by_id.get(selected_resource_id, Decimal("0.00"))
-                if selected_estimated_cost == Decimal("0.00") and assignment is not None:
+                if assignment is not None and requirement.resource_type == "vehicle":
                     selected_estimated_cost = _money(_resource_cost_share(assignment))
             slots.append(
                 AssignmentSlot(
@@ -2629,6 +2690,95 @@ def _selected_candidates(
             if candidate is not None:
                 selected.append(candidate)
     return selected
+
+
+def _transport_route_estimate(
+    assignments: list[PlannerAssignment],
+    planner_input: PlannerInput,
+) -> _TransportRouteEstimate:
+    candidates_by_requirement = _candidate_lookup(planner_input)
+    vehicle_candidates: list[PlannerCandidate] = []
+    pickup_candidates: list[PlannerCandidate] = []
+    for assignment in assignments:
+        requirement = next(
+            (item for item in planner_input.requirements if item.requirement_id == assignment.requirement_id),
+            None,
+        )
+        if requirement is None:
+            continue
+        candidates = candidates_by_requirement.get(assignment.requirement_id, {})
+        for resource_id in assignment.resource_ids:
+            candidate = candidates.get(resource_id)
+            if candidate is None:
+                continue
+            if requirement.resource_type == "vehicle":
+                vehicle_candidates.append(candidate)
+            else:
+                pickup_candidates.append(candidate)
+
+    if not vehicle_candidates:
+        return _TransportRouteEstimate()
+
+    vehicle_distance = sum(
+        (candidate.distance_to_event_km or Decimal("0")) for candidate in vehicle_candidates
+    )
+    pickup_distance = sum(
+        (candidate.distance_to_event_km or Decimal("0")) for candidate in pickup_candidates
+    )
+    # Approximate one collection route: vehicle starts from its current location,
+    # collects people/equipment from their current bases, reaches the venue and returns.
+    route_distance = (
+        vehicle_distance * Decimal("2")
+        + pickup_distance * Decimal("0.65")
+    ).quantize(Decimal("0.01"))
+    route_minutes = Decimal(_transport_duration_minutes(route_distance))
+    vehicle_hourly = sum((candidate.cost_per_hour for candidate in vehicle_candidates), Decimal("0"))
+    vehicle_km_proxy = max(vehicle_hourly * Decimal("0.035"), Decimal("2.20"))
+    route_cost = (
+        route_distance * vehicle_km_proxy
+        + (route_minutes / Decimal("60")) * vehicle_hourly * Decimal("0.35")
+    ).quantize(Decimal("0.01"))
+    return _TransportRouteEstimate(
+        distance_km=route_distance,
+        duration_minutes=route_minutes,
+        cost=route_cost,
+        vehicle_count=len(vehicle_candidates),
+        pickup_count=len(pickup_candidates),
+    )
+
+
+def _with_transport_route_cost(result: PlannerResult, planner_input: PlannerInput) -> PlannerResult:
+    route = _transport_route_estimate(result.assignments, planner_input)
+    if route.cost <= 0:
+        return result
+    vehicle_requirement_ids = {
+        requirement.requirement_id
+        for requirement in planner_input.requirements
+        if requirement.resource_type == "vehicle"
+    }
+    assignments: list[PlannerAssignment] = []
+    route_cost_applied = False
+    for assignment in result.assignments:
+        extra = Decimal("0.00")
+        if assignment.requirement_id in vehicle_requirement_ids and assignment.resource_ids and not route_cost_applied:
+            extra = route.cost
+            route_cost_applied = True
+        assignments.append(
+            PlannerAssignment(
+                requirement_id=assignment.requirement_id,
+                resource_ids=assignment.resource_ids,
+                unassigned_count=assignment.unassigned_count,
+                estimated_cost=(assignment.estimated_cost + extra).quantize(Decimal("0.01")),
+            )
+        )
+    return PlannerResult(
+        plan_id=result.plan_id,
+        solver=result.solver,
+        assignments=assignments,
+        estimated_cost=(result.estimated_cost + route.cost).quantize(Decimal("0.01")),
+        duration_ms=result.duration_ms,
+        fallback_reason=result.fallback_reason,
+    )
 
 
 def _max_assignment_travel_minutes(

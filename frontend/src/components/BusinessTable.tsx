@@ -15,7 +15,7 @@ interface BusinessTableProps<T> {
 
 export function BusinessTable<T>({ title, columns, rows, emptyText = "No data" }: BusinessTableProps<T>): JSX.Element {
   return (
-    <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxWidth: "100%", overflowX: "auto" }}>
+    <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1, maxWidth: "100%", overflowX: "auto" }}>
       {title && (
         <Typography variant="h6" sx={{ px: 2, pt: 2 }}>
           {title}

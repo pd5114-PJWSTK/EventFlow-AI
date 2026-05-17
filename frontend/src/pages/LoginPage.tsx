@@ -42,7 +42,7 @@ export function LoginPage(): JSX.Element {
       <Paper
         component="form"
         onSubmit={(event) => void onSubmit(event)}
-        sx={{ p: 4, width: "min(440px, 92vw)", borderRadius: 4 }}
+        sx={{ p: 4, width: "min(440px, 92vw)", borderRadius: 1 }}
         elevation={4}
       >
         <Stack spacing={2}>

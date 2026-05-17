@@ -90,7 +90,7 @@ export function EventDetailsCard({ eventId, title = "Selected event" }: EventDet
   if (!eventId) return null;
 
   return (
-    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, bgcolor: "rgba(15, 118, 110, 0.04)" }}>
+    <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 1, bgcolor: "rgba(15, 118, 110, 0.04)" }}>
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Typography variant="h6">{title}</Typography>

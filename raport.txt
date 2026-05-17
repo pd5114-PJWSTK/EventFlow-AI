@@ -1888,3 +1888,36 @@ Wniosek: wymagania Fazy 1 sa wykonane.
   - Frontend Docker checks -> typecheck passed, lint passed, tests 14 passed, production build passed.
   - Live smoke `Demo-plan-event` -> login 200, events 200, generate-plan 200, recommend-best-plan 200, stage_breakdown 5, assignment_slots 6, resource_impact_summary 6.
   - Live smoke explanation source was `static_fallback` in the current local container, which indicates Azure LLM was disabled or unavailable for that runtime; planning remains functional and the UI surfaces this status.
+
+## CP-15 - Event Planning layout, LLM reliability and transport-aware cost polish
+
+- Event Planning UI:
+  - reduced rounded container styling across the frontend to minimal corner radius.
+  - changed `Planning explanation` decision drivers from separate cards to a readable bullet list.
+  - moved `Difference versus baseline` directly below the planning explanation and rendered it as a compact 5-column grid over two rows.
+  - split the plan view into three synchronized sections: `Core metrics`, `Timeline`, and `Resource assignment`.
+  - each of the three sections has its own Baseline/Optimized switch, all bound to the same state.
+  - core metrics now render in four columns on desktop.
+  - timeline keeps the dot-and-line layout and also shows the `Return transport` duration under the final stage.
+  - replaced duplicated `Resource impact` and `Resource assignment` content with one `Resource assignment` section grouped into People, Equipment and Vehicles.
+  - manual resource review now uses two rows per slot: slot/resource selection first, related metrics second.
+- Planner cost and transport logic:
+  - removed per-resource travel/handling cost from the hourly cost used by the solver, so identical resource choices no longer inflate cost just because profile scoring changed.
+  - added a transport-route adjustment when a vehicle is selected: the selected vehicle collects assigned people and equipment from their current locations, reaches the venue, and returns after the event.
+  - transport route cost is applied to the selected vehicle assignment and influences total plan cost, duration and stage explanations.
+  - route duration now contributes to outbound/return transport timing.
+- LLM explanations:
+  - fixed Azure LLM fallback caused by markdown-fenced JSON responses by adding robust JSON extraction.
+  - compacted the LLM snapshot and raised recommended LLM limits in `.env.example` / `.env.production.example`.
+  - updated local `.env` LLM limits for testing without exposing secrets.
+  - backend logs a warning when LLM explanation generation fails and falls back.
+  - automated tests disable real LLM calls to avoid spending quota, while dedicated unit tests mock LLM-first behavior.
+- Validation:
+  - targeted planner tests `tests/test_phase8_frontend_cp11.py` -> 7 passed, 3 warnings.
+  - frontend Docker quality check -> typecheck, lint, tests and build passed; 14 tests passed.
+  - full quality gate `powershell -ExecutionPolicy Bypass -File .\scripts\run-quality-gates.ps1` -> passed.
+  - backend Docker tests -> 93 passed, 5 warnings.
+  - frontend Docker checks -> typecheck passed, lint passed, tests 14 passed, production build passed.
+  - live smoke after force-recreate on `Demo-plan-event` -> login 200, recommend-best-plan 200, `business_source=llm`, `stage_breakdown=5`, `assignment_slots=6`, cost delta `+5170.44`, duration delta `-95.7643`.
+- Manual QA target:
+  - test Event Planning on `Demo-plan-event`; this is the calibrated demo event intended to show baseline vs optimized differences.

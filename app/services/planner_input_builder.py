@@ -432,7 +432,7 @@ def _people_candidates(
         candidates.append(
             PlannerCandidate(
                 resource_id=person.person_id,
-                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                cost_per_hour=cost,
                 score=(_score_from_cost(cost) * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=reliability_score,
                 distance_to_event_km=logistics["distance_to_event_km"],
@@ -486,7 +486,7 @@ def _fallback_people_candidates(
         candidates.append(
             PlannerCandidate(
                 resource_id=person.person_id,
-                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                cost_per_hour=cost,
                 score=(_score_from_cost(cost) * Decimal("0.35") * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=_reliability_bonus(getattr(person, "reliability_notes", None)),
                 distance_to_event_km=logistics["distance_to_event_km"],
@@ -547,7 +547,7 @@ def _equipment_candidates(
         candidates.append(
             PlannerCandidate(
                 resource_id=item.equipment_id,
-                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                cost_per_hour=cost,
                 score=(_score_from_cost(cost) * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.08") if getattr(item, "replacement_available", False) else Decimal("0"),
                 distance_to_event_km=logistics["distance_to_event_km"],
@@ -598,7 +598,7 @@ def _fallback_equipment_candidates(
         candidates.append(
             PlannerCandidate(
                 resource_id=item.equipment_id,
-                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                cost_per_hour=cost,
                 score=(_score_from_cost(cost) * Decimal("0.35") * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.08") if getattr(item, "replacement_available", False) else Decimal("0"),
                 distance_to_event_km=logistics["distance_to_event_km"],
@@ -669,7 +669,7 @@ def _vehicle_candidates(
         candidates.append(
             PlannerCandidate(
                 resource_id=vehicle.vehicle_id,
-                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                cost_per_hour=cost,
                 score=(_score_from_cost(cost) * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.05"),
                 distance_to_event_km=logistics["distance_to_event_km"],
@@ -722,7 +722,7 @@ def _fallback_vehicle_candidates(
         candidates.append(
             PlannerCandidate(
                 resource_id=vehicle.vehicle_id,
-                cost_per_hour=cost + logistics["cost_per_hour_addition"],
+                cost_per_hour=cost,
                 score=(_score_from_cost(cost) * Decimal("0.35") * logistics["location_match_score"]).quantize(Decimal("0.000001")),
                 reliability_score=Decimal("0.05"),
                 distance_to_event_km=logistics["distance_to_event_km"],

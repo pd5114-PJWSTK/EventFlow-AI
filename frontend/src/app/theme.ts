@@ -19,7 +19,7 @@ export const theme = createTheme({
     },
   },
   shape: {
-    borderRadius: 14,
+    borderRadius: 1,
   },
   typography: {
     fontFamily: '"Plus Jakarta Sans", "Segoe UI", sans-serif',

@@ -9,7 +9,7 @@ interface StatusBannerProps {
 
 export function StatusBanner({ severity = "info", title, message, source }: StatusBannerProps): JSX.Element {
   return (
-    <Alert severity={severity} sx={{ borderRadius: 2 }}>
+    <Alert severity={severity} sx={{ borderRadius: 1 }}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }}>
         <Typography fontWeight={700}>{title}</Typography>
         {message && <Typography>{message}</Typography>}

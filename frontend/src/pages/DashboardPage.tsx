@@ -58,7 +58,7 @@ export function DashboardPage(): JSX.Element {
       <Typography variant="h4">Dashboard</Typography>
       <Grid container spacing={3} alignItems="stretch">
         <Grid item xs={12} lg={4}>
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 1, height: "100%" }}>
             <Typography variant="h6" sx={{ mb: 2 }}>Console modules</Typography>
             <Stack spacing={1.5}>
               {navItems.map((item) => (
@@ -74,7 +74,7 @@ export function DashboardPage(): JSX.Element {
           </Paper>
         </Grid>
         <Grid item xs={12} lg={4}>
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 1, height: "100%" }}>
             <Typography variant="h6" sx={{ mb: 2 }}>Live events</Typography>
             <Stack spacing={1.5}>
               {live.length === 0 ? (
@@ -101,7 +101,7 @@ export function DashboardPage(): JSX.Element {
           </Paper>
         </Grid>
         <Grid item xs={12} lg={4}>
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 2, height: "100%" }}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 1, height: "100%" }}>
             <Typography variant="h6" sx={{ mb: 2 }}>Upcoming events</Typography>
             <Stack spacing={1.5}>
               {upcoming.length === 0 ? (

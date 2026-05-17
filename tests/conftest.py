@@ -21,6 +21,7 @@ def api_client() -> Generator[TestClient, None, None]:
     os.environ["CELERY_ALWAYS_EAGER"] = "true"
     os.environ["API_TEST_JOBS_ENABLED"] = "true"
     os.environ["API_DOCS_ENABLED"] = "true"
+    os.environ["AI_AZURE_LLM_ENABLED"] = "false"
     from app.config import get_settings
 
     get_settings.cache_clear()

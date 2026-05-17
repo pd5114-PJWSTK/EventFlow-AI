@@ -197,7 +197,7 @@ def test_cp11_production_upgrade_contains_demo_plan_event() -> None:
 
 def test_cp14_llm_first_business_explanation_personalizes_plan_text(monkeypatch) -> None:
     class FakeCompletion:
-        content = json.dumps(
+        content = "```json\n" + json.dumps(
             {
                 "summary": "Demo-plan-event at Demo Arena Main Hall uses Demo Krakow Rapid Van for faster dispatch.",
                 "baseline_vs_optimized": "Demo Krakow Rapid Van reduces travel exposure versus the baseline vehicle.",
@@ -217,7 +217,7 @@ def test_cp14_llm_first_business_explanation_personalizes_plan_text(monkeypatch)
                     }
                 ],
             }
-        )
+        ) + "\n```"
 
     class FakeClient:
         def __init__(self, *, settings) -> None:
@@ -232,7 +232,7 @@ def test_cp14_llm_first_business_explanation_personalizes_plan_text(monkeypatch)
     monkeypatch.setattr(
         planner_service,
         "get_settings",
-        lambda: SimpleNamespace(ai_azure_llm_enabled=True),
+        lambda: SimpleNamespace(ai_azure_llm_enabled=True, ai_azure_llm_max_output_tokens=900),
     )
     monkeypatch.setattr("app.services.azure_openai_service.AzureOpenAIClient", FakeClient)
 
@@ -282,7 +282,7 @@ def test_cp14_llm_failure_uses_static_fallback(monkeypatch) -> None:
     monkeypatch.setattr(
         planner_service,
         "get_settings",
-        lambda: SimpleNamespace(ai_azure_llm_enabled=True),
+        lambda: SimpleNamespace(ai_azure_llm_enabled=True, ai_azure_llm_max_output_tokens=900),
     )
     monkeypatch.setattr("app.services.azure_openai_service.AzureOpenAIClient", BrokenClient)
     fallback = PlanBusinessExplanation(

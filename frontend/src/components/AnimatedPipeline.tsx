@@ -9,7 +9,7 @@ interface AnimatedPipelineProps {
 
 export function AnimatedPipeline({ title, steps, activeStep }: AnimatedPipelineProps): JSX.Element {
   return (
-    <Box sx={{ p: 2, border: "1px dashed", borderColor: "divider", borderRadius: 2, backgroundColor: "#fff" }}>
+    <Box sx={{ p: 2, border: "1px dashed", borderColor: "divider", borderRadius: 1, backgroundColor: "#fff" }}>
       <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 700 }}>
         {title}
       </Typography>

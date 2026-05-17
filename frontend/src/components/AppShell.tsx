@@ -74,7 +74,7 @@ export function AppShell(): JSX.Element {
               to={item.path}
               selected={location.pathname === item.path}
               sx={{
-                borderRadius: 2,
+                borderRadius: 1,
                 mb: 0.5,
                 color: "#ffffff",
                 "&.Mui-selected": { backgroundColor: "rgba(255,255,255,0.2)" },

@@ -158,7 +158,7 @@ describe("Phase 8 CP-07 operator flows", () => {
 
     await waitFor(() => expect(screen.getByText("Optimized plan")).toBeInTheDocument());
     expect(screen.getByText("Why optimized is different")).toBeInTheDocument();
-    expect(screen.getByText("Timeline")).toBeInTheDocument();
+    expect(screen.getAllByText("Timeline").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Next: review resources" }));
     await waitFor(() => expect(screen.getByText("Review resource assignments before final approval")).toBeInTheDocument());
     expect(screen.getByText("Travel & handling")).toBeInTheDocument();
